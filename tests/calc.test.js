@@ -325,3 +325,85 @@ test('a matured deposit returns to the account it is held in', () => {
   assert.equal(entry.accountId, 'h');
   assert.equal(entry.heldIn, 'h');
 });
+
+test('saver interest is estimated daily on top of the confirmed balance', () => {
+  const line = { currency: 'GBP', amount: 10000, rate: 3.65, asOf: '2026-01-01' };
+  const v = C.balanceValue(line, '2026-01-11');
+  close(v.accrued, 10);
+  close(v.value, 10010);
+  close(v.daily, 1);
+  assert.equal(C.balanceValue({ amount: 5 }, '2026-01-11').value, 5); // no rate, no interest
+  const state = {
+    settings: { baseCurrency: 'GBP' }, fx: { base: 'GBP', rates: { GBP: 1 } },
+    accounts: [{ id: 'a', balances: [line] }],
+  };
+  const s = C.summarize(state, '2026-01-11');
+  close(s.totals.cash, 10010);
+  close(s.saverDaily, 1);
+  close(s.interestDaily, 1);
+  close(s.passiveMonthly, 365 / 12);
+});
+
+test('app-made changes keep the interest estimated so far', () => {
+  const acct = { id: 'a', balances: [{ currency: 'GBP', amount: 10000, rate: 3.65, asOf: '2026-01-01' }] };
+  C.adjustLine(acct, 'GBP', -1000, '2026-01-11');
+  assert.deepEqual(acct.balances[0], { currency: 'GBP', amount: 9000, rate: 3.65, asOf: '2026-01-11', carry: 10 });
+  close(C.balanceValue(acct.balances[0], '2026-01-21').value, 9000 + 10 + 9);
+  C.adjustLine(acct, 'USD', 50, '2026-01-11');
+  assert.deepEqual(acct.balances[1], { currency: 'USD', amount: 50 });
+});
+
+test('pending payments: linked, non-card items from their tracking date; card bills when due', () => {
+  const state = {
+    accounts: [{ id: 'hsbc', name: 'HSBC One', updatedAt: '2026-01-01', balances: [{ currency: 'HKD', amount: 50000 }] }],
+    cashflows: [
+      { id: 'rent', name: 'Rent', kind: 'expense', amount: 18000, currency: 'HKD', frequency: 'monthly', nextDate: '2025-12-01', accountId: 'hsbc', trackFrom: '2026-01-15' },
+      { id: 'pay', name: 'Salary', kind: 'income', amount: 60000, currency: 'HKD', frequency: 'monthly', nextDate: '2026-01-25', accountId: 'hsbc', trackFrom: '2026-01-15' },
+      { id: 'nf', name: 'Netflix', kind: 'subscription', amount: 93, currency: 'HKD', frequency: 'monthly', nextDate: '2026-01-02', accountId: 'hsbc', onCard: true, trackFrom: '2026-01-01' },
+      { id: 'free', name: 'Unlinked', kind: 'expense', amount: 1, currency: 'HKD', frequency: 'weekly', nextDate: '2026-01-01' },
+    ],
+    spending: [
+      { id: 'amex', month: '2026-01', platform: 'Amex', amount: 9000, currency: 'HKD', payFromAccountId: 'hsbc', dueDate: '2026-02-20' },
+      { id: 'old', month: '2025-12', platform: 'Visa', amount: 1, currency: 'HKD', payFromAccountId: 'hsbc', dueDate: '2026-01-20', paidOn: '2026-01-20' },
+    ],
+    activity: [],
+  };
+  const p = C.pendingPayments(state, '2026-02-20');
+  assert.deepEqual(p.map((x) => x.sign), [1, -1, -1]);
+  assert.deepEqual(p.map((x) => x.key), ['cf:pay:2026-01-25', 'cf:rent:2026-02-01', 'card:amex']);
+  // Confirm salary, dismiss rent ("already included"), pay the card bill with a different amount.
+  C.resolvePayment(state, p[0], true, 60000, 1);
+  C.resolvePayment(state, p[1], false, 0, 1);
+  C.resolvePayment(state, p[2], true, 8950, 1);
+  assert.equal(state.accounts[0].balances[0].amount, 50000 + 60000 - 8950);
+  assert.deepEqual(C.pendingPayments(state, '2026-02-20'), []);
+  assert.equal(state.cashflows[0].lastHandled, '2026-02-01');
+  assert.equal(state.spending[0].paidOn, '2026-02-20');
+  assert.deepEqual(state.activity.map((a) => [a.kind, a.amount]), [['payment', -8950], ['payment', 60000]]);
+  assert.deepEqual(C.pendingPayments(state, '2026-03-01').map((x) => x.key), ['cf:pay:2026-02-25', 'cf:rent:2026-03-01']); // next ones come back
+});
+
+test('transfers move money between own accounts and currencies', () => {
+  const state = {
+    accounts: [
+      { id: 'a', name: 'HSBC One', balances: [{ currency: 'HKD', amount: 1000 }] },
+      { id: 'b', name: 'Monzo', balances: [{ currency: 'GBP', amount: 10 }] },
+    ],
+    activity: [],
+  };
+  C.transfer(state, { id: 't1', fromId: 'a', fromCurrency: 'HKD', amount: 500, toId: 'b', toCurrency: 'GBP', received: 49.5, date: '2026-01-05' }, 1);
+  assert.equal(state.accounts[0].balances[0].amount, 500);
+  assert.equal(state.accounts[1].balances[0].amount, 59.5);
+  C.transfer(state, { id: 't2', fromId: 'a', fromCurrency: 'HKD', amount: 100, toId: 'a', toCurrency: 'USD', received: 12.8, date: '2026-01-05' }, 1);
+  assert.deepEqual(state.accounts[0].balances, [{ currency: 'HKD', amount: 400 }, { currency: 'USD', amount: 12.8 }]);
+  assert.equal(state.activity[0].kind, 'transfer');
+});
+
+test('monthly check-in is due once per month', () => {
+  const state = { accounts: [{ id: 'a' }], activity: [] };
+  assert.equal(C.checkinDue(state, '2026-03-01'), true);
+  C.recordCheckin(state, '2026-03-01', false, 1);
+  assert.equal(C.checkinDue(state, '2026-03-31'), false);
+  assert.equal(C.checkinDue(state, '2026-04-01'), true);
+  assert.equal(C.checkinDue({ accounts: [], activity: [] }, '2026-04-01'), false);
+});

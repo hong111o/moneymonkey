@@ -191,6 +191,7 @@ h3 { font-size: 0.95rem; margin: 12px 0 6px; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
 .btn.ghost:hover { background: var(--surface-2); color: var(--text); }
 .btn.danger { color: var(--neg); }
+.icon-btn:focus:not(:focus-visible) { outline: none; }
 .icon-btn { border: 0; background: transparent; color: var(--text-2); font-size: 1.1rem; cursor: pointer; padding: 6px 10px; min-width: 40px; min-height: 40px; }
 
 .sync-chip {
@@ -313,7 +314,25 @@ td.actions { text-align: right; white-space: nowrap; vertical-align: middle !imp
 .balances-field small { color: var(--muted); font-size: 0.78rem; }
 .balances-field > .btn { align-self: flex-start; }
 .bal-rows { display: flex; flex-direction: column; gap: 8px; }
-.bal-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 40px; gap: 8px; align-items: center; }
+.bal-row, .bal-head { display: grid; grid-template-columns: 96px minmax(0, 1fr) 40px; gap: 8px; align-items: center; }
+.bal-head { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: -4px; }
+.bal-rate, .bal-rate-h { display: none; }
+.with-rate .bal-row, .with-rate .bal-head { grid-template-columns: 80px minmax(0, 1fr) 84px 40px; }
+.with-rate .bal-rate, .with-rate .bal-rate-h { display: block; }
+.balances-field:not(.with-rate) .bal-head { display: none; }
+
+.pay-item { padding: 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
+.pay-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.pay-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.pay-row .pay-amt { flex: 1 1 110px; width: auto; }
+.hint { margin-top: 6px; padding: 6px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-ink); font-size: 0.85rem; }
+.ci-acct { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.ci-name { margin-bottom: 6px; }
+.ci-line { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 8px; margin: 6px 0; color: var(--text); }
+.ci-line .sub { grid-column: 2; margin-top: -4px; }
+.ci-spend { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 86px; gap: 8px; margin-bottom: 8px; }
+.ci-spend .ci-cur { text-transform: uppercase; }
+.ci-actions { margin-top: 16px; }
 .bal-row .bal-cur { text-transform: uppercase; }
 
 .cur-block { padding: 10px 0 12px; border-top: 1px solid var(--border); }

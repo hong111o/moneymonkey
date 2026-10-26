@@ -23,6 +23,21 @@ No server and no dependencies. Your data is stored on your devices and, if you t
 
 Tap an account in **Cash & Bank** to open its overview: its total, its cash in every currency (tap to update the balances), and the **fixed deposits held in it**. Add a deposit there with **+ Add fixed deposit**. Every fixed deposit belongs to a bank account. When it matures, capital and interest go back into that account (or another account you pick), in the deposit's currency. Fixed deposits still count as their own category on the dashboard, and **Cash & Bank → Fixed deposits → see all** lists every deposit across your accounts.
 
+### Saver accounts
+
+Set an account's type to **Saver (earns interest)** and give each currency line its interest rate. Interest is estimated day by day on top of the balance you last entered. It's added to the live "interest earned today" counter and to passive income, but the balance you typed is never overwritten. When you next update the balance from your bank app, the estimate restarts from there.
+
+### Keeping balances right without surprises
+
+MoneyMonkey never changes a bank balance on its own; you always confirm:
+
+- **Bills, rent and income paid through a bank account:** link the cash-flow item to that account. When its payment date arrives, a box asks you to **Deduct/Add** (you can change the amount first) or mark it **Already included**. Bills ticked "Paid by credit card" never ask, because they're already in your card statement.
+- **Card bills:** when you record a month's card spending, optionally pick the account that pays it and the due date. You'll be asked to confirm the payment on that day.
+- **Monthly check-in:** at the start of each month, one box lists every account and currency, pre-filled, so you only correct what changed. It also asks for last month's card spending. You can choose "Remind me tomorrow" or "Skip this month". It's also on the Cash & Bank page any time.
+- **Transfers** between your own accounts or currencies (Transfer button on Cash & Bank or an account page) move the money and keep your net worth unchanged.
+
+The boxes pop up at most once a day per device, and alerts on the dashboard stay until you deal with them.
+
 ### Multi-currency accounts
 
 Add one line per currency inside an account (**+ Add currency** in the form). The account card shows each balance plus the converted total. On the Cash & Bank page, **Cash by currency** shows every currency's total across all accounts as a bar split by account. Tap a currency, or use the currency filter, to list only the accounts holding it. When a fixed deposit matures, the money is added to the matching currency in the payout account. If that account doesn't hold the currency yet, a new balance line is created, with no conversion. Older single-currency accounts are converted automatically.

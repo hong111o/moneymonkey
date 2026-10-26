@@ -154,13 +154,7 @@
             || state.accounts.find((a) => a.id === dep.accountId)
             || accountForPlatform(state, dep.platform, dep.currency);
           // Credit the deposit's own currency: multi-currency accounts need no conversion.
-          acct.balances = accountBalances(acct);
-          delete acct.currency;
-          delete acct.balance;
-          let row = acct.balances.find((b) => b.currency === dep.currency);
-          if (!row) acct.balances.push((row = { currency: dep.currency, amount: 0 }));
-          row.amount = round2((+row.amount || 0) + v.maturityValue);
-          acct.updatedAt = new Date(nowMs).toISOString();
+          adjustLine(acct, dep.currency, v.maturityValue, v.maturityDate);
           acct._mt = nowMs;
           entry.accountName = acct.name;
           entry.accountId = acct.id;
@@ -358,7 +352,15 @@
     const alerts = [];
     const horizon = toISO(addDays(parseDate(today), 30));
 
-    for (const a of state.accounts || []) for (const b of accountBalances(a)) totals.cash += toBase(b.amount, b.currency);
+    let saverDaily = 0, saverAccrued = 0;
+    for (const a of state.accounts || []) {
+      for (const b of accountBalances(a)) {
+        const bv = balanceValue(b, today);
+        totals.cash += toBase(bv.value, b.currency);
+        saverDaily += toBase(bv.daily, b.currency);
+        saverAccrued += toBase(bv.accrued, b.currency);
+      }
+    }
 
     for (const [list, key] of [[state.stocks, 'stocks'], [state.crypto, 'crypto']]) {
       for (const h of list || []) {
@@ -424,7 +426,7 @@
     const actualSpending = cardSpendAvg == null ? null : cardSpendAvg + notOnCard;
     const spending = actualSpending ?? estimatedSpending;
     const netMonthly = flow.income - spending;
-    const passiveMonthly = depositDaily * 365 / 12 + rentMonthly;
+    const passiveMonthly = (depositDaily + saverDaily) * 365 / 12 + rentMonthly;
     const liquid = totals.cash;
 
     if (missingFx.size) alerts.push({ level: 'warn', text: `No exchange rate for ${[...missingFx].join(', ')} — those items are excluded from totals. Refresh rates in Settings.` });
@@ -440,6 +442,9 @@
       investPnlPct: investCost ? investPnl / investCost : 0,
       dayChange,
       depositDaily,
+      saverDaily,
+      saverAccrued,
+      interestDaily: depositDaily + saverDaily,
       depositInterest,
       flow,
       spending,
@@ -483,15 +488,16 @@
 
   // Cash grouped by currency across all accounts, largest (in base currency) first:
   // [{ currency, amount, base, share, accounts: [{ id, name, platform, amount }] }]
-  function cashByCurrency(state) {
+  function cashByCurrency(state, today) {
     const baseCur = state.settings.baseCurrency;
     const map = new Map();
     for (const a of state.accounts || []) {
       for (const b of accountBalances(a)) {
-        if (!b.currency || !(+b.amount)) continue;
+        const amount = balanceValue(b, today).value;
+        if (!b.currency || !amount) continue;
         const row = map.get(b.currency) || { currency: b.currency, amount: 0, base: 0, accounts: [] };
-        row.amount += +b.amount;
-        row.accounts.push({ id: a.id, name: a.name, platform: a.platform || '', amount: +b.amount });
+        row.amount += amount;
+        row.accounts.push({ id: a.id, name: a.name, platform: a.platform || '', amount });
         map.set(b.currency, row);
       }
     }
@@ -504,6 +510,104 @@
     const total = rows.reduce((t, r) => t + (isFinite(r.base) ? r.base : 0), 0);
     for (const r of rows) r.share = total && isFinite(r.base) ? r.base / total : 0;
     return rows.sort((x, y) => (isFinite(y.base) ? y.base : -Infinity) - (isFinite(x.base) ? x.base : -Infinity));
+  }
+
+  // ---------- saver interest, confirmed payments, transfers, check-ins ----------
+
+  // A balance line can carry an interest rate (saver accounts). Interest is estimated day by day
+  // from `asOf` — when the amount was last confirmed — and shown on top of it until the next update.
+  // `carry` keeps the estimate when the app itself changes the amount (deposit payout, transfer…).
+  function balanceValue(line, today) {
+    const amount = +line.amount || 0;
+    const rate = (+line.rate || 0) / 100;
+    const carry = +line.carry || 0;
+    const days = rate && line.asOf && today ? Math.max(0, daysBetween(line.asOf, today)) : 0;
+    const accrued = carry + (amount * rate * days) / 365;
+    return { amount, accrued, value: amount + accrued, daily: (amount * rate) / 365 };
+  }
+
+  // Changes an account's balance in `currency` by `delta` on `date`, adding the line if needed.
+  function adjustLine(acct, currency, delta, date) {
+    acct.balances = accountBalances(acct);
+    delete acct.currency;
+    delete acct.balance;
+    let row = acct.balances.find((b) => b.currency === currency);
+    if (!row) acct.balances.push((row = { currency, amount: 0 }));
+    if (+row.rate) {
+      row.carry = round2(balanceValue(row, date).accrued);
+      row.asOf = date;
+    }
+    row.amount = round2((+row.amount || 0) + delta);
+    return row;
+  }
+
+  const OUTGOING = { expense: true, subscription: true, saving: true };
+
+  // Payments waiting for the user to confirm: cash-flow items linked to an account whose dates
+  // have arrived (card-paid bills are skipped — they're in the card statement), and card bills
+  // with a "paid from" account that are due. Nothing changes a balance until it is confirmed.
+  function pendingPayments(state, today) {
+    const out = [];
+    for (const cf of state.cashflows || []) {
+      if (cf.active === false || !cf.accountId) continue;
+      if (cf.onCard && (cf.kind === 'expense' || cf.kind === 'subscription')) continue;
+      const after = cf.lastHandled ? toISO(addDays(parseDate(cf.lastHandled), 1)) : null;
+      const from = [cf.trackFrom, after].filter(Boolean).sort().pop() || today;
+      for (const date of occurrences(cf, from, today)) {
+        out.push({ key: `cf:${cf.id}:${date}`, type: 'cashflow', id: cf.id, date, name: cf.name, amount: +cf.amount || 0, currency: cf.currency, accountId: cf.accountId, sign: OUTGOING[cf.kind] ? -1 : 1 });
+      }
+    }
+    for (const e of state.spending || []) {
+      if (!e.payFromAccountId || !e.dueDate || e.paidOn || e.dueDate > today) continue;
+      out.push({ key: `card:${e.id}`, type: 'card', id: e.id, date: e.dueDate, name: `${e.platform || 'Card'} bill (${e.month})`, amount: +e.amount || 0, currency: e.currency, accountId: e.payFromAccountId, sign: -1 });
+    }
+    return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  }
+
+  // Confirms (apply = true: change the balance by `amount`) or dismisses a pending payment.
+  function resolvePayment(state, p, apply, amount, nowMs) {
+    let acct = null;
+    if (apply) {
+      acct = (state.accounts || []).find((a) => a.id === p.accountId);
+      if (!acct) return null;
+      adjustLine(acct, p.currency, p.sign * amount, p.date);
+      acct._mt = nowMs;
+    }
+    if (p.type === 'cashflow') {
+      const cf = (state.cashflows || []).find((c) => c.id === p.id);
+      if (cf && (!cf.lastHandled || cf.lastHandled < p.date)) cf.lastHandled = p.date;
+      if (cf) cf._mt = nowMs;
+    } else {
+      const e = (state.spending || []).find((x) => x.id === p.id);
+      if (e) { e.paidOn = p.date; e._mt = nowMs; }
+    }
+    if (!apply) return { skipped: true };
+    const entry = { id: `pay-${p.key}`, date: p.date, kind: 'payment', name: p.name, amount: round2(p.sign * amount), currency: p.currency, accountId: acct.id, accountName: acct.name, _mt: nowMs };
+    state.activity = [entry, ...(state.activity || []).filter((x) => x.id !== entry.id)].slice(0, 200);
+    return entry;
+  }
+
+  // Moves money between two of the user's own accounts (or currencies in one account).
+  function transfer(state, t, nowMs) {
+    const from = (state.accounts || []).find((a) => a.id === t.fromId);
+    const to = (state.accounts || []).find((a) => a.id === t.toId);
+    if (!from || !to) throw new Error('Account not found');
+    adjustLine(from, t.fromCurrency, -t.amount, t.date);
+    adjustLine(to, t.toCurrency, t.received, t.date);
+    from._mt = nowMs;
+    to._mt = nowMs;
+    const entry = { id: t.id, date: t.date, kind: 'transfer', amount: round2(t.amount), currency: t.fromCurrency, received: round2(t.received), toCurrency: t.toCurrency, accountId: from.id, accountName: from.name, toAccountId: to.id, toAccountName: to.name, note: t.note || '', _mt: nowMs };
+    state.activity = [entry, ...(state.activity || [])].slice(0, 200);
+    return entry;
+  }
+
+  const checkinId = (today) => `checkin-${today.slice(0, 7)}`;
+  function checkinDue(state, today) {
+    return (state.accounts || []).length > 0 && !(state.activity || []).some((e) => e.id === checkinId(today));
+  }
+  function recordCheckin(state, today, skipped, nowMs) {
+    const entry = { id: checkinId(today), date: today, kind: 'checkin', skipped: !!skipped, _mt: nowMs };
+    state.activity = [entry, ...(state.activity || []).filter((x) => x.id !== entry.id)].slice(0, 200);
   }
 
   // An account on `platform` (preferring one that holds `currency`), creating
@@ -540,7 +644,7 @@
 
   // Value of one item split by currency (liabilities as a positive balance owed).
   function itemParts(section, item, today) {
-    if (section === 'accounts') return accountBalances(item).map((b) => ({ currency: b.currency, value: +b.amount || 0 }));
+    if (section === 'accounts') return accountBalances(item).map((b) => ({ currency: b.currency, value: balanceValue(b, today).value }));
     return [{ currency: item.currency, value: itemValue(section, item, today) }];
   }
 
@@ -634,5 +738,6 @@
     summarize,
     itemValue, itemParts, migratePlatforms, platformBreakdown,
     accountBalances, migrateAccounts, cashByCurrency, accountForPlatform, linkDeposits,
+    balanceValue, adjustLine, pendingPayments, resolvePayment, transfer, checkinDue, recordCheckin,
   };
 });
