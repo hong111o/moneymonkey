@@ -299,6 +299,28 @@ td.actions { text-align: right; white-space: nowrap; vertical-align: middle !imp
 .hbar-track span { display: block; height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
 .hbar-track span.neg-bar { background: var(--neg); }
 
+.tile.clickable, .live-interest.clickable { cursor: pointer; position: relative; transition: border-color 0.15s; }
+.tile.clickable:hover { border-color: var(--axis); }
+.tile.clickable:active, .live-interest.clickable:active { background: var(--surface-2); }
+.tile.clickable::after { content: "›"; position: absolute; top: 10px; right: 12px; color: var(--muted); font-size: 1.1rem; }
+a.pill { color: var(--text); text-decoration: none; }
+a.pill:hover { background: var(--grid); }
+.ex-list { display: flex; flex-direction: column; margin-bottom: 6px; }
+.ex-row { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--border); color: var(--text); text-decoration: none; border-radius: 8px; }
+.ex-row:hover, .ex-row:active { background: var(--surface-2); }
+.ex-row .chev { margin-left: 0; }
+.ex-total { display: flex; gap: 10px; padding: 10px 4px; font-weight: 650; border-top: 2px solid var(--border); }
+.ex-total + .ex-total { border-top: 0; padding-top: 0; }
+
+.broker { padding: 12px 0; border-top: 1px solid var(--border); }
+.broker:first-of-type { border-top: 0; }
+.broker-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.broker-head a { color: var(--text); text-decoration: none; }
+.broker-split { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 0.9rem; color: var(--text-2); margin-top: 4px; }
+.broker-split strong { color: var(--text); font-weight: 600; }
+.broker-cash { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cur-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; background: var(--surface-2); color: var(--text); text-decoration: none; font-size: 0.88rem; }
+
 .back { display: inline-block; margin: 0 0 8px; color: var(--accent); text-decoration: none; font-size: 0.95rem; padding: 4px 0; }
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 22px 0 10px; }
 .section-head h2 { margin: 0; }

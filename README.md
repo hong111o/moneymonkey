@@ -44,7 +44,7 @@ Add one line per currency inside an account (**+ Add currency** in the form). Th
 
 ### Platforms & regions
 
-Every asset and loan has a **Platform** (HSBC HK, ZA Bank, Futu, Monzo, Trading 212, Nationwide…). The **Platforms** page shows cash, investments, deposits and debts per platform. Tap a platform to open its own page, with totals and every account, deposit, holding and loan on it, each tappable to edit. Add new items to that platform from there, or rename it and set its region. You can give each platform a **region** (e.g. Hong Kong, United Kingdom) to see totals by country. Regions are guessed from currency until you set them. You can also filter any list by platform, or rename a platform everywhere at once.
+Every asset and loan has a **Platform** (HSBC HK, ZA Bank, Futu, Monzo, Trading 212, Nationwide…). The **Platforms** page shows cash, investments, deposits and debts per platform. Tap a platform to open its own page, with totals and every account, deposit, holding and loan on it, each tappable to edit. Add new items to that platform from there, or rename it and set its region. You can give each platform a **region** (e.g. Hong Kong, United Kingdom) to see totals by country. Tap a region to see its totals and every platform in it. Regions are guessed from currency until you set them. You can also filter any list by platform, or rename a platform everywhere at once.
 
 ### Credit-card spending without double counting
 
@@ -54,9 +54,13 @@ If most of your spending goes on a credit card, record each month's statement to
 
 so things like Netflix on the card aren't counted twice. When last month's spending hasn't been recorded yet, the dashboard reminds you.
 
+### Cash in your investment accounts
+
+If part of a broker or exchange account is uninvested cash, add it with **+ Cash** in the **By account** section of the Stocks (or Crypto) page. This creates a multi-currency account of type **Brokerage cash** on that platform. Each broker then shows *invested + cash = total*. The cash counts as cash in your net worth and appears under the broker on the Platforms page.
+
 ### Dashboard
 
-- Net worth, total assets and liabilities in your base currency
+- Net worth, total assets and liabilities in your base currency. **Tap any summary box** (assets, liabilities, P&L, cash flow, savings rate, passive income, runway, subscriptions, interest today) to see what's inside it, with links to edit each item
 - **Interest earned today**, ticking every second
 - Investment P&L, today's market move, net cash flow, savings rate, passive income, emergency runway, subscriptions
 - Allocation donut, **by region & platform** breakdown, net-worth history chart (one snapshot per day)

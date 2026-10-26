@@ -154,7 +154,7 @@
   const FREQ = opt([['weekly', 'Weekly'], ['biweekly', 'Every 2 weeks'], ['monthly', 'Monthly'], ['quarterly', 'Quarterly'], ['semiannually', 'Every 6 months'], ['yearly', 'Yearly'], ['once', 'One-off']]);
   const COMPOUNDING = opt([['simple', 'Simple / paid at maturity'], ['monthly', 'Compounded monthly'], ['quarterly', 'Compounded quarterly'], ['semiannually', 'Compounded semi-annually'], ['annually', 'Compounded annually']]);
   const FLOW_KINDS = opt([['income', 'Income'], ['expense', 'Expense'], ['subscription', 'Subscription'], ['saving', 'Saving / investing']]);
-  const ACCOUNT_TYPES = opt([['savings', 'Savings'], ['saver', 'Saver (earns interest)'], ['current', 'Current / checking'], ['ewallet', 'E-wallet'], ['cash', 'Cash on hand'], ['moneymarket', 'Money market'], ['other', 'Other']]);
+  const ACCOUNT_TYPES = opt([['savings', 'Savings'], ['saver', 'Saver (earns interest)'], ['current', 'Current / checking'], ['brokerage', 'Brokerage cash (uninvested)'], ['ewallet', 'E-wallet'], ['cash', 'Cash on hand'], ['moneymarket', 'Money market'], ['other', 'Other']]);
   const OTHER_CATS = opt([['vehicle', 'Vehicle'], ['gold', 'Gold / precious metals'], ['retirement', 'Retirement / pension (MPF, SIPP…)'], ['insurance', 'Insurance cash value'], ['business', 'Business stake'], ['receivable', 'Money owed to me'], ['collectible', 'Collectibles'], ['other', 'Other']]);
   const LOAN_TYPES = opt([['mortgage', 'Mortgage'], ['car', 'Car loan'], ['personal', 'Personal loan'], ['credit', 'Credit card'], ['student', 'Student loan'], ['other', 'Other']]);
   const ON_MATURITY = opt([['cash', 'Move capital + interest to cash'], ['renew', 'Renew automatically (same term & rate)'], ['keep', 'Do nothing — I’ll update it myself']]);
@@ -570,9 +570,10 @@
     { id: 'settings', label: 'Settings & Sync', icon: '⚙', group: '' },
     { id: 'account', hidden: true },
     { id: 'platform', hidden: true },
+    { id: 'region', hidden: true },
   ];
   // Detail pages highlight their parent in the navigation.
-  const NAV_PARENT = { account: 'accounts', deposits: 'accounts', platform: 'platforms' };
+  const NAV_PARENT = { account: 'accounts', deposits: 'accounts', platform: 'platforms', region: 'platforms' };
 
   let currentView = 'dashboard';
   let viewParam = null;
@@ -626,6 +627,7 @@
     else if (currentView === 'goals') main.innerHTML = renderGoals();
     else if (currentView === 'account') main.innerHTML = renderAccount(viewParam);
     else if (currentView === 'platform') main.innerHTML = renderPlatformDetail(viewParam ?? '');
+    else if (currentView === 'region') main.innerHTML = renderRegion(viewParam ?? '');
     else main.innerHTML = renderSection(currentView);
     Charts.bindLineHover(main, tooltip);
     tickLive();
@@ -654,9 +656,12 @@
 
   // ---------------------------------------------------------------- dashboard
 
-  function tile(label, value, sub = '', extra = '') {
-    return `<div class="tile ${extra}"><div class="tile-label">${label}</div><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ''}</div>`;
+  // `attrs` (e.g. data-action="explain" data-what="assets") makes the tile tappable.
+  function tile(label, value, sub = '', extra = '', attrs = '') {
+    const tap = attrs ? ` clickable tile-link" ${attrs} tabindex="0" role="button` : '';
+    return `<div class="tile ${extra}${tap}"><div class="tile-label">${label}</div><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ''}</div>`;
   }
+  const explainAttr = (what) => `data-action="explain" data-what="${what}"`;
 
   function activityText(e) {
     const ref = e.ref ? ` (${esc(e.ref)})` : '';
@@ -703,7 +708,7 @@
     const maxAbs = Math.max(1, ...named.map((p) => Math.abs(p.net)));
     const platformBars = named.slice(0, 8).map((p) => `<a class="hbar link" href="#platform/${encodeURIComponent(p.name)}"><span class="hbar-label">${esc(p.name)}<span class="sub"> ${esc(p.region)}</span></span>
       <span class="hbar-track"><span class="${p.net < 0 ? 'neg-bar' : ''}" style="width:${(Math.abs(p.net) / maxAbs) * 100}%"></span></span><span class="num">${money(p.net, base(), 0)}</span></a>`).join('');
-    const regionPills = regions.filter((r) => r.region).map((r) => `<div class="pill"><span class="sub">${esc(r.region)}</span><strong>${money(r.net, base(), 0)}</strong></div>`).join('');
+    const regionPills = regions.filter((r) => r.region).map((r) => `<a class="pill" href="#region/${encodeURIComponent(r.region)}"><span class="sub">${esc(r.region)}</span><strong>${money(r.net, base(), 0)}</strong></a>`).join('');
 
     return `
       <section class="hero">
@@ -715,20 +720,20 @@
             histChange != null ? `${historyRange === 'all' ? 'All time' : `Last ${historyRange} days`} ${signed(histChange)}` : '',
           ].filter(Boolean).join(' · ')}</div>
         </div>
-        ${s.interestDaily > 0 ? `<div class="live-interest"><div class="tile-label">Interest earned today</div><div class="tile-value pos" id="live-interest">${money(0, base(), 4)}</div><div class="tile-sub">${money(s.interestDaily)} per day from ${[s.depositDaily > 0 ? 'fixed deposits' : '', s.saverDaily > 0 ? 'savers' : ''].filter(Boolean).join(' & ')}</div></div>` : ''}
+        ${s.interestDaily > 0 ? `<div class="live-interest clickable" ${explainAttr('interest')} tabindex="0" role="button"><div class="tile-label">Interest earned today</div><div class="tile-value pos" id="live-interest">${money(0, base(), 4)}</div><div class="tile-sub">${money(s.interestDaily)} per day from ${[s.depositDaily > 0 ? 'fixed deposits' : '', s.saverDaily > 0 ? 'savers' : ''].filter(Boolean).join(' & ')}</div></div>` : ''}
       </section>
 
       ${alerts ? `<ul class="alerts">${alerts}</ul>` : ''}
 
       <section class="tiles">
-        ${tile('Total assets', money(s.assets, base(), 0))}
-        ${tile('Liabilities', `<span class="${s.liabilities ? 'neg' : ''}">${money(s.liabilities, base(), 0)}</span>`, s.assets ? `Debt-to-asset ${(s.debtToAsset * 100).toFixed(1)}%` : '')}
-        ${tile('Investment P&L', signed(s.investPnl, base(), 0), s.investCost ? `${pct(s.investPnlPct)} on ${money(s.investCost, base(), 0)}` : 'No holdings yet')}
-        ${tile('Net cash flow / mo', signed(s.netMonthly, base(), 0), `${money(s.flow.income, base(), 0)} in · ${money(s.spending, base(), 0)} out${s.spendingSource === 'actual' ? ' (actual)' : ''}`)}
-        ${tile('Savings rate', s.flow.income ? pct(s.savingsRate, false) : '—', 'of monthly income')}
-        ${tile('Passive income / mo', money(s.passiveMonthly, base(), 0), 'interest + rent')}
-        ${tile('Emergency runway', isFinite(s.runwayMonths) ? `${s.runwayMonths.toFixed(1)} mo` : '—', 'cash ÷ monthly spending')}
-        ${tile('Subscriptions / mo', money(s.flow.subscription, base(), 0), `${money(s.flow.subscription * 12, base(), 0)} per year`)}
+        ${tile('Total assets', money(s.assets, base(), 0), '', '', explainAttr('assets'))}
+        ${tile('Liabilities', `<span class="${s.liabilities ? 'neg' : ''}">${money(s.liabilities, base(), 0)}</span>`, s.assets ? `Debt-to-asset ${(s.debtToAsset * 100).toFixed(1)}%` : '', '', explainAttr('liabilities'))}
+        ${tile('Investment P&L', signed(s.investPnl, base(), 0), s.investCost ? `${pct(s.investPnlPct)} on ${money(s.investCost, base(), 0)}` : 'No holdings yet', '', explainAttr('pnl'))}
+        ${tile('Net cash flow / mo', signed(s.netMonthly, base(), 0), `${money(s.flow.income, base(), 0)} in · ${money(s.spending, base(), 0)} out${s.spendingSource === 'actual' ? ' (actual)' : ''}`, '', explainAttr('cashflow'))}
+        ${tile('Savings rate', s.flow.income ? pct(s.savingsRate, false) : '—', 'of monthly income', '', explainAttr('cashflow'))}
+        ${tile('Passive income / mo', money(s.passiveMonthly, base(), 0), 'interest + rent', '', explainAttr('passive'))}
+        ${tile('Emergency runway', isFinite(s.runwayMonths) ? `${s.runwayMonths.toFixed(1)} mo` : '—', 'cash ÷ monthly spending', '', explainAttr('runway'))}
+        ${tile('Subscriptions / mo', money(s.flow.subscription, base(), 0), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
       </section>
 
       <section class="grid-2">
@@ -821,7 +826,9 @@
         cost += toBase(v.cost, h.currency) || 0;
         day += toBase(v.dayChange, h.currency) || 0;
       }
-      extra = tile('Profit / loss', signed(mv - cost), cost ? `${pct((mv - cost) / cost)} on ${money(cost, base(), 0)}` : '') + tile(key === 'crypto' ? 'Last 24h' : 'Today', signed(day));
+      const cash = brokerCashAccounts(key).reduce((t, a) => t + (accountTotal(a) || 0), 0);
+      extra = tile('Profit / loss', signed(mv - cost), cost ? `${pct((mv - cost) / cost)} on ${money(cost, base(), 0)}` : '') + tile(key === 'crypto' ? 'Last 24h' : 'Today', signed(day))
+        + (cash ? tile('Uninvested cash', money(cash), 'in your investment accounts') : '');
     } else if (key === 'deposits') {
       let interest = 0, daily = 0;
       for (const d of items) {
@@ -866,6 +873,7 @@
       ${items.length ? renderItemsTable(key, items)
         : `<div class="card empty">No ${sec.singular}s${filter != null || curFilter ? ' match this filter' : ' yet'}. <button class="btn primary" data-action="add" data-sec="${key}">+ Add ${sec.singular}</button></div>`}
       ${key === 'deposits' ? renderDepositHistory() : ''}
+      ${key === 'stocks' || key === 'crypto' ? renderBrokerCard(key) : ''}
       ${opts.after || ''}`;
   }
 
@@ -878,6 +886,46 @@
         <td class="actions">${(sec.actions || []).map((a) => `<button class="btn small" data-action="${a.id}" data-sec="${key}" data-id="${esc(item.id)}">${a.label}</button>`).join('')}<span class="chev" aria-hidden="true">›</span></td></tr>`)
       .join('');
     return `<div class="card table-card"><table class="data"><thead><tr>${sec.columns.map((c) => `<th class="${c.num ? 'num' : ''}">${c.label}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  // ---------------------------------------------------------------- investment accounts (holdings + cash)
+
+  // "Brokerage cash" accounts shown with a holdings section: those on a platform holding this
+  // kind of asset, plus (on Stocks) any not tied to a crypto platform.
+  function brokerCashAccounts(key) {
+    const here = new Set(state[key].map((h) => h.platform || ''));
+    const other = new Set(state[key === 'stocks' ? 'crypto' : 'stocks'].map((h) => h.platform || ''));
+    return state.accounts.filter((a) => a.type === 'brokerage' && (here.has(a.platform || '') || (key === 'stocks' && !other.has(a.platform || ''))));
+  }
+
+  function renderBrokerCard(key) {
+    const cashAccts = brokerCashAccounts(key);
+    const names = [...new Set([...state[key].map((h) => h.platform || ''), ...cashAccts.map((a) => a.platform || '')])];
+    if (!names.length) return '';
+    const rows = names.map((name) => {
+      const holdings = state[key].filter((h) => (h.platform || '') === name);
+      const hv = holdings.reduce((t, h) => t + (toBase(Calc.holdingValue(h).marketValue, h.currency) || 0), 0);
+      const accts = cashAccts.filter((a) => (a.platform || '') === name);
+      const cash = accts.reduce((t, a) => t + (accountTotal(a) || 0), 0);
+      const cashLines = accts.flatMap((a) => Calc.accountBalances(a).filter((b) => +b.amount).map((b) => `<a href="#account/${encodeURIComponent(a.id)}" class="cur-pill"><span class="cur-tag">${esc(b.currency)}</span> ${money(Calc.balanceValue(b, todayISO()).value, b.currency)}</a>`));
+      const addBtn = name
+        ? `<button class="btn small" data-action="${accts.length ? 'open-account' : 'add'}" ${accts.length ? `data-id="${esc(accts[0].id)}"` : `data-sec="accounts" data-type="brokerage" data-platform="${esc(name)}"`}>${accts.length ? 'Update cash' : '+ Cash'}</button>`
+        : '';
+      return `<div class="broker">
+        <div class="broker-head"><a href="#platform/${encodeURIComponent(name)}"><strong>${esc(name || 'No platform set')}</strong></a><strong class="num">${money(hv + cash)}</strong></div>
+        <div class="broker-split">
+          <span>Invested <strong>${money(hv)}</strong>${holdings.length ? ` <span class="sub">· ${plural(holdings.length, key === 'crypto' ? 'coin' : 'holding')}</span>` : ''}</span>
+          <span>Cash <strong>${money(cash)}</strong></span>
+        </div>
+        ${hv + cash > 0 ? `<div class="stack" aria-hidden="true"><span style="flex-grow:${Math.max(hv, 0)};background:var(--series-2)"></span><span style="flex-grow:${Math.max(cash, 0)};background:var(--series-1)"></span></div>` : ''}
+        <div class="broker-cash">${cashLines.join('')}${addBtn}</div>
+      </div>`;
+    }).join('');
+    return `<div class="section-head"><h2>By account</h2></div>
+      <div class="card">
+        <p class="sub">What’s invested and what’s sitting as cash in each ${key === 'crypto' ? 'exchange or wallet' : 'broker account'}. <span class="swatch" style="background:var(--series-2)"></span>invested <span class="swatch" style="background:var(--series-1)"></span>cash</p>
+        ${rows}
+      </div>`;
   }
 
   // ---------------------------------------------------------------- one bank account
@@ -967,7 +1015,14 @@
   function renderPlatforms() {
     const { platforms, regions } = Calc.platformBreakdown(state, todayISO());
     const net = summary.netWorth || 0;
-    const regionTiles = regions.map((r) => tile(esc(r.region || 'No region'), money(r.net), `${plural(r.platforms, 'platform')}${net > 0 ? ` · ${((r.net / net) * 100).toFixed(1)}% of net worth` : ''}`)).join('');
+    const regionTiles = regions.map((r) => tile(esc(r.region || 'No region'), money(r.net), `${plural(r.platforms, 'platform')}${net > 0 ? ` · ${((r.net / net) * 100).toFixed(1)}% of net worth` : ''}`, '', `data-action="open-region" data-name="${esc(r.region)}"`)).join('');
+    return `<div class="page-head"><div><h1>Platforms</h1><p class="sub intro">Everything grouped by where it’s held — banks, brokers, exchanges, lenders. Tap a region or a platform to see what’s in it, edit items, or set a platform’s region (e.g. Hong Kong, United Kingdom).</p></div></div>
+      ${regionTiles ? `<section class="tiles">${regionTiles}</section>` : ''}
+      ${platforms.length ? renderPlatformTable(platforms) : '<div class="card empty">Nothing here yet. Add accounts, holdings or deposits with a platform name.</div>'}`;
+  }
+
+  function renderPlatformTable(platforms) {
+    const net = summary.netWorth || 0;
     const cell = (v, cls = '') => (Math.abs(v) < 0.005 ? '<span class="sub">—</span>' : `<span class="${cls}">${money(v, base(), 0)}</span>`);
     const td = (label, v, cls = '') => `<td class="num ${Math.abs(v) < 0.005 ? 'empty-cell' : ''}" data-label="${label}">${cell(v, cls)}</td>`;
     const rows = platforms.map((p) => `<tr class="clickable" data-action="open-platform" data-name="${esc(p.name)}" tabindex="0">
@@ -975,15 +1030,41 @@
         ${td('Cash', p.cash)}${td('Investments', p.invest)}${td('Deposits', p.deposits)}${td('Property &amp; other', p.property + p.other)}${td('Debts', -p.debt, 'neg')}
         <td class="num primary" data-label="Net">${money(p.net, base(), 0)}<div class="sub">${net > 0 ? `${((p.net / net) * 100).toFixed(1)}%` : ''}</div></td>
         <td class="actions"><span class="chev" aria-hidden="true">›</span></td></tr>`).join('');
-    return `<div class="page-head"><div><h1>Platforms</h1><p class="sub intro">Everything grouped by where it’s held — banks, brokers, exchanges, lenders. Tap a platform to see everything on it, edit items, or set its region (e.g. Hong Kong, United Kingdom).</p></div></div>
-      ${regionTiles ? `<section class="tiles">${regionTiles}</section>` : ''}
-      ${platforms.length ? `<div class="card table-card"><table class="data"><thead><tr><th>Platform</th><th class="num">Cash</th><th class="num">Investments</th><th class="num">Deposits</th><th class="num">Property & other</th><th class="num">Debts</th><th class="num">Net</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
-        : '<div class="card empty">Nothing here yet. Add accounts, holdings or deposits with a platform name.</div>'}`;
+    return `<div class="card table-card"><table class="data"><thead><tr><th>Platform</th><th class="num">Cash</th><th class="num">Investments</th><th class="num">Deposits</th><th class="num">Property & other</th><th class="num">Debts</th><th class="num">Net</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  // ---------------------------------------------------------------- one region
+
+  function renderRegion(name) {
+    const { platforms } = Calc.platformBreakdown(state, todayISO());
+    const list = platforms.filter((p) => (p.region || '') === name);
+    const back = '<a class="back" href="#platforms">‹ Platforms</a>';
+    const title = esc(name || 'No region');
+    if (!list.length) return `${back}<div class="page-head"><div><h1>${title}</h1></div></div><div class="card empty">No platforms in this region any more.</div>`;
+    const sum = (k) => list.reduce((t, p) => t + p[k], 0);
+    const regionNet = sum('net');
+    const net = summary.netWorth || 0;
+    const currencies = [...new Set(list.flatMap((p) => p.currencies))].sort();
+    const guessed = list.some((p) => p.regionGuessed);
+    const tiles = [
+      tile('Net', money(regionNet), net > 0 ? `${((regionNet / net) * 100).toFixed(1)}% of net worth` : ''),
+      sum('cash') ? tile('Cash', money(sum('cash'))) : '',
+      sum('deposits') ? tile('Fixed deposits', money(sum('deposits'))) : '',
+      sum('invest') ? tile('Investments', money(sum('invest'))) : '',
+      sum('property') + sum('other') ? tile('Property & other', money(sum('property') + sum('other'))) : '',
+      sum('debt') ? tile('Debts', `<span class="neg">${money(sum('debt'))}</span>`) : '',
+    ].join('');
+    return `${back}
+      <div class="page-head"><div><h1>${title}</h1><p class="sub">${plural(list.length, 'platform')} · ${esc(currencies.join(', '))}</p></div></div>
+      <section class="tiles">${tiles}</section>
+      ${guessed ? '<p class="sub">Some platforms here were placed by their currency (marked “guess”). Open a platform and use “Edit name &amp; region” to set it for sure.</p>' : ''}
+      <div class="section-head"><h2>Platforms</h2></div>
+      ${renderPlatformTable(list)}`;
   }
 
   // ---------------------------------------------------------------- one platform
 
-  const PLATFORM_GROUP_TITLES = [['accounts', 'Bank accounts'], ['deposits', 'Fixed deposits'], ['stocks', 'Stocks & ETFs'], ['crypto', 'Crypto'], ['properties', 'Property'], ['others', 'Other assets'], ['liabilities', 'Loans & debts']];
+  const PLATFORM_GROUP_TITLES = [['accounts', 'Cash accounts'], ['deposits', 'Fixed deposits'], ['stocks', 'Stocks & ETFs'], ['crypto', 'Crypto'], ['properties', 'Property'], ['others', 'Other assets'], ['liabilities', 'Loans & debts']];
 
   function renderPlatformDetail(name) {
     const p = Calc.platformBreakdown(state, todayISO()).platforms.find((x) => x.name === name);
@@ -1485,6 +1566,88 @@
     openSheet('Menu', `<nav class="menu-list">${VIEWS.filter((v) => !v.hidden).map((v) => `<a href="#${v.id}" class="${v.id === (NAV_PARENT[currentView] || currentView) ? 'active' : ''}"><span class="icon" aria-hidden="true">${v.icon}</span>${v.label}${navCount(v.id)}</a>`).join('')}</nav>`, (e) => {
       if (e.target.closest('a')) dialog().close();
     });
+  }
+
+  // ---------------------------------------------------------------- "what's inside this number"
+
+  function explain(what) {
+    const s = summary;
+    const t = todayISO();
+    const row = (href, label, sub, amount) => `<a class="ex-row" href="${href}"><span class="grow"><strong>${label}</strong>${sub ? `<div class="sub">${sub}</div>` : ''}</span><span class="num">${amount}</span><span class="chev" aria-hidden="true">›</span></a>`;
+    const total = (label, amount) => `<div class="ex-total"><span class="grow">${label}</span><span class="num">${amount}</span></div>`;
+    const group = (title, rows) => (rows.length ? `<h3>${title}</h3><div class="ex-list">${rows.join('')}</div>` : '');
+    const acctHref = (id) => `#account/${encodeURIComponent(id)}`;
+    const sortDesc = (a, b) => b.v - a.v;
+    let title = '', body = '';
+
+    if (what === 'assets') {
+      title = 'Total assets';
+      const rows = Object.keys(s.totals).filter((k) => s.totals[k]).map((k) => ({ v: s.totals[k], html: row(`#${CATEGORY_VIEW[k]}`, CATEGORY_LABELS[k], s.assets ? `${((s.totals[k] / s.assets) * 100).toFixed(1)}% of assets` : '', money(s.totals[k], base(), 0)) }));
+      body = group('By type', rows.sort(sortDesc).map((r) => r.html)) + total('Total', money(s.assets, base(), 0));
+    } else if (what === 'liabilities') {
+      title = 'Liabilities';
+      const rows = state.liabilities.map((l) => {
+        const b = Calc.loanBalance(l, t).balance;
+        return { v: toBase(b, l.currency) || 0, html: row('#liabilities', esc(l.name), [esc(l.platform || ''), l.rate ? `${num(l.rate, 2)}%` : '', l.payment ? `${money(l.payment, l.currency)}/mo` : ''].filter(Boolean).join(' · '), `<span class="neg">${money(b, l.currency)}</span>`) };
+      });
+      body = (rows.length ? group('Loans & debts', rows.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No loans or debts recorded.</p>') + total('Total owed', `<span class="neg">${money(s.liabilities, base(), 0)}</span>`);
+    } else if (what === 'pnl') {
+      title = 'Investment profit / loss';
+      const rows = [...state.stocks.map((h) => ['stocks', h, h.symbol]), ...state.crypto.map((h) => ['crypto', h, h.symbol || h.coinId])].map(([k, h, label]) => {
+        const v = Calc.holdingValue(h);
+        return { v: toBase(v.pnl, h.currency) || 0, html: row(`#${k}`, esc(label), `${esc(h.platform || '')}${h.platform ? ' · ' : ''}${money(v.marketValue, h.currency)} now · ${money(v.cost, h.currency)} cost`, `${signed(v.pnl, h.currency)}<div class="sub">${pct(v.pnlPct)}</div>`) };
+      });
+      body = (rows.length ? group('Biggest gains first', rows.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No stocks or crypto yet.</p>') + total('Total', signed(s.investPnl, base(), 0));
+    } else if (what === 'cashflow') {
+      title = 'Monthly cash flow';
+      const flowRow = (c) => ({ v: toBase(Calc.monthlyAmount(c), c.currency) || 0, html: row('#cashflows', esc(c.name), `${esc(labelOf(FREQ, c.frequency))} ${money(c.amount, c.currency)}${c.onCard ? ' · 💳 card' : ''}`, money(toBase(Calc.monthlyAmount(c), c.currency), base(), 0)) });
+      const active = state.cashflows.filter((c) => c.active !== false);
+      const income = active.filter((c) => c.kind === 'income').map(flowRow).sort(sortDesc).map((r) => r.html);
+      let spend;
+      if (s.spendingSource === 'actual') {
+        spend = [row('#cashflows', 'Card spending', `average of the last ${plural(s.spendAvgMonths, 'month')} you recorded`, money(s.cardSpendAvg, base(), 0)),
+          ...active.filter((c) => (c.kind === 'expense' || c.kind === 'subscription') && !c.onCard).map(flowRow).sort(sortDesc).map((r) => r.html)];
+      } else spend = active.filter((c) => c.kind === 'expense' || c.kind === 'subscription').map(flowRow).sort(sortDesc).map((r) => r.html);
+      body = group(`Income · ${money(s.flow.income, base(), 0)}`, income)
+        + group(`Spending · ${money(s.spending, base(), 0)}${s.spendingSource === 'actual' ? ' (actual)' : ' (estimated from bills)'}`, spend)
+        + total('Left over each month', signed(s.netMonthly, base(), 0))
+        + (s.flow.income ? total('Savings rate', pct(s.savingsRate, false)) : '')
+        + (s.flow.saving ? `<p class="sub">You also plan to set aside ${money(s.flow.saving, base(), 0)}/mo for saving or investing.</p>` : '');
+    } else if (what === 'passive' || what === 'interest') {
+      const daily = what === 'interest';
+      title = daily ? 'Interest earned per day' : 'Passive income per month';
+      const k = daily ? 1 : 365 / 12;
+      const unit = daily ? '/day' : '/mo';
+      const fds = state.deposits.map((d) => {
+        const v = Calc.depositValue(d, t);
+        return { v: toBase(v.dailyInterest, d.currency) || 0, html: row(acctHref(d.accountId), `${esc(d.platform || 'Fixed deposit')}${d.name ? ` · ${esc(d.name)}` : ''}`, `Fixed deposit · ${num(d.rate, 2)}% · ${money(d.principal, d.currency, 0)} until ${fmtDate(v.maturityDate)}`, `${money(v.dailyInterest * k, d.currency)}${unit}`) };
+      }).filter((r) => r.v > 0);
+      const savers = [];
+      for (const a of state.accounts) for (const b of Calc.accountBalances(a)) {
+        const bv = Calc.balanceValue(b, t);
+        if (bv.daily > 0) savers.push({ v: toBase(bv.daily, b.currency) || 0, html: row(acctHref(a.id), `${esc(a.name)} · ${esc(b.currency)}`, `Saver · ${num(b.rate, 2)}% on ${money(bv.amount, b.currency, 0)}`, `${money(bv.daily * k, b.currency)}${unit}`) });
+      }
+      const rents = daily ? [] : state.properties.filter((p) => +p.monthlyRent).map((p) => ({ v: toBase(p.monthlyRent, p.currency) || 0, html: row('#properties', esc(p.name), 'Rent', `${money(p.monthlyRent, p.currency)}/mo`) }));
+      body = group('Fixed deposits', fds.sort(sortDesc).map((r) => r.html)) + group('Savers', savers.sort(sortDesc).map((r) => r.html)) + group('Rent', rents.sort(sortDesc).map((r) => r.html));
+      if (!body) body = '<p class="sub">No interest or rent yet. Add a fixed deposit, set a rate on a saver account, or add rent to a property.</p>';
+      body += total('Total', daily ? `${money(s.interestDaily)}/day` : `${money(s.passiveMonthly, base(), 0)}/mo`);
+    } else if (what === 'runway') {
+      title = 'Emergency runway';
+      const rows = state.accounts.map((a) => ({ v: accountTotal(a) || 0, html: row(acctHref(a.id), esc(a.name), esc(a.platform || ''), money(accountTotal(a), base(), 0)) })).filter((r) => r.v);
+      body = `<p class="sub">How many months your cash would cover your spending if your income stopped. Fixed deposits and investments aren’t counted.</p>`
+        + group(`Cash · ${money(s.totals.cash, base(), 0)}`, rows.sort(sortDesc).map((r) => r.html))
+        + total('Monthly spending', money(s.spending, base(), 0))
+        + total('Runway', isFinite(s.runwayMonths) ? `${s.runwayMonths.toFixed(1)} months` : '—')
+        + (isFinite(s.runwayMonths) ? `<p class="sub">A common target is 3–6 months.</p>` : '<p class="sub">Add your spending in Cash flow to see this.</p>');
+    } else if (what === 'subscriptions') {
+      title = 'Subscriptions';
+      const subs = state.cashflows.filter((c) => c.kind === 'subscription');
+      const rows = subs.map((c) => ({ v: c.active === false ? -1 : toBase(Calc.monthlyAmount(c), c.currency) || 0, html: row('#cashflows', `${esc(c.name)}${c.active === false ? ' <span class="badge">Paused</span>' : ''}`, [`${esc(labelOf(FREQ, c.frequency))} ${money(c.amount, c.currency)}`, c.onCard ? '💳 card' : (c.accountId ? `↔ ${esc(accountName(c.accountId))}` : ''), c.active === false ? '' : `next ${fmtDate(Calc.nextOccurrence(c, t))}`].filter(Boolean).join(' · '), `${money(toBase(Calc.monthlyAmount(c), c.currency), base(), 0)}/mo`) }));
+      body = (rows.length ? group('Most expensive first', rows.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No subscriptions yet. Add them in Cash flow with the type “Subscription”.</p>')
+        + total('Per month', money(s.flow.subscription, base(), 0)) + total('Per year', money(s.flow.subscription * 12, base(), 0));
+    } else return;
+
+    openSheet(title, body, (e) => { if (e.target.closest('a')) dialog().close(); });
   }
 
   // ---------------------------------------------------------------- confirm payments
@@ -2035,6 +2198,10 @@
         const preset = {};
         if (b.dataset.platform != null) preset.platform = b.dataset.platform;
         if (b.dataset.account) preset.accountId = b.dataset.account;
+        if (b.dataset.type) {
+          preset.type = b.dataset.type;
+          if (b.dataset.type === 'brokerage' && preset.platform) preset.name = `${preset.platform} cash`;
+        }
         return editItem(sec, null, preset);
       }
       case 'review-payments': return reviewPayments();
@@ -2042,6 +2209,8 @@
       case 'transfer': return openTransfer(b.dataset.account);
       case 'open-account': location.hash = `#account/${encodeURIComponent(id)}`; return;
       case 'open-platform': location.hash = `#platform/${encodeURIComponent(b.dataset.name)}`; return;
+      case 'open-region': location.hash = `#region/${encodeURIComponent(b.dataset.name)}`; return;
+      case 'explain': return explain(b.dataset.what);
       case 'edit': return editItem(sec, id);
       case 'edit-platform': return editPlatform(b.dataset.name);
       case 'valuation': return updateValuation(id);
@@ -2086,7 +2255,7 @@
   });
 
   document.addEventListener('keydown', (e) => {
-    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr.clickable, .card.clickable, li.clickable')) {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr.clickable, .card.clickable, li.clickable, .tile.clickable, .live-interest.clickable')) {
       e.preventDefault();
       e.target.click();
     }
