@@ -8,7 +8,7 @@ No server and no dependencies. Your data is stored on your devices and, if you t
 
 | Section | What you enter | What updates automatically |
 |---|---|---|
-| **Cash & Bank** | Accounts, e-wallets, cash, in any currency | Converted to your base currency with live FX rates |
+| **Cash & Bank** | Accounts, e-wallets, cash. **Each account can hold several currencies** (e.g. HKD + USD + GBP in one HSBC One account) | Each balance converted with live FX rates; **Cash by currency** chart shows each currency's total and which accounts hold it |
 | **Stocks & ETFs** | Ticker, shares, average cost | Live price, today's change, profit/loss (Finnhub) |
 | **Crypto** | CoinGecko coin id, quantity, average cost | Live price, 24h change, profit/loss (CoinGecko) |
 | **Fixed Deposits** | Bank, amount, start date, term in **months or an end date**, and either the **rate** or the **total interest** quoted | Interest accrued daily, "from → to · N months · X days left", maturity value. **On maturity, capital + interest move into a cash account automatically** (or the deposit renews, your choice) |
@@ -18,6 +18,10 @@ No server and no dependencies. Your data is stored on your devices and, if you t
 | **Cash Flow** | Income, bills, subscriptions and regular saving, weekly to yearly | Monthly/yearly totals, savings rate, upcoming payments |
 | **Actual spending** | What you really spent each month, e.g. each **credit card statement** | Cash flow, savings rate and runway use your real 3-month average instead of estimates |
 | **Goals** | Target amount and optional date | Progress, and whether you're on track |
+
+### Multi-currency accounts
+
+Add one line per currency inside an account (**+ Add currency** in the form). The account card shows each balance plus the converted total. On the Cash & Bank page, **Cash by currency** shows every currency's total across all accounts as a bar split by account. Tap a currency, or use the currency filter, to list only the accounts holding it. When a fixed deposit matures, the money is added to the matching currency in the payout account. If that account doesn't hold the currency yet, a new balance line is created, with no conversion. Older single-currency accounts are converted automatically.
 
 ### Platforms & regions
 

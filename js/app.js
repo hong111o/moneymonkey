@@ -46,6 +46,7 @@
     for (const k of ['platformMeta', 'deleted']) if (!s[k] || typeof s[k] !== 'object') s[k] = {};
     if (!s.fx || !s.fx.rates) s.fx = d.fx;
     Calc.migratePlatforms(s);
+    Calc.migrateAccounts(s);
     s.version = 2;
     return s;
   }
@@ -167,6 +168,9 @@
 
   const currencyField = { key: 'currency', label: 'Currency', type: 'currency', default: () => base() };
   const platformField = (label, placeholder, extra = {}) => ({ key: 'platform', label, list: 'platform-list', placeholder, ...extra });
+  // NaN when a non-zero balance has no exchange rate yet, so we never show a misleading total.
+  const accountTotal = (a) => Calc.accountBalances(a).reduce((t, b) => t + (+b.amount ? toBase(b.amount, b.currency) : 0), 0);
+  const balanceList = (a) => `<div class="bal-list">${Calc.accountBalances(a).map((b) => `<div><span class="cur-tag">${esc(b.currency)}</span> ${money(b.amount, b.currency)}</div>`).join('')}</div>`;
   const platformLine = (item, more = '') => [item.platform, more].filter(Boolean).map(esc).join(' · ');
 
   // ================================================================ sections
@@ -177,23 +181,35 @@
     accounts: {
       title: 'Cash & Bank',
       singular: 'account',
-      intro: 'Bank balances, e-wallets and cash. Update the balance whenever you check your bank app.',
+      intro: 'Bank accounts, e-wallets and cash. Each account can hold several currencies, e.g. HKD, USD and GBP in one HSBC One account. Update the balances whenever you check your bank app.',
       fields: [
-        { key: 'name', label: 'Account name', required: true, placeholder: 'e.g. Everyday savings' },
+        { key: 'name', label: 'Account name', required: true, placeholder: 'e.g. HSBC One' },
         platformField('Bank / platform', 'e.g. HSBC HK, Monzo'),
         { key: 'type', label: 'Type', type: 'select', options: ACCOUNT_TYPES },
-        currencyField,
-        { key: 'balance', label: 'Balance', type: 'number', required: true },
+        { key: 'balances', label: 'Balances', type: 'balances', required: true, span: true, default: () => [{ currency: base(), amount: null }], help: 'One line per currency held in this account.' },
         { key: 'note', label: 'Note' },
       ],
-      beforeSave: (item) => { item.updatedAt = new Date().toISOString(); },
+      editValues: (item) => ({ ...item, balances: Calc.accountBalances(item).map((b) => ({ ...b })) }),
+      beforeSave: (item) => {
+        item.updatedAt = new Date().toISOString();
+        delete item.currency;
+        delete item.balance;
+      },
       columns: [
         { label: 'Account', render: (a) => `<strong>${esc(a.name)}</strong><div class="sub">${platformLine(a, labelOf(ACCOUNT_TYPES, a.type))}</div>` },
-        { label: 'Balance', num: true, primary: true, render: (a) => money(a.balance, a.currency) },
-        { label: `In base`, num: true, render: (a) => money(toBase(a.balance, a.currency)) },
+        { label: 'Balances', num: true, wide: true, render: balanceList },
+        {
+          label: 'Total', num: true, primary: true,
+          render: (a) => {
+            const n = Calc.accountBalances(a).length;
+            const total = accountTotal(a);
+            const note = isFinite(total) ? (n > 1 ? `${n} currencies` : '') : 'waiting for exchange rate';
+            return `${money(total)}${note ? `<div class="sub">${note}</div>` : ''}`;
+          },
+        },
         { label: 'Updated', render: (a) => `<span class="sub">${ago(a.updatedAt)}</span>` },
       ],
-      total: (items) => items.reduce((s, a) => s + (toBase(a.balance, a.currency) || 0), 0),
+      total: (items) => items.reduce((s, a) => s + (accountTotal(a) || 0), 0),
     },
 
     stocks: {
@@ -258,7 +274,11 @@
         { key: 'onMaturity', label: 'When it matures', type: 'select', options: ON_MATURITY, span: true },
         {
           key: 'payoutAccountId', label: 'Move the money into', type: 'select', span: true, showIf: (v) => v.onMaturity === 'cash',
-          options: (v) => [{ value: '', label: `Auto — a “${v.platform || 'bank'} cash” account` }, ...state.accounts.map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''} (${a.currency})` }))],
+          options: (v) => [
+            { value: '', label: v.platform ? `Auto — my ${v.platform} account (or a new “${v.platform} cash”)` : 'Auto — a new cash account' },
+            ...state.accounts.map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''} (${Calc.accountBalances(a).map((b) => b.currency).join(', ') || 'empty'})` })),
+          ],
+          help: 'Paid in the deposit’s own currency — added to that currency’s balance in the account.',
         },
       ],
       preview: depositPreview,
@@ -697,7 +717,16 @@
     if (!sec.total) return '';
     const t = todayISO();
     let extra = '';
-    if (key === 'stocks' || key === 'crypto') {
+    if (key === 'accounts') {
+      const rows = Calc.cashByCurrency({ ...state, accounts: items });
+      const cur = filters.accountsCurrency;
+      const r = cur && rows.find((x) => x.currency === cur);
+      if (cur) {
+        return `<section class="tiles">${tile(`${esc(cur)} across accounts`, money(r ? r.amount : 0, cur), r ? `${cur !== base() ? `≈ ${money(r.base, base(), 0)} · ` : ''}${plural(r.accounts.length, 'account')}` : '')}${tile(`All cash (${esc(base())})`, money(sec.total(state.accounts)))}</section>`;
+      }
+      const allRated = rows.every((x) => isFinite(x.base));
+      extra = tile('Currencies', String(rows.length), rows[0] && allRated ? `Largest: ${esc(rows[0].currency)} (${pct(rows[0].share, false)})` : rows.length ? 'waiting for exchange rates' : '');
+    } else if (key === 'stocks' || key === 'crypto') {
       let mv = 0, cost = 0, day = 0;
       for (const h of items) {
         const v = Calc.holdingValue(h);
@@ -728,8 +757,11 @@
     const all = state[key];
     const platformNames = [...new Set(all.map((x) => x.platform || ''))].sort();
     const filter = filters[key] ?? null;
-    const items = filter == null ? all : all.filter((x) => (x.platform || '') === filter);
+    let items = filter == null ? all : all.filter((x) => (x.platform || '') === filter);
     const showFilter = PLATFORM_SECTIONS.includes(key) && platformNames.length > 1;
+    const curFilter = key === 'accounts' ? filters.accountsCurrency ?? null : null;
+    const currencies = key === 'accounts' ? [...new Set(all.flatMap((a) => Calc.accountBalances(a).map((b) => b.currency)))].sort() : [];
+    if (curFilter) items = items.filter((a) => Calc.accountBalances(a).some((b) => b.currency === curFilter));
 
     const rows = items
       .map((item) => `<tr class="clickable" data-action="edit" data-sec="${key}" data-id="${esc(item.id)}" tabindex="0">
@@ -742,15 +774,43 @@
         <div><h1>${sec.title}</h1><p class="sub intro">${sec.intro}</p></div>
         <div class="row-actions">
           ${showFilter ? `<select class="filter" data-filter="${key}" aria-label="Filter by platform"><option value="__all">All platforms</option>${platformNames.map((p) => `<option value="${esc(p)}" ${filter === p ? 'selected' : ''}>${esc(p || 'No platform')}</option>`).join('')}</select>` : ''}
+          ${currencies.length > 1 ? `<select class="filter" data-filter="accountsCurrency" aria-label="Filter by currency"><option value="__all">All currencies</option>${currencies.map((c) => `<option value="${esc(c)}" ${curFilter === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : ''}
           ${key === 'stocks' || key === 'crypto' ? '<button class="btn" data-action="refresh">↻ Prices</button>' : ''}
           <button class="btn primary" data-action="add" data-sec="${key}">+ Add</button>
         </div>
       </div>
       ${opts.tiles ?? sectionTiles(key, items)}
+      ${key === 'accounts' ? renderCashByCurrency(filter == null ? all : all.filter((x) => (x.platform || '') === filter)) : ''}
       ${items.length ? `<div class="card table-card"><table class="data"><thead><tr>${sec.columns.map((c) => `<th class="${c.num ? 'num' : ''}">${c.label}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table></div>`
-        : `<div class="card empty">No ${sec.singular}s${filter != null ? ' on this platform' : ' yet'}. <button class="btn primary" data-action="add" data-sec="${key}">+ Add ${sec.singular}</button></div>`}
+        : `<div class="card empty">No ${sec.singular}s${filter != null || curFilter ? ' match this filter' : ' yet'}. <button class="btn primary" data-action="add" data-sec="${key}">+ Add ${sec.singular}</button></div>`}
       ${key === 'deposits' ? renderDepositHistory() : ''}
       ${opts.after || ''}`;
+  }
+
+  // Each currency's total across accounts, as a stacked bar split by account plus a legend list.
+  function renderCashByCurrency(accounts) {
+    const rows = Calc.cashByCurrency({ ...state, accounts });
+    if (!rows.length) return '';
+    const cur = filters.accountsCurrency;
+    const blocks = rows.map((r) => {
+      const segs = r.accounts.map((a, i) => ({ ...a, color: i < 6 ? `var(--series-${i + 1})` : 'var(--muted)' }));
+      const bar = segs.map((g) => `<span style="flex-grow:${Math.max(g.amount, 0)};background:${g.color}" data-tip="${esc(g.name)}: ${esc(money(g.amount, r.currency))}"></span>`).join('');
+      const list = segs.map((g) => `<li><span class="swatch" style="background:${g.color}"></span><span class="grow">${esc(g.name)}${g.platform ? ` <span class="sub">· ${esc(g.platform)}</span>` : ''}</span><span class="num">${money(g.amount, r.currency)}</span></li>`).join('');
+      const share = isFinite(r.base) ? `${(r.share * 100).toFixed(1)}% of cash` : 'no exchange rate yet';
+      return `<div class="cur-block ${cur === r.currency ? 'on' : ''}">
+        <button class="cur-head" data-action="cur-filter" data-cur="${esc(r.currency)}" aria-pressed="${cur === r.currency}">
+          <span class="cur-tag">${esc(r.currency)}</span><strong class="grow">${money(r.amount, r.currency)}</strong>
+          <span class="sub">${r.currency !== base() && isFinite(r.base) ? `≈ ${money(r.base, base(), 0)} · ` : ''}${share}</span>
+        </button>
+        <div class="stack" aria-hidden="true">${bar}</div>
+        <ul class="cur-accounts">${list}</ul>
+      </div>`;
+    }).join('');
+    return `<div class="card">
+      <div class="card-head"><h2>Cash by currency</h2>${cur ? '<button class="btn small" data-action="cur-filter" data-cur="">Show all currencies</button>' : ''}</div>
+      <p class="sub">Each currency’s total across all your accounts. Tap a currency to list only the accounts holding it.</p>
+      ${blocks}
+    </div>`;
   }
 
   function renderDepositHistory() {
@@ -961,6 +1021,12 @@
       const v = vals[f.key];
       const cls = f.span ? 'span-2' : '';
       if (f.type === 'checkbox') return `<label class="check ${cls}" data-field="${f.key}"><input type="checkbox" name="${f.key}" ${v ? 'checked' : ''}> ${f.label}</label>`;
+      if (f.type === 'balances') {
+        const rows = (v && v.length ? v : [{ currency: base(), amount: null }]).map(balanceRow).join('');
+        return `<div class="balances-field ${cls}" data-field="${f.key}"><span class="field-label">${f.label}${f.required ? ' <span class="req">*</span>' : ''}</span>
+          <div class="bal-rows">${rows}</div>
+          <button type="button" class="btn small" data-add-balance>+ Add currency</button>${f.help ? `<small>${f.help}</small>` : ''}</div>`;
+      }
       let input;
       if (f.type === 'select') input = `<select name="${f.key}">${optionsOf(f).map((o) => `<option value="${esc(o.value)}" ${o.value === v ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
       else {
@@ -992,6 +1058,15 @@
     const read = () => {
       const out = {};
       for (const f of fields) {
+        if (f.type === 'balances') {
+          out[f.key] = [...form.querySelectorAll(`[data-field="${f.key}"] .bal-row`)]
+            .map((r) => {
+              const amt = $('.bal-amt', r).value;
+              return { currency: $('.bal-cur', r).value.trim().toUpperCase(), amount: amt === '' ? null : +amt };
+            })
+            .filter((b) => b.currency || b.amount != null);
+          continue;
+        }
         const el = form.elements[f.key];
         if (!el) continue;
         if (f.type === 'checkbox') out[f.key] = el.checked;
@@ -1025,6 +1100,19 @@
     form.addEventListener('input', () => { if (preview) $('.form-preview', form).innerHTML = preview(read()) || ''; });
     refresh();
     form.addEventListener('click', (e) => {
+      if (e.target.closest('[data-add-balance]')) {
+        const box = e.target.closest('.balances-field');
+        const used = new Set([...box.querySelectorAll('.bal-cur')].map((i) => i.value.trim().toUpperCase()));
+        const next = [base(), 'HKD', 'GBP', 'USD', 'EUR', 'CNY', 'SGD'].find((c) => !used.has(c)) || '';
+        $('.bal-rows', box).insertAdjacentHTML('beforeend', balanceRow({ currency: next, amount: null }));
+        $('.bal-row:last-child .bal-amt', box).focus();
+      }
+      const rm = e.target.closest('[data-remove-balance]');
+      if (rm) {
+        const box = rm.closest('.balances-field');
+        rm.closest('.bal-row').remove();
+        if (!box.querySelector('.bal-row')) $('.bal-rows', box).innerHTML = balanceRow({ currency: base(), amount: null });
+      }
       if (e.target.closest('[data-close]')) d.close();
       if (e.target.closest('[data-delete]') && onDelete() !== false) d.close();
     });
@@ -1033,6 +1121,11 @@
       const v = read();
       for (const f of fields) {
         if (!visible(f, v) || (f.onlyNew && !isNew)) { if (f.showIf) delete v[f.key]; continue; }
+        if (f.type === 'balances') {
+          const err = balancesError(v[f.key], f.required);
+          if (err) return showError(form, err);
+          continue;
+        }
         const empty = v[f.key] == null || v[f.key] === '';
         if (f.required && empty) return showError(form, `${f.label} is required.`);
         if (f.type === 'number' && !empty && !isFinite(v[f.key])) return showError(form, `${f.label} must be a number.`);
@@ -1050,6 +1143,26 @@
       if (firstInput) firstInput.focus();
     }
     return form;
+  }
+
+  function balanceRow(b) {
+    return `<div class="bal-row">
+      <input class="bal-cur" list="currency-list" maxlength="3" autocapitalize="characters" aria-label="Currency" placeholder="HKD" value="${esc(b.currency || '')}">
+      <input class="bal-amt" type="number" step="any" inputmode="decimal" aria-label="Amount" placeholder="0.00" value="${esc(b.amount ?? '')}">
+      <button type="button" class="icon-btn" data-remove-balance aria-label="Remove this currency">✕</button>
+    </div>`;
+  }
+
+  function balancesError(list, required) {
+    if (required && !list.length) return 'Add at least one currency balance.';
+    const seen = new Set();
+    for (const b of list) {
+      if (!/^[A-Z]{3}$/.test(b.currency)) return `“${b.currency || '?'}” isn’t a currency code — use 3 letters like HKD, GBP or USD.`;
+      if (b.amount == null || !isFinite(b.amount)) return `Enter an amount for ${b.currency} (0 is fine).`;
+      if (seen.has(b.currency)) return `${b.currency} is listed twice — combine them into one line.`;
+      seen.add(b.currency);
+    }
+    return null;
   }
 
   function showError(form, msg) {
@@ -1445,8 +1558,10 @@
     for (const s of PLATFORM_SECTIONS) {
       for (const item of state[s]) {
         const sign = s === 'liabilities' ? -1 : 1;
-        const v = sign * Calc.itemValue(s, item, t);
-        rows.push([names[s], item.name || item.symbol || item.coinId || '', item.platform || '', item.currency, round2(v), round2(toBase(v, item.currency))]);
+        for (const part of Calc.itemParts(s, item, t)) {
+          const v = sign * part.value;
+          rows.push([names[s], item.name || item.symbol || item.coinId || '', item.platform || '', part.currency, round2(v), round2(toBase(v, part.currency))]);
+        }
       }
     }
     const csv = rows.map((r) => r.map((c) => (/[",\n]/.test(String(c)) ? `"${String(c).replace(/"/g, '""')}"` : c)).join(',')).join('\n');
@@ -1463,12 +1578,13 @@
     const region = (r) => ({ region: r });
     s.platformMeta = {
       'HSBC HK': region('Hong Kong'), 'ZA Bank': region('Hong Kong'), Futu: region('Hong Kong'), MPF: region('Hong Kong'),
-      Monzo: region('United Kingdom'), 'Trading 212': region('United Kingdom'), Nationwide: region('United Kingdom'), Revolut: region('United Kingdom'), 'UK property': region('United Kingdom'),
+      Monzo: region('United Kingdom'), 'Trading 212': region('United Kingdom'), Nationwide: region('United Kingdom'), Revolut: region('United Kingdom'), Wise: region('United Kingdom'), 'UK property': region('United Kingdom'),
     };
     s.accounts = [
-      { id: uid(), name: 'Everyday account', platform: 'HSBC HK', type: 'current', currency: 'HKD', balance: 38500, updatedAt: now },
-      { id: uid(), name: 'Savings', platform: 'ZA Bank', type: 'savings', currency: 'HKD', balance: 120000, updatedAt: now },
-      { id: uid(), name: 'Current account', platform: 'Monzo', type: 'current', currency: 'GBP', balance: 2350, updatedAt: now },
+      { id: uid(), name: 'HSBC One', platform: 'HSBC HK', type: 'current', balances: [{ currency: 'HKD', amount: 38500 }, { currency: 'USD', amount: 2400 }, { currency: 'GBP', amount: 300 }], updatedAt: now },
+      { id: uid(), name: 'Savings', platform: 'ZA Bank', type: 'savings', balances: [{ currency: 'HKD', amount: 120000 }], updatedAt: now },
+      { id: uid(), name: 'Current account', platform: 'Monzo', type: 'current', balances: [{ currency: 'GBP', amount: 2350 }], updatedAt: now },
+      { id: uid(), name: 'Multi-currency', platform: 'Wise', type: 'ewallet', balances: [{ currency: 'USD', amount: 850 }, { currency: 'EUR', amount: 400 }, { currency: 'GBP', amount: 120 }], updatedAt: now },
     ];
     s.stocks = [
       { id: uid(), symbol: '0700.HK', name: 'Tencent', platform: 'Futu', quantity: 200, avgCost: 310, manualPrice: 455, currency: 'HKD', source: 'manual' },
@@ -1534,6 +1650,9 @@
       case 'quick-add': return quickAdd();
       case 'menu': return openMenu();
       case 'range': historyRange = b.dataset.range; return render();
+      case 'cur-filter':
+        filters.accountsCurrency = b.dataset.cur && filters.accountsCurrency !== b.dataset.cur ? b.dataset.cur : null;
+        return render();
       case 'refresh': return refreshPrices({ force: true });
       case 'privacy': state.settings.privacy = !state.settings.privacy; save(); return render();
       case 'sync-setup': return setupSync();

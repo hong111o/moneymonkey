@@ -147,18 +147,28 @@
         const label = dep.platform || 'Bank';
         const entry = { id: `fd-${dep.id}`, date: v.maturityDate, kind: mode === 'cash' ? 'deposit-cash' : 'deposit-renew', platform: label, ref: dep.name || '', amount: round2(v.maturityValue), interest: round2(v.maturityInterest), currency: dep.currency, _mt: nowMs };
         if (mode === 'cash') {
-          let acct = (state.accounts || []).find((a) => a.id === dep.payoutAccountId);
+          state.accounts = state.accounts || [];
+          // The chosen account, else an account on the same platform (preferring one that already
+          // holds this currency), else a new "<platform> cash" account.
+          const samePlatform = state.accounts.filter((a) => dep.platform && a.platform === dep.platform);
+          let acct = state.accounts.find((a) => a.id === dep.payoutAccountId)
+            || samePlatform.find((a) => accountBalances(a).some((b) => b.currency === dep.currency))
+            || samePlatform[0];
           if (!acct) {
-            const id = `auto-${slug(label)}-${String(dep.currency || '').toLowerCase()}`;
+            const id = `auto-${slug(label)}`;
             acct = state.accounts.find((a) => a.id === id);
             if (!acct) {
-              acct = { id, name: `${label} cash`, platform: dep.platform || '', type: 'savings', currency: dep.currency, balance: 0 };
+              acct = { id, name: `${label} cash`, platform: dep.platform || '', type: 'savings', balances: [] };
               state.accounts.push(acct);
             }
           }
-          const amount = convert(v.maturityValue, dep.currency, acct.currency, state.fx);
-          if (!isFinite(amount)) continue; // no exchange rate yet — try again later
-          acct.balance = round2((+acct.balance || 0) + amount);
+          // Credit the deposit's own currency: multi-currency accounts need no conversion.
+          acct.balances = accountBalances(acct);
+          delete acct.currency;
+          delete acct.balance;
+          let row = acct.balances.find((b) => b.currency === dep.currency);
+          if (!row) acct.balances.push((row = { currency: dep.currency, amount: 0 }));
+          row.amount = round2((+row.amount || 0) + v.maturityValue);
           acct.updatedAt = new Date(nowMs).toISOString();
           acct._mt = nowMs;
           entry.accountName = acct.name;
@@ -356,7 +366,7 @@
     const alerts = [];
     const horizon = toISO(addDays(parseDate(today), 30));
 
-    for (const a of state.accounts || []) totals.cash += toBase(a.balance, a.currency);
+    for (const a of state.accounts || []) for (const b of accountBalances(a)) totals.cash += toBase(b.amount, b.currency);
 
     for (const [list, key] of [[state.stocks, 'stocks'], [state.crypto, 'crypto']]) {
       for (const h of list || []) {
@@ -460,12 +470,61 @@
     };
   }
 
+  // ---------- multi-currency accounts ----------
+
+  // An account holds one balance per currency: [{ currency, amount }].
+  // Older single-currency accounts ({ currency, balance }) read as a one-line list.
+  function accountBalances(a) {
+    if (Array.isArray(a.balances)) return a.balances;
+    if (a.currency || a.balance != null) return [{ currency: a.currency, amount: +a.balance || 0 }];
+    return [];
+  }
+
+  function migrateAccounts(state) {
+    for (const a of state.accounts || []) {
+      if (!Array.isArray(a.balances)) a.balances = accountBalances(a);
+      delete a.currency;
+      delete a.balance;
+    }
+    return state;
+  }
+
+  // Cash grouped by currency across all accounts, largest (in base currency) first:
+  // [{ currency, amount, base, share, accounts: [{ id, name, platform, amount }] }]
+  function cashByCurrency(state) {
+    const baseCur = state.settings.baseCurrency;
+    const map = new Map();
+    for (const a of state.accounts || []) {
+      for (const b of accountBalances(a)) {
+        if (!b.currency || !(+b.amount)) continue;
+        const row = map.get(b.currency) || { currency: b.currency, amount: 0, base: 0, accounts: [] };
+        row.amount += +b.amount;
+        row.accounts.push({ id: a.id, name: a.name, platform: a.platform || '', amount: +b.amount });
+        map.set(b.currency, row);
+      }
+    }
+    const rows = [...map.values()];
+    for (const r of rows) {
+      const v = convert(r.amount, r.currency, baseCur, state.fx);
+      r.base = isFinite(v) ? v : NaN;
+      r.accounts.sort((x, y) => y.amount - x.amount);
+    }
+    const total = rows.reduce((t, r) => t + (isFinite(r.base) ? r.base : 0), 0);
+    for (const r of rows) r.share = total && isFinite(r.base) ? r.base / total : 0;
+    return rows.sort((x, y) => (isFinite(y.base) ? y.base : -Infinity) - (isFinite(x.base) ? x.base : -Infinity));
+  }
+
   // ---------- platforms & regions ----------
 
-  // Native-currency value of one item (liabilities as a positive balance owed).
+  // Value of one item split by currency (liabilities as a positive balance owed).
+  function itemParts(section, item, today) {
+    if (section === 'accounts') return accountBalances(item).map((b) => ({ currency: b.currency, value: +b.amount || 0 }));
+    return [{ currency: item.currency, value: itemValue(section, item, today) }];
+  }
+
+  // Native-currency value of one single-currency item.
   function itemValue(section, item, today) {
     switch (section) {
-      case 'accounts': return +item.balance || 0;
       case 'stocks':
       case 'crypto': return holdingValue(item).marketValue;
       case 'deposits': return depositValue(item, today).value;
@@ -506,10 +565,12 @@
         const name = String(item.platform || '').trim();
         if (!rows.has(name)) rows.set(name, { name, region: (meta[name] && meta[name].region) || '', regionGuessed: false, cash: 0, invest: 0, deposits: 0, property: 0, other: 0, debt: 0, count: 0, currencies: new Set() });
         const row = rows.get(name);
-        const v = convert(itemValue(section, item, today), item.currency || base, base, state.fx);
-        if (isFinite(v)) row[group] += v;
+        for (const part of itemParts(section, item, today)) {
+          const v = convert(part.value, part.currency || base, base, state.fx);
+          if (isFinite(v)) row[group] += v;
+          if (part.currency) row.currencies.add(part.currency);
+        }
         row.count += 1;
-        if (item.currency) row.currencies.add(item.currency);
       }
     }
     const platforms = [...rows.values()].map((r) => {
@@ -549,6 +610,7 @@
     monthlyAmount, occurrences, nextOccurrence,
     upsertHistory, monthsToGoal, spendingByMonth,
     summarize,
-    itemValue, migratePlatforms, platformBreakdown,
+    itemValue, itemParts, migratePlatforms, platformBreakdown,
+    accountBalances, migrateAccounts, cashByCurrency,
   };
 });

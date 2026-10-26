@@ -297,6 +297,25 @@ td.actions { text-align: right; white-space: nowrap; vertical-align: middle !imp
 .hbar-track span { display: block; height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
 .hbar-track span.neg-bar { background: var(--neg); }
 
+.cur-tag { display: inline-block; min-width: 38px; text-align: center; font-size: 0.72rem; font-weight: 650; letter-spacing: 0.03em; padding: 1px 6px; border-radius: 6px; background: var(--surface-2); color: var(--text-2); }
+.bal-list { display: flex; flex-direction: column; gap: 3px; }
+.balances-field { display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; color: var(--text-2); }
+.balances-field small { color: var(--muted); font-size: 0.78rem; }
+.balances-field > .btn { align-self: flex-start; }
+.bal-rows { display: flex; flex-direction: column; gap: 8px; }
+.bal-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 40px; gap: 8px; align-items: center; }
+.bal-row .bal-cur { text-transform: uppercase; }
+
+.cur-block { padding: 10px 0 12px; border-top: 1px solid var(--border); }
+.cur-block:first-of-type { border-top: 0; }
+.cur-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; width: 100%; padding: 4px 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.cur-head strong { font-size: 1.05rem; }
+.cur-block.on .cur-tag { background: var(--accent); color: var(--accent-ink); }
+.stack { display: flex; gap: 2px; height: 10px; margin: 6px 0 8px; border-radius: 4px; overflow: hidden; }
+.stack span { display: block; min-width: 3px; }
+.cur-accounts { list-style: none; margin: 0; padding: 0; }
+.cur-accounts li { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 0.9rem; }
+
 .spend-month { padding: 4px 0 8px; border-bottom: 1px solid var(--border); }
 .spend-month:last-child { border-bottom: 0; }
 .spend-entries { list-style: none; margin: 0; padding: 0 0 0 12px; }

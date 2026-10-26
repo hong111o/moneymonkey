@@ -172,24 +172,59 @@ test('matured deposit moves capital + interest to an auto cash account', () => {
   assert.equal(log.length, 1);
   assert.equal(s.deposits.length, 0);
   assert.equal(s.accounts.length, 1);
-  assert.equal(s.accounts[0].id, 'auto-hsbc-hk-hkd');
+  assert.equal(s.accounts[0].id, 'auto-hsbc-hk');
   assert.equal(s.accounts[0].name, 'HSBC HK cash');
-  close(s.accounts[0].balance, 10400);
+  assert.deepEqual(s.accounts[0].balances, [{ currency: 'HKD', amount: 10400 }]);
   assert.equal(s.deleted.d1, 5);
   assert.equal(s.activity[0].kind, 'deposit-cash');
   assert.equal(C.settleDeposits(s, '2027-02-01', 6).length, 0); // idempotent
 });
 
-test('matured deposit pays into a chosen account, converting currency', () => {
+test('matured deposit pays into the matching currency of a multi-currency account', () => {
   const s = fdState({ payoutAccountId: 'a1' });
-  s.accounts.push({ id: 'a1', name: 'Monzo', currency: 'GBP', balance: 100 });
+  s.accounts.push({ id: 'a1', name: 'HSBC One', balances: [{ currency: 'USD', amount: 50 }, { currency: 'HKD', amount: 100 }] });
   C.settleDeposits(s, '2027-01-05', 1);
-  close(s.accounts[0].balance, 100 + 1040);
-  const noFx = fdState({ payoutAccountId: 'a1' });
-  noFx.fx = { base: 'HKD', rates: { HKD: 1 } };
-  noFx.accounts.push({ id: 'a1', name: 'X', currency: 'EUR', balance: 0 });
-  assert.equal(C.settleDeposits(noFx, '2027-01-05', 1).length, 0); // waits for FX
-  assert.equal(noFx.deposits.length, 1);
+  assert.deepEqual(s.accounts[0].balances, [{ currency: 'USD', amount: 50 }, { currency: 'HKD', amount: 10500 }]);
+  // An account without that currency gains a new balance line instead of converting.
+  const t = fdState({ payoutAccountId: 'a1' });
+  t.accounts.push({ id: 'a1', name: 'Monzo', currency: 'GBP', balance: 100 }); // legacy shape
+  C.settleDeposits(t, '2027-01-05', 1);
+  assert.deepEqual(t.accounts[0].balances, [{ currency: 'GBP', amount: 100 }, { currency: 'HKD', amount: 10400 }]);
+  assert.equal(t.accounts[0].balance, undefined);
+});
+
+test('without a chosen account, a deposit pays into an account on the same platform', () => {
+  const s = fdState();
+  s.accounts.push({ id: 'x', name: 'Other bank', platform: 'Monzo', balances: [{ currency: 'HKD', amount: 0 }] });
+  s.accounts.push({ id: 'h1', name: 'HSBC One', platform: 'HSBC HK', balances: [{ currency: 'USD', amount: 1 }] });
+  s.accounts.push({ id: 'h2', name: 'HSBC Savings', platform: 'HSBC HK', balances: [{ currency: 'HKD', amount: 5 }] });
+  C.settleDeposits(s, '2027-01-05', 1);
+  assert.equal(s.accounts.length, 3);
+  assert.deepEqual(s.accounts[2].balances, [{ currency: 'HKD', amount: 10405 }]); // prefers the one holding HKD
+});
+
+test('multi-currency accounts: migration, totals and cash by currency', () => {
+  const state = C.migrateAccounts({
+    settings: { baseCurrency: 'HKD' },
+    fx: { base: 'HKD', rates: { HKD: 1, USD: 0.125, GBP: 0.1 } },
+    accounts: [
+      { id: 'a', name: 'HSBC One', platform: 'HSBC HK', balances: [{ currency: 'HKD', amount: 1000 }, { currency: 'USD', amount: 100 }] },
+      { id: 'b', name: 'Monzo', platform: 'Monzo', currency: 'GBP', balance: 50 },
+      { id: 'c', name: 'Wise', platform: 'Wise', balances: [{ currency: 'USD', amount: 45 }, { currency: 'HKD', amount: 0 }] },
+    ],
+  });
+  assert.deepEqual(state.accounts[1].balances, [{ currency: 'GBP', amount: 50 }]);
+  assert.equal(state.accounts[1].currency, undefined);
+  const s = C.summarize(state, '2026-01-01');
+  assert.equal(s.totals.cash, 1000 + 800 + 500 + 360);
+  const byCur = C.cashByCurrency(state);
+  assert.deepEqual(byCur.map((r) => [r.currency, r.amount, r.base]), [['USD', 145, 1160], ['HKD', 1000, 1000], ['GBP', 50, 500]]);
+  assert.deepEqual(byCur[0].accounts.map((a) => [a.name, a.amount]), [['HSBC One', 100], ['Wise', 45]]);
+  close(byCur[2].share, 500 / 2660);
+  const hsbc = C.platformBreakdown(state, '2026-01-01').platforms.find((p) => p.name === 'HSBC HK');
+  assert.equal(hsbc.cash, 1800);
+  assert.deepEqual(hsbc.currencies, ['HKD', 'USD']);
+  assert.equal(hsbc.regionGuessed, false); // two currencies -> no guess
 });
 
 test('renewing deposits roll over repeatedly with deterministic ids', () => {
