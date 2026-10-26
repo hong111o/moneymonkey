@@ -2115,17 +2115,36 @@
 
   const tooltip = {
     el: null,
-    show(html, x, y) {
+    timer: null,
+    // With a finger, show the label above the touch point (centred) so the finger doesn't cover
+    // it; with a mouse, beside the pointer. Flip to the other side when there's no room.
+    show(html, x, y, pointerType) {
+      clearTimeout(this.timer);
       this.el = this.el || $('#tooltip');
       this.el.innerHTML = html;
       this.el.hidden = false;
       const r = this.el.getBoundingClientRect();
-      const left = Math.min(window.innerWidth - r.width - 8, x + 14);
-      const top = y + 14 + r.height > window.innerHeight ? y - r.height - 10 : y + 14;
-      this.el.style.left = `${Math.max(8, left)}px`;
-      this.el.style.top = `${top}px`;
+      const touch = pointerType === 'touch' || pointerType === 'pen';
+      let left, top;
+      if (touch) {
+        const finger = 48; // clearance for a fingertip
+        left = x - r.width / 2;
+        top = y - finger - r.height;
+        if (top < 8) top = y + finger;
+      } else {
+        left = x + 14;
+        top = y + 14 + r.height > window.innerHeight ? y - r.height - 10 : y + 14;
+      }
+      this.el.style.left = `${Math.max(8, Math.min(window.innerWidth - r.width - 8, left))}px`;
+      this.el.style.top = `${Math.max(8, top)}px`;
     },
-    hide() { if (this.el) this.el.hidden = true; },
+    // After a tap the label stays a moment, so it can be read without a finger in the way.
+    hide(pointerType) {
+      clearTimeout(this.timer);
+      if (!this.el) return;
+      if (pointerType === 'touch' || pointerType === 'pen') this.timer = setTimeout(() => { this.el.hidden = true; }, 2500);
+      else this.el.hidden = true;
+    },
   };
 
   function toast(msg, kind = '') {
@@ -2354,9 +2373,10 @@
 
   document.addEventListener('pointerover', (e) => {
     const t = e.target.closest('[data-tip]');
-    if (t) tooltip.show(esc(t.dataset.tip), e.clientX, e.clientY);
+    if (t) tooltip.show(esc(t.dataset.tip), e.clientX, e.clientY, e.pointerType);
   });
-  document.addEventListener('pointerout', (e) => { if (e.target.closest('[data-tip]')) tooltip.hide(); });
+  document.addEventListener('pointerout', (e) => { if (e.target.closest('[data-tip]')) tooltip.hide(e.pointerType); });
+  window.addEventListener('scroll', () => tooltip.hide(), { passive: true });
   // Tapping the backdrop around a dialog closes it.
   dialog().addEventListener('click', (e) => { if (e.target === dialog()) dialog().close(); });
 

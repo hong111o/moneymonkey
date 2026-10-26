@@ -95,12 +95,12 @@
         dot.style.display = '';
         dot.style.left = `${(best[0] / vb.width) * rect.width}px`;
         dot.style.top = `${(best[1] / vb.height) * rect.height}px`;
-        tooltip.show(`<div class="tip-date">${esc(best[2])}</div><div class="tip-val">${esc(best[3])}</div>`, e.clientX, e.clientY);
+        tooltip.show(`<div class="tip-date">${esc(best[2])}</div><div class="tip-val">${esc(best[3])}</div>`, e.clientX, e.clientY, e.pointerType);
       });
-      wrap.addEventListener('pointerleave', () => {
+      wrap.addEventListener('pointerleave', (e) => {
         cross.style.display = 'none';
         dot.style.display = 'none';
-        tooltip.hide();
+        tooltip.hide(e.pointerType);
       });
     });
   }
