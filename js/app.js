@@ -139,6 +139,9 @@
     const d = Calc.parseDate(`${ym}-01`);
     return d ? d.toLocaleDateString(undefined, { year: 'numeric', month: 'short' }) : ym;
   };
+  // Amount column for a group of bars, as wide as its longest amount, so every row lines up
+  // (keeping bar lengths comparable) and long numbers never spill out of the card.
+  const barValueWidth = (texts) => `--val-w:${Math.max(6, ...texts.map((t) => String(t).replace(/<[^>]*>/g, '').length)) + 2}ch`;
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
   // "12 months", "3 months 5 days", "45 days"
@@ -747,7 +750,7 @@
         <div class="card">
           <div class="card-head"><h2>By region & platform</h2><a href="#platforms" class="sub">All platforms →</a></div>
           ${regionPills ? `<div class="pills">${regionPills}</div>` : ''}
-          ${platformBars || '<p class="sub">Add a platform (e.g. HSBC HK, Monzo, Futu) to your accounts and holdings to see the split.</p>'}
+          ${platformBars ? `<div class="hbars" style="${barValueWidth(named.slice(0, 8).map((p) => money(p.net, base(), 0)))}">${platformBars}</div>` : '<p class="sub">Add a platform (e.g. HSBC HK, Monzo, Futu) to your accounts and holdings to see the split.</p>'}
         </div>
       </section>
 
@@ -1149,7 +1152,7 @@
         ${tile('Subscriptions / mo', money(s.flow.subscription), `${money(s.flow.subscription * 12, base(), 0)} per year`)}
         ${tile('Planned saving / mo', money(s.flow.saving))}
       </section>`;
-    const after = renderSpendingCard() + (cats.length ? `<div class="card"><h2>Fixed bills by category</h2>${catBars}</div>` : '');
+    const after = renderSpendingCard() + (cats.length ? `<div class="card"><h2>Fixed bills by category</h2><div class="hbars" style="${barValueWidth(cats.map(([, v]) => money(v, base(), 0)))}">${catBars}</div></div>` : '');
     return renderSection('cashflows', { tiles, after });
   }
 
@@ -1167,7 +1170,7 @@
     const avgNote = s.spendingSource === 'actual'
       ? `Average of the last ${plural(s.spendAvgMonths, 'month')}: <strong>${money(s.cardSpendAvg, base(), 0)}</strong>. Your cash flow uses this plus ${money(s.notOnCard, base(), 0)}/mo of fixed bills not paid by card — tick “Paid by credit card” on bills that are already in your statement so they aren’t counted twice.`
       : 'Record what you actually spend each month — e.g. each credit card statement total — and your cash flow, savings rate and runway will use real numbers instead of estimates.';
-    return `<div class="card" id="spending">
+    return `<div class="card" id="spending" style="${barValueWidth(months.map((m) => money(m.total, base(), 0)))}">
       <div class="card-head"><h2>💳 Actual monthly spending</h2><button class="btn small primary" data-action="add" data-sec="spending">+ Record</button></div>
       <p class="sub">${avgNote}</p>
       ${rows}
