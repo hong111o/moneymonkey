@@ -52,7 +52,9 @@ If most of your spending goes on a credit card, record each month's statement to
 
 > average of your last 3 recorded months + fixed bills **not** paid by card
 
-so things like Netflix on the card aren't counted twice. When last month's spending hasn't been recorded yet, the dashboard reminds you.
+so things like Netflix on the card aren't counted twice.
+
+On the Cash Flow page, tap any box (income, spending, left over, fixed bills, subscriptions, planned saving) or a category bar to see the items behind it. Tap an item to edit it. When last month's spending hasn't been recorded yet, the dashboard reminds you.
 
 ### Cash in your investment accounts
 

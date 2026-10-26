@@ -295,6 +295,8 @@ td.actions { text-align: right; white-space: nowrap; vertical-align: middle !imp
 .hbar .num { overflow: hidden; text-overflow: ellipsis; }
 .hbar.link { color: var(--text); text-decoration: none; border-radius: 6px; }
 .hbar.link:hover .hbar-label { text-decoration: underline; }
+.hbar.clickable { cursor: pointer; }
+.hbar.clickable:active { background: var(--surface-2); }
 .hbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hbar-track { height: 10px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 .hbar-track span { display: block; height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }

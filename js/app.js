@@ -1143,14 +1143,14 @@
     }
     const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
     const max = cats.length ? cats[0][1] : 0;
-    const catBars = cats.map(([k, v]) => `<div class="hbar"><span class="hbar-label">${esc(k)}</span><span class="hbar-track"><span style="width:${max ? (v / max) * 100 : 0}%"></span></span><span class="num">${money(v, base(), 0)}</span></div>`).join('');
+    const catBars = cats.map(([k, v]) => `<div class="hbar link clickable" data-action="explain" data-what="category" data-cat="${esc(k)}" tabindex="0" role="button"><span class="hbar-label">${esc(k)}</span><span class="hbar-track"><span style="width:${max ? (v / max) * 100 : 0}%"></span></span><span class="num">${money(v, base(), 0)}</span></div>`).join('');
     const tiles = `<section class="tiles">
-        ${tile('Income / mo', `<span class="pos">${money(s.flow.income)}</span>`)}
-        ${tile('Spending / mo', money(s.spending), s.spendingSource === 'actual' ? `actual · avg of last ${plural(s.spendAvgMonths, 'month')}` : 'estimated from your bills below')}
-        ${tile('Left over / mo', signed(s.netMonthly), s.flow.income ? `Savings rate ${pct(s.savingsRate, false)}` : '')}
-        ${tile('Fixed bills / mo', money(s.estimatedSpending), s.spendingSource === 'actual' ? `${money(s.notOnCard, base(), 0)} not paid by card` : '')}
-        ${tile('Subscriptions / mo', money(s.flow.subscription), `${money(s.flow.subscription * 12, base(), 0)} per year`)}
-        ${tile('Planned saving / mo', money(s.flow.saving))}
+        ${tile('Income / mo', `<span class="pos">${money(s.flow.income)}</span>`, '', '', explainAttr('income'))}
+        ${tile('Spending / mo', money(s.spending), s.spendingSource === 'actual' ? `actual · avg of last ${plural(s.spendAvgMonths, 'month')}` : 'estimated from your bills below', '', explainAttr('spending'))}
+        ${tile('Left over / mo', signed(s.netMonthly), s.flow.income ? `Savings rate ${pct(s.savingsRate, false)}` : '', '', explainAttr('cashflow'))}
+        ${tile('Fixed bills / mo', money(s.estimatedSpending), s.spendingSource === 'actual' ? `${money(s.notOnCard, base(), 0)} not paid by card` : '', '', explainAttr('bills'))}
+        ${tile('Subscriptions / mo', money(s.flow.subscription), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
+        ${tile('Planned saving / mo', money(s.flow.saving), '', '', explainAttr('saving'))}
       </section>`;
     const after = renderSpendingCard() + (cats.length ? `<div class="card"><h2>Fixed bills by category</h2><div class="hbars" style="${barValueWidth(cats.map(([, v]) => money(v, base(), 0)))}">${catBars}</div></div>` : '');
     return renderSection('cashflows', { tiles, after });
@@ -1573,7 +1573,7 @@
 
   // ---------------------------------------------------------------- "what's inside this number"
 
-  function explain(what) {
+  function explain(what, param) {
     const s = summary;
     const t = todayISO();
     const row = (href, label, sub, amount) => `<a class="ex-row" href="${href}"><span class="grow"><strong>${label}</strong>${sub ? `<div class="sub">${sub}</div>` : ''}</span><span class="num">${amount}</span><span class="chev" aria-hidden="true">›</span></a>`;
@@ -1581,6 +1581,14 @@
     const group = (title, rows) => (rows.length ? `<h3>${title}</h3><div class="ex-list">${rows.join('')}</div>` : '');
     const acctHref = (id) => `#account/${encodeURIComponent(id)}`;
     const sortDesc = (a, b) => b.v - a.v;
+    // Cash-flow lines open that item's edit form.
+    const active = state.cashflows.filter((c) => c.active !== false);
+    const monthly = (c) => toBase(Calc.monthlyAmount(c), c.currency) || 0;
+    const flowSub = (c) => [`${esc(labelOf(FREQ, c.frequency))} ${money(c.amount, c.currency)}`, c.category ? esc(c.category) : '', c.onCard ? '💳 card' : (c.accountId && accountName(c.accountId) ? `↔ ${esc(accountName(c.accountId))}` : ''), c.frequency !== 'once' || c.nextDate >= t ? `next ${fmtDate(Calc.nextOccurrence(c, t))}` : ''].filter(Boolean).join(' · ');
+    const flowRow = (c) => ({ v: monthly(c), html: `<a class="ex-row" href="#" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}"><span class="grow"><strong>${esc(c.name)}</strong><div class="sub">${flowSub(c)}</div></span><span class="num">${money(monthly(c), base(), 0)}</span><span class="chev" aria-hidden="true">›</span></a>` });
+    const flowRows = (list) => list.map(flowRow).sort(sortDesc).map((r) => r.html);
+    const isBill = (c) => c.kind === 'expense' || c.kind === 'subscription';
+    const cardMonths = () => s.spendMonths.slice(0, s.spendAvgMonths).map((m) => row('#cashflows', `Card spending · ${fmtMonth(m.month)}`, plural(m.entries, 'card'), money(m.total, base(), 0)));
     let title = '', body = '';
 
     if (what === 'assets') {
@@ -1601,16 +1609,47 @@
         return { v: toBase(v.pnl, h.currency) || 0, html: row(`#${k}`, esc(label), `${esc(h.platform || '')}${h.platform ? ' · ' : ''}${money(v.marketValue, h.currency)} now · ${money(v.cost, h.currency)} cost`, `${signed(v.pnl, h.currency)}<div class="sub">${pct(v.pnlPct)}</div>`) };
       });
       body = (rows.length ? group('Biggest gains first', rows.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No stocks or crypto yet.</p>') + total('Total', signed(s.investPnl, base(), 0));
+    } else if (what === 'income') {
+      title = 'Income per month';
+      const rows = flowRows(active.filter((c) => c.kind === 'income'));
+      body = (rows.length ? group('Biggest first', rows) : '<p class="sub">No income yet. Add your salary and other income with “+ Add”.</p>') + total('Per month', money(s.flow.income, base(), 0)) + total('Per year', money(s.flow.income * 12, base(), 0));
+    } else if (what === 'spending') {
+      title = 'Spending per month';
+      if (s.spendingSource === 'actual') {
+        body = `<p class="sub">Uses what you actually spent: the average of your last ${plural(s.spendAvgMonths, 'recorded month')} of card spending, plus bills not paid by card.</p>`
+          + group(`Card spending · average ${money(s.cardSpendAvg, base(), 0)}`, cardMonths())
+          + group(`Bills not paid by card · ${money(s.notOnCard, base(), 0)}`, flowRows(active.filter((c) => isBill(c) && !c.onCard)));
+      } else {
+        body = '<p class="sub">Estimated from your bills and subscriptions. Record your monthly card spending (Actual monthly spending, below) to use real numbers instead.</p>'
+          + group('Bills & subscriptions', flowRows(active.filter(isBill)));
+      }
+      body += total('Per month', money(s.spending, base(), 0));
+    } else if (what === 'bills') {
+      title = 'Fixed bills per month';
+      const onCard = active.filter((c) => isBill(c) && c.onCard);
+      const notCard = active.filter((c) => isBill(c) && !c.onCard);
+      body = group(`Paid from your bank accounts · ${money(notCard.reduce((t2, c) => t2 + monthly(c), 0), base(), 0)}`, flowRows(notCard))
+        + group(`Paid by credit card · ${money(onCard.reduce((t2, c) => t2 + monthly(c), 0), base(), 0)}`, flowRows(onCard));
+      if (!body) body = '<p class="sub">No bills yet. Add rent, utilities, insurance… with “+ Add”.</p>';
+      body += total('Per month', money(s.estimatedSpending, base(), 0)) + (s.spendingSource === 'actual' && onCard.length ? '<p class="sub">Card-paid bills are already inside your recorded card spending, so they aren’t counted twice in your cash flow.</p>' : '');
+    } else if (what === 'saving') {
+      title = 'Planned saving per month';
+      const rows = flowRows(active.filter((c) => c.kind === 'saving'));
+      body = (rows.length ? group('Saving & investing', rows) : '<p class="sub">Nothing planned yet. Add a regular transfer to savings or investments with the type “Saving / investing”.</p>')
+        + total('Per month', money(s.flow.saving, base(), 0))
+        + (s.netMonthly > 0 && s.flow.saving ? `<p class="sub">That’s ${pct(s.flow.saving / s.netMonthly, false)} of what’s left over each month.</p>` : '');
+    } else if (what === 'category') {
+      const cat = param || '';
+      title = cat;
+      const items = active.filter((c) => isBill(c) && (c.category || (c.kind === 'subscription' ? 'Subscriptions' : 'Uncategorised')) === cat);
+      body = group('Bills in this category', flowRows(items)) + total('Per month', money(items.reduce((t2, c) => t2 + monthly(c), 0), base(), 0));
     } else if (what === 'cashflow') {
       title = 'Monthly cash flow';
-      const flowRow = (c) => ({ v: toBase(Calc.monthlyAmount(c), c.currency) || 0, html: row('#cashflows', esc(c.name), `${esc(labelOf(FREQ, c.frequency))} ${money(c.amount, c.currency)}${c.onCard ? ' · 💳 card' : ''}`, money(toBase(Calc.monthlyAmount(c), c.currency), base(), 0)) });
-      const active = state.cashflows.filter((c) => c.active !== false);
       const income = active.filter((c) => c.kind === 'income').map(flowRow).sort(sortDesc).map((r) => r.html);
       let spend;
       if (s.spendingSource === 'actual') {
-        spend = [row('#cashflows', 'Card spending', `average of the last ${plural(s.spendAvgMonths, 'month')} you recorded`, money(s.cardSpendAvg, base(), 0)),
-          ...active.filter((c) => (c.kind === 'expense' || c.kind === 'subscription') && !c.onCard).map(flowRow).sort(sortDesc).map((r) => r.html)];
-      } else spend = active.filter((c) => c.kind === 'expense' || c.kind === 'subscription').map(flowRow).sort(sortDesc).map((r) => r.html);
+        spend = [row('#cashflows', 'Card spending', `average of the last ${plural(s.spendAvgMonths, 'month')} you recorded`, money(s.cardSpendAvg, base(), 0)), ...flowRows(active.filter((c) => isBill(c) && !c.onCard))];
+      } else spend = flowRows(active.filter(isBill));
       body = group(`Income · ${money(s.flow.income, base(), 0)}`, income)
         + group(`Spending · ${money(s.spending, base(), 0)}${s.spendingSource === 'actual' ? ' (actual)' : ' (estimated from bills)'}`, spend)
         + total('Left over each month', signed(s.netMonthly, base(), 0))
@@ -1645,7 +1684,7 @@
     } else if (what === 'subscriptions') {
       title = 'Subscriptions';
       const subs = state.cashflows.filter((c) => c.kind === 'subscription');
-      const rows = subs.map((c) => ({ v: c.active === false ? -1 : toBase(Calc.monthlyAmount(c), c.currency) || 0, html: row('#cashflows', `${esc(c.name)}${c.active === false ? ' <span class="badge">Paused</span>' : ''}`, [`${esc(labelOf(FREQ, c.frequency))} ${money(c.amount, c.currency)}`, c.onCard ? '💳 card' : (c.accountId ? `↔ ${esc(accountName(c.accountId))}` : ''), c.active === false ? '' : `next ${fmtDate(Calc.nextOccurrence(c, t))}`].filter(Boolean).join(' · '), `${money(toBase(Calc.monthlyAmount(c), c.currency), base(), 0)}/mo`) }));
+      const rows = subs.map((c) => ({ v: c.active === false ? -1 : toBase(Calc.monthlyAmount(c), c.currency) || 0, html: row(`#" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}`, `${esc(c.name)}${c.active === false ? ' <span class="badge">Paused</span>' : ''}`, [`${esc(labelOf(FREQ, c.frequency))} ${money(c.amount, c.currency)}`, c.onCard ? '💳 card' : (c.accountId ? `↔ ${esc(accountName(c.accountId))}` : ''), c.active === false ? '' : `next ${fmtDate(Calc.nextOccurrence(c, t))}`].filter(Boolean).join(' · '), `${money(toBase(Calc.monthlyAmount(c), c.currency), base(), 0)}/mo`) }));
       body = (rows.length ? group('Most expensive first', rows.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No subscriptions yet. Add them in Cash flow with the type “Subscription”.</p>')
         + total('Per month', money(s.flow.subscription, base(), 0)) + total('Per year', money(s.flow.subscription * 12, base(), 0));
     } else return;
@@ -2213,7 +2252,7 @@
       case 'open-account': location.hash = `#account/${encodeURIComponent(id)}`; return;
       case 'open-platform': location.hash = `#platform/${encodeURIComponent(b.dataset.name)}`; return;
       case 'open-region': location.hash = `#region/${encodeURIComponent(b.dataset.name)}`; return;
-      case 'explain': return explain(b.dataset.what);
+      case 'explain': return explain(b.dataset.what, b.dataset.cat);
       case 'edit': return editItem(sec, id);
       case 'edit-platform': return editPlatform(b.dataset.name);
       case 'valuation': return updateValuation(id);
@@ -2258,7 +2297,7 @@
   });
 
   document.addEventListener('keydown', (e) => {
-    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr.clickable, .card.clickable, li.clickable, .tile.clickable, .live-interest.clickable')) {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr.clickable, .card.clickable, li.clickable, .tile.clickable, .live-interest.clickable, .hbar.clickable')) {
       e.preventDefault();
       e.target.click();
     }
