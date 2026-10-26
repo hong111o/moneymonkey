@@ -3,11 +3,12 @@
  * Network-first for the app's own files (so updates show up straight away), falling back
  * to the cached copy when offline. Price, FX and GitHub requests are never cached.
  */
-const CACHE = 'moneymonkey-v2';
+const CACHE = 'moneymonkey-v3';
 const SHELL = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest',
   'js/calc.js', 'js/prices.js', 'js/charts.js', 'js/sync.js', 'js/app.js',
-  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
+  'icons/favicon-32.png', 'icons/favicon-64.png', 'icons/icon-192.png', 'icons/icon-512.png',
+  'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', (e) => {
