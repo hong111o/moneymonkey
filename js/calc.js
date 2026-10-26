@@ -145,23 +145,14 @@
         const v = depositValue(dep, today);
         if (!v.matured) continue;
         const label = dep.platform || 'Bank';
-        const entry = { id: `fd-${dep.id}`, date: v.maturityDate, kind: mode === 'cash' ? 'deposit-cash' : 'deposit-renew', platform: label, ref: dep.name || '', amount: round2(v.maturityValue), interest: round2(v.maturityInterest), currency: dep.currency, _mt: nowMs };
+        const entry = { id: `fd-${dep.id}`, heldIn: dep.accountId || null, date: v.maturityDate, kind: mode === 'cash' ? 'deposit-cash' : 'deposit-renew', platform: label, ref: dep.name || '', amount: round2(v.maturityValue), interest: round2(v.maturityInterest), currency: dep.currency, _mt: nowMs };
         if (mode === 'cash') {
           state.accounts = state.accounts || [];
-          // The chosen account, else an account on the same platform (preferring one that already
-          // holds this currency), else a new "<platform> cash" account.
-          const samePlatform = state.accounts.filter((a) => dep.platform && a.platform === dep.platform);
-          let acct = state.accounts.find((a) => a.id === dep.payoutAccountId)
-            || samePlatform.find((a) => accountBalances(a).some((b) => b.currency === dep.currency))
-            || samePlatform[0];
-          if (!acct) {
-            const id = `auto-${slug(label)}`;
-            acct = state.accounts.find((a) => a.id === id);
-            if (!acct) {
-              acct = { id, name: `${label} cash`, platform: dep.platform || '', type: 'savings', balances: [] };
-              state.accounts.push(acct);
-            }
-          }
+          // The chosen payout account, else the account the deposit is held in, else
+          // an account on the same platform / a new one for it.
+          const acct = state.accounts.find((a) => a.id === dep.payoutAccountId)
+            || state.accounts.find((a) => a.id === dep.accountId)
+            || accountForPlatform(state, dep.platform, dep.currency);
           // Credit the deposit's own currency: multi-currency accounts need no conversion.
           acct.balances = accountBalances(acct);
           delete acct.currency;
@@ -172,6 +163,7 @@
           acct.updatedAt = new Date(nowMs).toISOString();
           acct._mt = nowMs;
           entry.accountName = acct.name;
+          entry.accountId = acct.id;
         } else {
           const next = { ...dep, id: `${dep.id}r`, startDate: v.maturityDate, principal: round2(v.maturityValue), _mt: nowMs };
           if (dep.endDate) next.endDate = toISO(addDays(parseDate(v.maturityDate), v.termDays));
@@ -514,6 +506,36 @@
     return rows.sort((x, y) => (isFinite(y.base) ? y.base : -Infinity) - (isFinite(x.base) ? x.base : -Infinity));
   }
 
+  // An account on `platform` (preferring one that holds `currency`), creating
+  // "<platform>" with a deterministic id if there is none, so synced devices agree.
+  function accountForPlatform(state, platform, currency) {
+    const same = (state.accounts || []).filter((a) => platform && a.platform === platform);
+    const hit = same.find((a) => accountBalances(a).some((b) => b.currency === currency)) || same[0];
+    if (hit) return hit;
+    const id = `auto-${slug(platform || 'bank')}`;
+    let acct = state.accounts.find((a) => a.id === id);
+    if (!acct) {
+      acct = { id, name: platform || 'Bank account', platform: platform || '', type: 'savings', balances: [] };
+      state.accounts.push(acct);
+    }
+    return acct;
+  }
+
+  // Every fixed deposit is held in a bank account (`accountId`) and takes that account's
+  // platform. Older deposits that only had a platform are attached to a matching account.
+  function linkDeposits(state) {
+    state.accounts = state.accounts || [];
+    for (const dep of state.deposits || []) {
+      let acct = state.accounts.find((a) => a.id === dep.accountId);
+      if (!acct) {
+        acct = accountForPlatform(state, dep.platform, dep.currency);
+        dep.accountId = acct.id;
+      }
+      if ((acct.platform || '') !== (dep.platform || '')) dep.platform = acct.platform || '';
+    }
+    return state;
+  }
+
   // ---------- platforms & regions ----------
 
   // Value of one item split by currency (liabilities as a positive balance owed).
@@ -611,6 +633,6 @@
     upsertHistory, monthsToGoal, spendingByMonth,
     summarize,
     itemValue, itemParts, migratePlatforms, platformBreakdown,
-    accountBalances, migrateAccounts, cashByCurrency,
+    accountBalances, migrateAccounts, cashByCurrency, accountForPlatform, linkDeposits,
   };
 });

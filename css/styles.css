@@ -117,7 +117,8 @@ h3 { font-size: 0.95rem; margin: 12px 0 6px; }
   padding: 10px 20px; padding-top: max(10px, env(safe-area-inset-top));
   background: var(--surface); border-bottom: 1px solid var(--border);
 }
-.brand { font-weight: 700; font-size: 1.1rem; color: var(--text); text-decoration: none; white-space: nowrap; }
+.brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1.1rem; color: var(--text); text-decoration: none; white-space: nowrap; }
+.brand-icon { width: 28px; height: 28px; border-radius: 7px; flex: none; }
 .topbar-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .status { color: var(--text-2); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 53px); }
@@ -296,6 +297,15 @@ td.actions { text-align: right; white-space: nowrap; vertical-align: middle !imp
 .hbar-track { height: 10px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 .hbar-track span { display: block; height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
 .hbar-track span.neg-bar { background: var(--neg); }
+
+.back { display: inline-block; margin: 0 0 8px; color: var(--accent); text-decoration: none; font-size: 0.95rem; padding: 4px 0; }
+.section-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 22px 0 10px; }
+.section-head h2 { margin: 0; }
+.acct-bals { list-style: none; margin: 0 0 8px; padding: 0; }
+.acct-bals li { display: flex; align-items: center; gap: 10px; padding: 10px 6px; border-bottom: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.acct-bals li:last-child { border-bottom: 0; }
+.acct-bals li:hover, .acct-bals li:active { background: var(--surface-2); }
+.acct-bals strong { font-size: 1.05rem; }
 
 .cur-tag { display: inline-block; min-width: 38px; text-align: center; font-size: 0.72rem; font-weight: 650; letter-spacing: 0.03em; padding: 1px 6px; border-radius: 6px; background: var(--surface-2); color: var(--text-2); }
 .bal-list { display: flex; flex-direction: column; gap: 3px; }

@@ -19,13 +19,17 @@ No server and no dependencies. Your data is stored on your devices and, if you t
 | **Actual spending** | What you really spent each month, e.g. each **credit card statement** | Cash flow, savings rate and runway use your real 3-month average instead of estimates |
 | **Goals** | Target amount and optional date | Progress, and whether you're on track |
 
+### Bank accounts hold cash and fixed deposits
+
+Tap an account in **Cash & Bank** to open its overview: its total, its cash in every currency (tap to update the balances), and the **fixed deposits held in it**. Add a deposit there with **+ Add fixed deposit**. Every fixed deposit belongs to a bank account. When it matures, capital and interest go back into that account (or another account you pick), in the deposit's currency. Fixed deposits still count as their own category on the dashboard, and **Cash & Bank → Fixed deposits → see all** lists every deposit across your accounts.
+
 ### Multi-currency accounts
 
 Add one line per currency inside an account (**+ Add currency** in the form). The account card shows each balance plus the converted total. On the Cash & Bank page, **Cash by currency** shows every currency's total across all accounts as a bar split by account. Tap a currency, or use the currency filter, to list only the accounts holding it. When a fixed deposit matures, the money is added to the matching currency in the payout account. If that account doesn't hold the currency yet, a new balance line is created, with no conversion. Older single-currency accounts are converted automatically.
 
 ### Platforms & regions
 
-Every asset and loan has a **Platform** (HSBC HK, ZA Bank, Futu, Monzo, Trading 212, Nationwide…). The **Platforms** page shows cash, investments, deposits and debts per platform. You can give each platform a **region** (e.g. Hong Kong, United Kingdom) to see totals by country. Regions are guessed from currency until you set them. You can also filter any list by platform, or rename a platform everywhere at once.
+Every asset and loan has a **Platform** (HSBC HK, ZA Bank, Futu, Monzo, Trading 212, Nationwide…). The **Platforms** page shows cash, investments, deposits and debts per platform. Tap a platform to open its own page, with totals and every account, deposit, holding and loan on it, each tappable to edit. Add new items to that platform from there, or rename it and set its region. You can give each platform a **region** (e.g. Hong Kong, United Kingdom) to see totals by country. Regions are guessed from currency until you set them. You can also filter any list by platform, or rename a platform everywhere at once.
 
 ### Credit-card spending without double counting
 

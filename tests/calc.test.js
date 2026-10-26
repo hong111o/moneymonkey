@@ -173,7 +173,7 @@ test('matured deposit moves capital + interest to an auto cash account', () => {
   assert.equal(s.deposits.length, 0);
   assert.equal(s.accounts.length, 1);
   assert.equal(s.accounts[0].id, 'auto-hsbc-hk');
-  assert.equal(s.accounts[0].name, 'HSBC HK cash');
+  assert.equal(s.accounts[0].name, 'HSBC HK');
   assert.deepEqual(s.accounts[0].balances, [{ currency: 'HKD', amount: 10400 }]);
   assert.equal(s.deleted.d1, 5);
   assert.equal(s.activity[0].kind, 'deposit-cash');
@@ -295,4 +295,33 @@ test('recorded spending replaces estimated spending and skips card-paid bills', 
 test('items without a platform never get a guessed region', () => {
   const { platforms } = C.platformBreakdown({ settings: { baseCurrency: 'HKD' }, fx: { base: 'HKD', rates: { HKD: 1 } }, accounts: [{ balance: 1, currency: 'HKD' }] }, '2026-01-01');
   assert.equal(platforms[0].region, '');
+});
+
+test('deposits are linked to a bank account and follow its platform', () => {
+  const s = {
+    accounts: [
+      { id: 'one', name: 'HSBC One', platform: 'HSBC HK', balances: [{ currency: 'USD', amount: 1 }] },
+      { id: 'sav', name: 'HSBC Savings', platform: 'HSBC HK', balances: [{ currency: 'HKD', amount: 1 }] },
+    ],
+    deposits: [
+      { id: 'a', platform: 'HSBC HK', currency: 'HKD' },          // legacy: matched by platform + currency
+      { id: 'b', platform: 'ZA Bank', currency: 'HKD' },          // no account yet -> one is created
+      { id: 'c', accountId: 'one', platform: 'Old name', currency: 'HKD' }, // platform follows the account
+    ],
+  };
+  C.linkDeposits(s);
+  assert.deepEqual(s.deposits.map((d) => [d.accountId, d.platform]), [['sav', 'HSBC HK'], ['auto-za-bank', 'ZA Bank'], ['one', 'HSBC HK']]);
+  assert.equal(s.accounts[2].name, 'ZA Bank');
+  C.linkDeposits(s);
+  assert.equal(s.accounts.length, 3); // idempotent
+});
+
+test('a matured deposit returns to the account it is held in', () => {
+  const s = fdState({ accountId: 'h' });
+  s.accounts.push({ id: 'x', name: 'Other HSBC', platform: 'HSBC HK', balances: [{ currency: 'HKD', amount: 0 }] });
+  s.accounts.push({ id: 'h', name: 'HSBC One', platform: 'HSBC HK', balances: [] });
+  const [entry] = C.settleDeposits(s, '2027-01-05', 1);
+  assert.deepEqual(s.accounts[1].balances, [{ currency: 'HKD', amount: 10400 }]);
+  assert.equal(entry.accountId, 'h');
+  assert.equal(entry.heldIn, 'h');
 });

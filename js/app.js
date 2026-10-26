@@ -47,6 +47,7 @@
     if (!s.fx || !s.fx.rates) s.fx = d.fx;
     Calc.migratePlatforms(s);
     Calc.migrateAccounts(s);
+    Calc.linkDeposits(s);
     s.version = 2;
     return s;
   }
@@ -170,6 +171,10 @@
   const platformField = (label, placeholder, extra = {}) => ({ key: 'platform', label, list: 'platform-list', placeholder, ...extra });
   // NaN when a non-zero balance has no exchange rate yet, so we never show a misleading total.
   const accountTotal = (a) => Calc.accountBalances(a).reduce((t, b) => t + (+b.amount ? toBase(b.amount, b.currency) : 0), 0);
+  const accountDeposits = (a) => state.deposits.filter((d) => d.accountId === a.id);
+  const depositsTotal = (deps) => deps.reduce((t, d) => t + (toBase(Calc.depositValue(d, todayISO()).value, d.currency) || 0), 0);
+  const accountName = (id) => (state.accounts.find((a) => a.id === id) || {}).name || '';
+  const currenciesWord = (n) => `${n} ${n === 1 ? 'currency' : 'currencies'}`;
   const balanceList = (a) => `<div class="bal-list">${Calc.accountBalances(a).map((b) => `<div><span class="cur-tag">${esc(b.currency)}</span> ${money(b.amount, b.currency)}</div>`).join('')}</div>`;
   const platformLine = (item, more = '') => [item.platform, more].filter(Boolean).map(esc).join(' · ');
 
@@ -181,7 +186,8 @@
     accounts: {
       title: 'Cash & Bank',
       singular: 'account',
-      intro: 'Bank accounts, e-wallets and cash. Each account can hold several currencies, e.g. HKD, USD and GBP in one HSBC One account. Update the balances whenever you check your bank app.',
+      intro: 'Your bank accounts, e-wallets and cash. Each account can hold cash in several currencies and fixed deposits. Tap an account to see everything in it.',
+      rowAction: 'open-account',
       fields: [
         { key: 'name', label: 'Account name', required: true, placeholder: 'e.g. HSBC One' },
         platformField('Bank / platform', 'e.g. HSBC HK, Monzo'),
@@ -197,13 +203,17 @@
       },
       columns: [
         { label: 'Account', render: (a) => `<strong>${esc(a.name)}</strong><div class="sub">${platformLine(a, labelOf(ACCOUNT_TYPES, a.type))}</div>` },
-        { label: 'Balances', num: true, wide: true, render: balanceList },
+        { label: 'Cash', num: true, wide: true, render: balanceList },
+        {
+          label: 'Fixed deposits', num: true,
+          render: (a) => { const deps = accountDeposits(a); return deps.length ? `${money(depositsTotal(deps))}<div class="sub">${plural(deps.length, 'deposit')}</div>` : '<span class="sub">—</span>'; },
+        },
         {
           label: 'Total', num: true, primary: true,
           render: (a) => {
+            const total = accountTotal(a) + depositsTotal(accountDeposits(a));
             const n = Calc.accountBalances(a).length;
-            const total = accountTotal(a);
-            const note = isFinite(total) ? (n > 1 ? `${n} currencies` : '') : 'waiting for exchange rate';
+            const note = isFinite(total) ? (n > 1 ? currenciesWord(n) : '') : 'waiting for exchange rate';
             return `${money(total)}${note ? `<div class="sub">${note}</div>` : ''}`;
           },
         },
@@ -257,9 +267,17 @@
     deposits: {
       title: 'Fixed Deposits',
       singular: 'fixed deposit',
-      intro: 'Interest accrues day by day. Enter the rate or the total interest the bank quoted, and the term in months or as an end date. When a deposit matures, MoneyMonkey can move the money into your cash automatically.',
+      intro: 'All your fixed deposits across your bank accounts. Each deposit is held in a bank account; open an account in Cash & Bank to see its cash and deposits together. Interest accrues day by day, and at maturity the money can go back into the account automatically.',
       fields: [
-        platformField('Bank / platform', 'e.g. HSBC HK, ZA Bank', { required: true }),
+        {
+          key: 'accountId', label: 'Held in bank account', type: 'select', required: true, span: true,
+          options: () => [
+            ...state.accounts.map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` })),
+            { value: '__new', label: '+ New bank account…' },
+          ],
+        },
+        { key: 'newAccountName', label: 'New account name', required: true, transient: true, placeholder: 'e.g. HSBC One', showIf: (v) => v.accountId === '__new' },
+        { key: 'newAccountPlatform', label: 'Bank / platform', required: true, transient: true, list: 'platform-list', placeholder: 'e.g. HSBC HK', showIf: (v) => v.accountId === '__new' },
         { key: 'name', label: 'Reference (optional)', placeholder: 'e.g. 6-month HKD promo' },
         currencyField,
         { key: 'principal', label: 'Amount deposited', type: 'number', required: true },
@@ -275,7 +293,7 @@
         {
           key: 'payoutAccountId', label: 'Move the money into', type: 'select', span: true, showIf: (v) => v.onMaturity === 'cash',
           options: (v) => [
-            { value: '', label: v.platform ? `Auto — my ${v.platform} account (or a new “${v.platform} cash”)` : 'Auto — a new cash account' },
+            { value: '', label: v.accountId && v.accountId !== '__new' ? `Back into ${accountName(v.accountId) || 'the same account'}` : 'Back into the account it’s held in' },
             ...state.accounts.map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''} (${Calc.accountBalances(a).map((b) => b.currency).join(', ') || 'empty'})` })),
           ],
           help: 'Paid in the deposit’s own currency — added to that currency’s balance in the account.',
@@ -293,9 +311,15 @@
         else item.endDate = null;
         if (item.rateMode === 'interest') item.rate = +Calc.impliedRate(item.principal, item.interestAmount, item.startDate, item.termMonths, item.compounding, item.endDate).toFixed(8);
         if (item.onMaturity !== 'cash') delete item.payoutAccountId;
+        if (item.accountId === '__new') {
+          const acct = { id: uid(), name: item.newAccountName, platform: item.newAccountPlatform, type: 'savings', balances: [], updatedAt: new Date().toISOString(), _mt: Date.now() };
+          state.accounts.push(acct);
+          item.accountId = acct.id;
+        }
+        item.platform = (state.accounts.find((a) => a.id === item.accountId) || {}).platform || '';
       },
       columns: [
-        { label: 'Deposit', render: (d) => `<strong>${esc(d.platform || 'Fixed deposit')}</strong><div class="sub">${esc(d.name || '')}</div>` },
+        { label: 'Deposit', render: (d) => `<strong>${esc(d.platform || 'Fixed deposit')}</strong><div class="sub">${[accountName(d.accountId), d.name].filter(Boolean).map(esc).join(' · ')}</div>` },
         {
           label: 'Period',
           render: (d) => {
@@ -493,22 +517,28 @@
     { id: 'accounts', label: 'Cash & Bank', icon: '¤', group: 'Assets' },
     { id: 'stocks', label: 'Stocks', icon: '↗', group: 'Assets' },
     { id: 'crypto', label: 'Crypto', icon: '₿', group: 'Assets' },
-    { id: 'deposits', label: 'Fixed Deposits', icon: '%', group: 'Assets' },
+    { id: 'deposits', label: 'Fixed Deposits', icon: '%', group: 'Assets', hidden: true },
     { id: 'properties', label: 'Property', icon: '⌂', group: 'Assets' },
     { id: 'others', label: 'Other Assets', icon: '◆', group: 'Assets' },
     { id: 'liabilities', label: 'Loans & Debts', icon: '−', group: 'Owe & spend' },
     { id: 'cashflows', label: 'Cash Flow', icon: '⇄', group: 'Owe & spend' },
     { id: 'goals', label: 'Goals', icon: '★', group: 'Owe & spend' },
     { id: 'settings', label: 'Settings & Sync', icon: '⚙', group: '' },
+    { id: 'account', hidden: true },
+    { id: 'platform', hidden: true },
   ];
+  // Detail pages highlight their parent in the navigation.
+  const NAV_PARENT = { account: 'accounts', deposits: 'accounts', platform: 'platforms' };
 
   let currentView = 'dashboard';
+  let viewParam = null;
   let historyRange = '90';
   let summary = null;
   const filters = {};
 
   function route() {
-    const id = location.hash.replace('#', '');
+    const [id, ...rest] = location.hash.replace('#', '').split('/');
+    viewParam = rest.length ? decodeURIComponent(rest.join('/')) : null;
     currentView = VIEWS.some((v) => v.id === id) ? id : 'dashboard';
     render();
     window.scrollTo(0, 0);
@@ -516,12 +546,13 @@
 
   function renderNav() {
     let group = null;
-    $('#nav').innerHTML = VIEWS.map((v) => {
+    const active = NAV_PARENT[currentView] || currentView;
+    $('#nav').innerHTML = VIEWS.filter((v) => !v.hidden).map((v) => {
       const head = v.group !== group ? `${(group = v.group) ? `<div class="nav-group">${v.group}</div>` : '<div class="nav-sep"></div>'}` : '';
-      return `${head}<a href="#${v.id}" class="${v.id === currentView ? 'active' : ''}"><span class="icon" aria-hidden="true">${v.icon}</span><span>${v.label}</span>${navCount(v.id)}</a>`;
+      return `${head}<a href="#${v.id}" class="${v.id === active ? 'active' : ''}"><span class="icon" aria-hidden="true">${v.icon}</span><span>${v.label}</span>${navCount(v.id)}</a>`;
     }).join('');
-    const tab = (id, icon, label) => `<a href="#${id}" class="${currentView === id ? 'active' : ''}"><span class="icon" aria-hidden="true">${icon}</span><span>${label}</span></a>`;
-    const inMore = !['dashboard', 'platforms', 'cashflows'].includes(currentView);
+    const tab = (id, icon, label) => `<a href="#${id}" class="${active === id ? 'active' : ''}"><span class="icon" aria-hidden="true">${icon}</span><span>${label}</span></a>`;
+    const inMore = !['dashboard', 'platforms', 'cashflows'].includes(active);
     $('#tabbar').innerHTML = `${tab('dashboard', '◎', 'Home')}${tab('platforms', '▦', 'Platforms')}
       <button class="tab-add" data-action="quick-add" aria-label="Add something"><span>+</span></button>
       ${tab('cashflows', '⇄', 'Cash flow')}
@@ -549,6 +580,8 @@
     else if (currentView === 'platforms') main.innerHTML = renderPlatforms();
     else if (currentView === 'cashflows') main.innerHTML = renderCashflows();
     else if (currentView === 'goals') main.innerHTML = renderGoals();
+    else if (currentView === 'account') main.innerHTML = renderAccount(viewParam);
+    else if (currentView === 'platform') main.innerHTML = renderPlatformDetail(viewParam ?? '');
     else main.innerHTML = renderSection(currentView);
     Charts.bindLineHover(main, tooltip);
     tickLive();
@@ -622,7 +655,7 @@
     const { platforms, regions } = Calc.platformBreakdown(state, todayISO());
     const named = platforms.filter((p) => p.name);
     const maxAbs = Math.max(1, ...named.map((p) => Math.abs(p.net)));
-    const platformBars = named.slice(0, 8).map((p) => `<a class="hbar link" href="#platforms"><span class="hbar-label">${esc(p.name)}<span class="sub"> ${esc(p.region)}</span></span>
+    const platformBars = named.slice(0, 8).map((p) => `<a class="hbar link" href="#platform/${encodeURIComponent(p.name)}"><span class="hbar-label">${esc(p.name)}<span class="sub"> ${esc(p.region)}</span></span>
       <span class="hbar-track"><span class="${p.net < 0 ? 'neg-bar' : ''}" style="width:${(Math.abs(p.net) / maxAbs) * 100}%"></span></span><span class="num">${money(p.net, base(), 0)}</span></a>`).join('');
     const regionPills = regions.filter((r) => r.region).map((r) => `<div class="pill"><span class="sub">${esc(r.region)}</span><strong>${money(r.net, base(), 0)}</strong></div>`).join('');
 
@@ -725,7 +758,12 @@
         return `<section class="tiles">${tile(`${esc(cur)} across accounts`, money(r ? r.amount : 0, cur), r ? `${cur !== base() ? `≈ ${money(r.base, base(), 0)} · ` : ''}${plural(r.accounts.length, 'account')}` : '')}${tile(`All cash (${esc(base())})`, money(sec.total(state.accounts)))}</section>`;
       }
       const allRated = rows.every((x) => isFinite(x.base));
-      extra = tile('Currencies', String(rows.length), rows[0] && allRated ? `Largest: ${esc(rows[0].currency)} (${pct(rows[0].share, false)})` : rows.length ? 'waiting for exchange rates' : '');
+      const deps = state.deposits.filter((d) => items.some((a) => a.id === d.accountId));
+      return `<section class="tiles">
+        ${tile(`Cash (${esc(base())})`, money(sec.total(items)))}
+        ${tile('Fixed deposits', money(depositsTotal(deps)), deps.length ? `${plural(deps.length, 'deposit')} · <a href="#deposits">see all</a>` : 'add one from an account')}
+        ${tile('Currencies', String(rows.length), rows[0] && allRated ? `Largest: ${esc(rows[0].currency)} (${pct(rows[0].share, false)})` : rows.length ? 'waiting for exchange rates' : '')}
+      </section>`;
     } else if (key === 'stocks' || key === 'crypto') {
       let mv = 0, cost = 0, day = 0;
       for (const h of items) {
@@ -763,13 +801,7 @@
     const currencies = key === 'accounts' ? [...new Set(all.flatMap((a) => Calc.accountBalances(a).map((b) => b.currency)))].sort() : [];
     if (curFilter) items = items.filter((a) => Calc.accountBalances(a).some((b) => b.currency === curFilter));
 
-    const rows = items
-      .map((item) => `<tr class="clickable" data-action="edit" data-sec="${key}" data-id="${esc(item.id)}" tabindex="0">
-        ${sec.columns.map((c) => `<td class="${c.num ? 'num' : ''} ${c.primary ? 'primary' : ''} ${c.wide ? 'wide' : ''}" data-label="${esc(c.label)}">${c.render(item)}</td>`).join('')}
-        <td class="actions">${(sec.actions || []).map((a) => `<button class="btn small" data-action="${a.id}" data-sec="${key}" data-id="${esc(item.id)}">${a.label}</button>`).join('')}<span class="chev" aria-hidden="true">›</span></td></tr>`)
-      .join('');
-
-    return `
+    return `${key === 'deposits' ? '<a class="back" href="#accounts">‹ Cash &amp; Bank</a>' : ''}
       <div class="page-head">
         <div><h1>${sec.title}</h1><p class="sub intro">${sec.intro}</p></div>
         <div class="row-actions">
@@ -781,10 +813,63 @@
       </div>
       ${opts.tiles ?? sectionTiles(key, items)}
       ${key === 'accounts' ? renderCashByCurrency(filter == null ? all : all.filter((x) => (x.platform || '') === filter)) : ''}
-      ${items.length ? `<div class="card table-card"><table class="data"><thead><tr>${sec.columns.map((c) => `<th class="${c.num ? 'num' : ''}">${c.label}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      ${items.length ? renderItemsTable(key, items)
         : `<div class="card empty">No ${sec.singular}s${filter != null || curFilter ? ' match this filter' : ' yet'}. <button class="btn primary" data-action="add" data-sec="${key}">+ Add ${sec.singular}</button></div>`}
       ${key === 'deposits' ? renderDepositHistory() : ''}
       ${opts.after || ''}`;
+  }
+
+  // The list of items for a section, as a table on wide screens and tappable cards on phones.
+  function renderItemsTable(key, items) {
+    const sec = SECTIONS[key];
+    const rows = items
+      .map((item) => `<tr class="clickable" data-action="${sec.rowAction || 'edit'}" data-sec="${key}" data-id="${esc(item.id)}" tabindex="0">
+        ${sec.columns.map((c) => `<td class="${c.num ? 'num' : ''} ${c.primary ? 'primary' : ''} ${c.wide ? 'wide' : ''}" data-label="${esc(c.label)}">${c.render(item)}</td>`).join('')}
+        <td class="actions">${(sec.actions || []).map((a) => `<button class="btn small" data-action="${a.id}" data-sec="${key}" data-id="${esc(item.id)}">${a.label}</button>`).join('')}<span class="chev" aria-hidden="true">›</span></td></tr>`)
+      .join('');
+    return `<div class="card table-card"><table class="data"><thead><tr>${sec.columns.map((c) => `<th class="${c.num ? 'num' : ''}">${c.label}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  // ---------------------------------------------------------------- one bank account
+
+  function renderAccount(id) {
+    const a = state.accounts.find((x) => x.id === id);
+    if (!a) return '<a class="back" href="#accounts">‹ Cash &amp; Bank</a><div class="card empty">This account no longer exists.</div>';
+    const t = todayISO();
+    const deps = accountDeposits(a);
+    const bals = Calc.accountBalances(a);
+    const cash = accountTotal(a);
+    const fd = depositsTotal(deps);
+    let interest = 0, daily = 0;
+    for (const d of deps) {
+      const v = Calc.depositValue(d, t);
+      interest += toBase(v.interest, d.currency) || 0;
+      daily += toBase(v.dailyInterest, d.currency) || 0;
+    }
+    const balRows = bals.map((b) => `<li class="clickable" data-action="edit" data-sec="accounts" data-id="${esc(a.id)}" tabindex="0">
+        <span class="cur-tag">${esc(b.currency)}</span><strong class="grow">${money(b.amount, b.currency)}</strong>
+        <span class="sub">${b.currency !== base() ? `≈ ${money(toBase(b.amount, b.currency), base(), 0)}` : ''}</span></li>`).join('');
+    const history = state.activity.filter((e) => e.kind && e.kind.startsWith('deposit-') && (e.accountId === a.id || e.heldIn === a.id)).slice(0, 10);
+    const meta = [a.platform ? `<a href="#platform/${encodeURIComponent(a.platform)}">${esc(a.platform)}</a>` : '', esc(labelOf(ACCOUNT_TYPES, a.type)), esc(a.note || '')].filter(Boolean).join(' · ');
+    return `<a class="back" href="#accounts">‹ Cash &amp; Bank</a>
+      <div class="page-head">
+        <div><h1>${esc(a.name)}</h1><p class="sub">${meta}</p></div>
+        <div class="row-actions"><button class="btn" data-action="edit" data-sec="accounts" data-id="${esc(a.id)}">Edit account</button></div>
+      </div>
+      <section class="tiles">
+        ${tile(`Total (${esc(base())})`, money(cash + fd))}
+        ${tile('Cash', money(cash), bals.length ? currenciesWord(bals.length) : 'no balances yet')}
+        ${tile('Fixed deposits', money(fd), deps.length ? `${plural(deps.length, 'deposit')} · +${money(daily)}/day` : 'none yet')}
+        ${deps.length ? tile('Interest so far', `<span class="pos">${money(interest)}</span>`) : ''}
+      </section>
+      <div class="section-head"><h2>Cash</h2><button class="btn small" data-action="edit" data-sec="accounts" data-id="${esc(a.id)}">Update balances</button></div>
+      <div class="card">
+        ${bals.length ? `<ul class="acct-bals">${balRows}</ul>` : '<p class="sub">No cash in this account yet. Tap “Update balances” to add one line per currency.</p>'}
+        <p class="sub">Balances updated ${ago(a.updatedAt)}</p>
+      </div>
+      <div class="section-head"><h2>Fixed deposits</h2><button class="btn small primary" data-action="add" data-sec="deposits" data-account="${esc(a.id)}">+ Add fixed deposit</button></div>
+      ${deps.length ? renderItemsTable('deposits', deps) : '<div class="card"><p class="sub">No fixed deposits in this account.</p></div>'}
+      ${history.length ? `<div class="section-head"><h2>Matured deposits</h2></div><div class="card"><ul class="events">${history.map((e) => `<li><span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${activityText(e)}</span><span></span></li>`).join('')}</ul></div>` : ''}`;
   }
 
   // Each currency's total across accounts, as a stacked bar split by account plus a legend list.
@@ -827,15 +912,54 @@
     const regionTiles = regions.map((r) => tile(esc(r.region || 'No region'), money(r.net), `${plural(r.platforms, 'platform')}${net > 0 ? ` · ${((r.net / net) * 100).toFixed(1)}% of net worth` : ''}`)).join('');
     const cell = (v, cls = '') => (Math.abs(v) < 0.005 ? '<span class="sub">—</span>' : `<span class="${cls}">${money(v, base(), 0)}</span>`);
     const td = (label, v, cls = '') => `<td class="num ${Math.abs(v) < 0.005 ? 'empty-cell' : ''}" data-label="${label}">${cell(v, cls)}</td>`;
-    const rows = platforms.map((p) => `<tr class="${p.name ? 'clickable' : ''}" ${p.name ? `data-action="edit-platform" data-name="${esc(p.name)}" tabindex="0"` : ''}>
+    const rows = platforms.map((p) => `<tr class="clickable" data-action="open-platform" data-name="${esc(p.name)}" tabindex="0">
         <td data-label="Platform"><strong>${esc(p.name || 'No platform set')}</strong><div class="sub">${p.region ? `${esc(p.region)}${p.regionGuessed ? ' <span class="badge" title="Guessed from currency — tap to set">guess</span>' : ''}` : (p.name ? 'Tap to set a region' : 'Edit items to add a platform')} · ${plural(p.count, 'item')} · ${esc(p.currencies.join(', '))}</div></td>
         ${td('Cash', p.cash)}${td('Investments', p.invest)}${td('Deposits', p.deposits)}${td('Property &amp; other', p.property + p.other)}${td('Debts', -p.debt, 'neg')}
         <td class="num primary" data-label="Net">${money(p.net, base(), 0)}<div class="sub">${net > 0 ? `${((p.net / net) * 100).toFixed(1)}%` : ''}</div></td>
-        <td class="actions">${p.name ? '<span class="chev" aria-hidden="true">›</span>' : ''}</td></tr>`).join('');
-    return `<div class="page-head"><div><h1>Platforms</h1><p class="sub intro">Everything grouped by where it’s held — banks, brokers, exchanges, lenders. Tap a platform to set its region (e.g. Hong Kong, United Kingdom) or rename it everywhere at once.</p></div></div>
+        <td class="actions"><span class="chev" aria-hidden="true">›</span></td></tr>`).join('');
+    return `<div class="page-head"><div><h1>Platforms</h1><p class="sub intro">Everything grouped by where it’s held — banks, brokers, exchanges, lenders. Tap a platform to see everything on it, edit items, or set its region (e.g. Hong Kong, United Kingdom).</p></div></div>
       ${regionTiles ? `<section class="tiles">${regionTiles}</section>` : ''}
       ${platforms.length ? `<div class="card table-card"><table class="data"><thead><tr><th>Platform</th><th class="num">Cash</th><th class="num">Investments</th><th class="num">Deposits</th><th class="num">Property & other</th><th class="num">Debts</th><th class="num">Net</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
         : '<div class="card empty">Nothing here yet. Add accounts, holdings or deposits with a platform name.</div>'}`;
+  }
+
+  // ---------------------------------------------------------------- one platform
+
+  const PLATFORM_GROUP_TITLES = [['accounts', 'Bank accounts'], ['deposits', 'Fixed deposits'], ['stocks', 'Stocks & ETFs'], ['crypto', 'Crypto'], ['properties', 'Property'], ['others', 'Other assets'], ['liabilities', 'Loans & debts']];
+
+  function renderPlatformDetail(name) {
+    const p = Calc.platformBreakdown(state, todayISO()).platforms.find((x) => x.name === name);
+    const back = '<a class="back" href="#platforms">‹ Platforms</a>';
+    const title = esc(name || 'No platform set');
+    if (!p) {
+      return `${back}<div class="page-head"><div><h1>${title}</h1></div></div>
+        <div class="card empty">Nothing on this platform any more.</div>`;
+    }
+    const net = summary.netWorth || 0;
+    const tiles = [
+      tile('Net', money(p.net), net > 0 ? `${((p.net / net) * 100).toFixed(1)}% of net worth` : ''),
+      p.cash ? tile('Cash', money(p.cash)) : '',
+      p.deposits ? tile('Fixed deposits', money(p.deposits)) : '',
+      p.invest ? tile('Investments', money(p.invest)) : '',
+      p.property + p.other ? tile('Property & other', money(p.property + p.other)) : '',
+      p.debt ? tile('Debts', `<span class="neg">${money(p.debt)}</span>`) : '',
+    ].join('');
+    const groups = PLATFORM_GROUP_TITLES.map(([k, label]) => {
+      const items = state[k].filter((x) => (x.platform || '') === name);
+      if (!items.length) return '';
+      return `<div class="section-head"><h2>${label}</h2><button class="btn small" data-action="add" data-sec="${k}" data-platform="${esc(name)}">+ Add</button></div>${renderItemsTable(k, items)}`;
+    }).join('');
+    const addMore = PLATFORM_GROUP_TITLES.filter(([k]) => !state[k].some((x) => (x.platform || '') === name))
+      .map(([k, label]) => `<button class="btn small" data-action="add" data-sec="${k}" data-platform="${esc(name)}">+ ${label}</button>`).join('');
+    const meta = [p.region ? `${esc(p.region)}${p.regionGuessed ? ' <span class="badge" title="Guessed from currency">guess</span>' : ''}` : '', esc(p.currencies.join(', '))].filter(Boolean).join(' · ');
+    return `${back}
+      <div class="page-head">
+        <div><h1>${title}</h1><p class="sub">${meta}</p></div>
+        ${name ? `<div class="row-actions"><button class="btn" data-action="edit-platform" data-name="${esc(name)}">Edit name &amp; region</button></div>` : ''}
+      </div>
+      <section class="tiles">${tiles}</section>
+      ${groups}
+      ${name && addMore ? `<div class="card"><p class="sub">Add something else held at ${title}:</p><div class="row-actions wrap">${addMore}</div></div>` : ''}`;
   }
 
   function editPlatform(name) {
@@ -855,6 +979,10 @@
           delete state.platformMeta[name];
         }
         state.platformMeta[v.name] = { region: v.region, _mt: now };
+        if (currentView === 'platform' && viewParam === name) {
+          viewParam = v.name;
+          history.replaceState(null, '', `#platform/${encodeURIComponent(v.name)}`);
+        }
         commit();
         toast('Platform updated');
       },
@@ -1180,20 +1308,40 @@
     d.showModal();
   }
 
-  function editItem(sec, id) {
+  function editItem(sec, id, preset = {}) {
     const def = SECTIONS[sec];
     const prev = id ? state[sec].find((x) => x.id === id) : null;
     if (id && !prev) return;
+    preset = { ...(filters[sec] ? { platform: filters[sec] } : {}), ...preset };
+    if (sec === 'deposits' && !prev) {
+      // Adding from an account or platform page: hold the deposit in that account.
+      const acct = state.accounts.find((a) => a.id === preset.accountId) || (preset.platform != null ? state.accounts.find((a) => a.platform === preset.platform) : null);
+      if (acct) {
+        preset.accountId = acct.id;
+        preset.currency = preset.currency || (Calc.accountBalances(acct)[0] || {}).currency;
+      } else if (preset.platform) {
+        preset.accountId = '__new';
+        preset.newAccountPlatform = preset.platform;
+      } else if (!state.accounts.length) preset.accountId = '__new';
+      delete preset.platform;
+    }
     openForm({
       title: `${prev ? 'Edit' : 'Add'} ${def.singular}`,
       fields: def.fields,
-      values: prev ? (def.editValues ? def.editValues(prev) : { ...prev }) : (filters[sec] ? { platform: filters[sec] } : {}),
+      values: prev ? (def.editValues ? def.editValues(prev) : { ...prev }) : preset,
       isNew: !prev,
       preview: def.preview,
       validate: def.validate,
       onDelete: prev ? () => {
-        if (!confirm(`Delete “${prev.name || prev.symbol || prev.coinId || prev.platform}”?`)) return false;
+        const deps = sec === 'accounts' ? accountDeposits(prev) : [];
+        const extra = deps.length ? ` and its ${plural(deps.length, 'fixed deposit')}` : '';
+        if (!confirm(`Delete “${prev.name || prev.symbol || prev.coinId || prev.platform}”${extra}?`)) return false;
+        for (const d of deps) {
+          state.deposits = state.deposits.filter((x) => x.id !== d.id);
+          state.deleted[d.id] = Date.now();
+        }
         removeItem(sec, prev.id);
+        if (sec === 'accounts' && currentView === 'account') location.hash = '#accounts';
         return true;
       } : null,
       onSave: (v) => {
@@ -1270,12 +1418,13 @@
   }
 
   function openMenu() {
-    openSheet('Menu', `<nav class="menu-list">${VIEWS.map((v) => `<a href="#${v.id}" class="${v.id === currentView ? 'active' : ''}"><span class="icon" aria-hidden="true">${v.icon}</span>${v.label}${navCount(v.id)}</a>`).join('')}</nav>`, (e) => {
+    openSheet('Menu', `<nav class="menu-list">${VIEWS.filter((v) => !v.hidden).map((v) => `<a href="#${v.id}" class="${v.id === (NAV_PARENT[currentView] || currentView) ? 'active' : ''}"><span class="icon" aria-hidden="true">${v.icon}</span>${v.label}${navCount(v.id)}</a>`).join('')}</nav>`, (e) => {
       if (e.target.closest('a')) dialog().close();
     });
   }
 
   function commit() {
+    Calc.linkDeposits(state);
     const settled = Calc.settleDeposits(state, todayISO(), Date.now());
     recordSnapshot();
     save();
@@ -1643,7 +1792,14 @@
     const { action, sec, id } = b.dataset;
     if (b.tagName === 'A' && b.getAttribute('href') === '#') e.preventDefault();
     switch (action) {
-      case 'add': return editItem(sec);
+      case 'add': {
+        const preset = {};
+        if (b.dataset.platform != null) preset.platform = b.dataset.platform;
+        if (b.dataset.account) preset.accountId = b.dataset.account;
+        return editItem(sec, null, preset);
+      }
+      case 'open-account': location.hash = `#account/${encodeURIComponent(id)}`; return;
+      case 'open-platform': location.hash = `#platform/${encodeURIComponent(b.dataset.name)}`; return;
       case 'edit': return editItem(sec, id);
       case 'edit-platform': return editPlatform(b.dataset.name);
       case 'valuation': return updateValuation(id);
