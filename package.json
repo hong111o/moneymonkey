@@ -1,0 +1,10 @@
+{
+  "name": "moneymonkey",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live personal net-worth tracker: cash, stocks, crypto, fixed deposits, property, loans and cash flow.",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node --test tests/*.test.js"
+  }
+}

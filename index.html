@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MoneyMonkey</title>
+  <meta name="description" content="Track your net worth live: cash, stocks, crypto, fixed deposits, property, loans and cash flow.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐒</text></svg>">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#dashboard"><span aria-hidden="true">🐒</span> MoneyMonkey</a>
+    <div class="topbar-right">
+      <span id="status" class="status" aria-live="polite"></span>
+      <button class="btn small" data-action="refresh" title="Refresh prices now">↻</button>
+      <button class="btn small" id="privacy-btn" data-action="privacy" aria-pressed="false">Hide amounts</button>
+    </div>
+  </header>
+  <div class="layout">
+    <nav id="nav" class="nav" aria-label="Sections"></nav>
+    <main id="main" class="main"></main>
+  </div>
+
+  <dialog id="dialog"></dialog>
+  <div id="tooltip" class="tooltip" hidden></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <datalist id="currency-list">
+    <option value="USD"><option value="EUR"><option value="GBP"><option value="HKD"><option value="SGD"><option value="MYR">
+    <option value="CNY"><option value="JPY"><option value="AUD"><option value="CAD"><option value="NZD"><option value="CHF">
+    <option value="TWD"><option value="KRW"><option value="THB"><option value="IDR"><option value="PHP"><option value="INR">
+    <option value="VND"><option value="AED"><option value="SEK"><option value="NOK"><option value="DKK"><option value="ZAR">
+  </datalist>
+  <datalist id="category-list"></datalist>
+
+  <script src="js/calc.js"></script>
+  <script src="js/prices.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
