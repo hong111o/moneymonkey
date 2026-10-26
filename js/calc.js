@@ -79,10 +79,16 @@
     return principal * Math.pow(1 + r / n, n * years);
   }
 
+  // A deposit's term is either a number of months or an explicit end date.
+  function depositMaturity(dep, start) {
+    const end = parseDate(dep.endDate);
+    return end && end > start ? end : addMonths(start, +dep.termMonths || 0);
+  }
+
   function depositValue(dep, today) {
     const principal = +dep.principal || 0;
     const start = parseDate(dep.startDate) || parseDate(today);
-    const maturity = addMonths(start, +dep.termMonths || 0);
+    const maturity = depositMaturity(dep, start);
     const termDays = Math.max(0, daysBetween(start, maturity));
     const elapsed = Math.min(termDays, Math.max(0, daysBetween(start, today)));
     const value = depositGrowth(principal, dep.rate, elapsed / 365, dep.compounding);
@@ -96,7 +102,10 @@
       principal,
       interest: value - principal,
       value,
+      startDate: toISO(start),
       maturityDate: toISO(maturity),
+      termMonths: monthsBetween(start, maturity),
+      termDays,
       maturityValue,
       maturityInterest: maturityValue - principal,
       daysLeft,
@@ -108,13 +117,67 @@
 
   // Annual rate (%) that turns `principal` into `principal + interest` over the term —
   // lets the user enter "I'll receive $X interest" instead of a rate.
-  function impliedRate(principal, interest, startDate, termMonths, compounding) {
+  function impliedRate(principal, interest, startDate, termMonths, compounding, endDate) {
     const start = parseDate(startDate) || parseDate(toISO(new Date()));
-    const t = daysBetween(start, addMonths(start, +termMonths || 0)) / 365;
+    const t = daysBetween(start, depositMaturity({ termMonths, endDate }, start)) / 365;
     if (!(principal > 0) || !(t > 0)) return 0;
     const n = COMPOUNDING_PER_YEAR[compounding];
     if (!n) return (interest / (principal * t)) * 100;
     return (Math.pow((principal + interest) / principal, 1 / (n * t)) - 1) * n * 100;
+  }
+
+  const round2 = (v) => Math.round(v * 100) / 100;
+  const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'bank';
+
+  // Settles matured fixed deposits according to `onMaturity`:
+  //   'cash'  -> capital + interest are added to a cash account (the chosen one, or "<platform> cash")
+  //   'renew' -> a new deposit starts on the maturity date with the matured amount, same term & rate
+  //   'keep'  -> nothing happens
+  // Mutates `state` and returns the activity entries it created. Ids are derived from the
+  // deposit, so two synced devices settling the same deposit converge instead of doubling.
+  function settleDeposits(state, today, nowMs) {
+    const created = [];
+    for (let pass = 0, again = true; again && pass < 200; pass++) {
+      again = false;
+      for (const dep of [...(state.deposits || [])]) {
+        const mode = dep.onMaturity || 'keep';
+        if (mode !== 'cash' && mode !== 'renew') continue;
+        const v = depositValue(dep, today);
+        if (!v.matured) continue;
+        const label = dep.platform || 'Bank';
+        const entry = { id: `fd-${dep.id}`, date: v.maturityDate, kind: mode === 'cash' ? 'deposit-cash' : 'deposit-renew', platform: label, ref: dep.name || '', amount: round2(v.maturityValue), interest: round2(v.maturityInterest), currency: dep.currency, _mt: nowMs };
+        if (mode === 'cash') {
+          let acct = (state.accounts || []).find((a) => a.id === dep.payoutAccountId);
+          if (!acct) {
+            const id = `auto-${slug(label)}-${String(dep.currency || '').toLowerCase()}`;
+            acct = state.accounts.find((a) => a.id === id);
+            if (!acct) {
+              acct = { id, name: `${label} cash`, platform: dep.platform || '', type: 'savings', currency: dep.currency, balance: 0 };
+              state.accounts.push(acct);
+            }
+          }
+          const amount = convert(v.maturityValue, dep.currency, acct.currency, state.fx);
+          if (!isFinite(amount)) continue; // no exchange rate yet — try again later
+          acct.balance = round2((+acct.balance || 0) + amount);
+          acct.updatedAt = new Date(nowMs).toISOString();
+          acct._mt = nowMs;
+          entry.accountName = acct.name;
+        } else {
+          const next = { ...dep, id: `${dep.id}r`, startDate: v.maturityDate, principal: round2(v.maturityValue), _mt: nowMs };
+          if (dep.endDate) next.endDate = toISO(addDays(parseDate(v.maturityDate), v.termDays));
+          state.deposits.push(next);
+          again = true; // the renewal may itself have matured already
+        }
+        state.deposits = state.deposits.filter((d) => d.id !== dep.id);
+        state.deleted = { ...(state.deleted || {}), [dep.id]: nowMs };
+        created.push(entry);
+      }
+    }
+    if (created.length) {
+      const ids = new Set(created.map((e) => e.id));
+      state.activity = [...created, ...(state.activity || []).filter((e) => !ids.has(e.id))].slice(0, 200);
+    }
+    return created;
   }
 
   // ---------- loans / liabilities ----------
@@ -257,6 +320,23 @@
     return Math.ceil((target - current) / monthlySaving);
   }
 
+  // ---------- recorded monthly spending ----------
+
+  const SPENDING_AVG_MONTHS = 3;
+
+  // [{ month: 'YYYY-MM', total, entries }] newest first, totals in base currency via `toBaseFn`.
+  function spendingByMonth(entries, toBaseFn) {
+    const map = new Map();
+    for (const e of entries || []) {
+      if (!e || !/^\d{4}-\d{2}$/.test(e.month || '')) continue;
+      const m = map.get(e.month) || { month: e.month, total: 0, entries: 0 };
+      m.total += toBaseFn(+e.amount || 0, e.currency);
+      m.entries += 1;
+      map.set(e.month, m);
+    }
+    return [...map.values()].sort((a, b) => (a.month < b.month ? 1 : -1));
+  }
+
   // ---------- portfolio summary ----------
 
   function summarize(state, todayISO) {
@@ -319,9 +399,12 @@
     }
 
     const flow = { income: 0, expense: 0, subscription: 0, saving: 0 };
+    let notOnCard = 0;
     for (const cf of state.cashflows || []) {
       if (cf.active === false) continue;
-      flow[cf.kind] = (flow[cf.kind] || 0) + toBase(monthlyAmount(cf), cf.currency);
+      const monthly = toBase(monthlyAmount(cf), cf.currency);
+      flow[cf.kind] = (flow[cf.kind] || 0) + monthly;
+      if ((cf.kind === 'expense' || cf.kind === 'subscription') && !cf.onCard) notOnCard += monthly;
       for (const date of occurrences(cf, today, horizon)) {
         events.push({ date, label: cf.name, amount: toBase(cf.amount, cf.currency), kind: cf.kind });
       }
@@ -330,7 +413,14 @@
 
     const assets = Object.values(totals).reduce((s, x) => s + x, 0);
     const netWorth = assets - liabilities;
-    const spending = flow.expense + flow.subscription;
+    // Actual spending: average of the latest recorded months (e.g. credit card statements),
+    // plus fixed bills that are NOT paid by card (card-paid ones are already in the statement).
+    const spendMonths = spendingByMonth(state.spending, toBase);
+    const recentSpend = spendMonths.slice(0, SPENDING_AVG_MONTHS);
+    const cardSpendAvg = recentSpend.length ? recentSpend.reduce((a, m) => a + m.total, 0) / recentSpend.length : null;
+    const estimatedSpending = flow.expense + flow.subscription;
+    const actualSpending = cardSpendAvg == null ? null : cardSpendAvg + notOnCard;
+    const spending = actualSpending ?? estimatedSpending;
     const netMonthly = flow.income - spending;
     const passiveMonthly = depositDaily * 365 / 12 + rentMonthly;
     const liquid = totals.cash;
@@ -351,6 +441,13 @@
       depositInterest,
       flow,
       spending,
+      spendingSource: actualSpending == null ? 'estimate' : 'actual',
+      estimatedSpending,
+      actualSpending,
+      cardSpendAvg,
+      spendAvgMonths: recentSpend.length,
+      notOnCard,
+      spendMonths,
       netMonthly,
       savingsRate: flow.income ? (flow.income - spending) / flow.income : 0,
       passiveMonthly,
@@ -363,16 +460,95 @@
     };
   }
 
+  // ---------- platforms & regions ----------
+
+  // Native-currency value of one item (liabilities as a positive balance owed).
+  function itemValue(section, item, today) {
+    switch (section) {
+      case 'accounts': return +item.balance || 0;
+      case 'stocks':
+      case 'crypto': return holdingValue(item).marketValue;
+      case 'deposits': return depositValue(item, today).value;
+      case 'properties': return propertyValue(item, today).value;
+      case 'others': return otherAssetValue(item, today);
+      case 'liabilities': return loanBalance(item, today).balance;
+      default: return 0;
+    }
+  }
+
+  const PLATFORM_GROUPS = { accounts: 'cash', stocks: 'invest', crypto: 'invest', deposits: 'deposits', properties: 'property', others: 'other', liabilities: 'debt' };
+
+  // Older versions stored the platform under a section-specific key.
+  const LEGACY_PLATFORM_KEYS = { accounts: 'institution', stocks: 'broker', crypto: 'wallet', deposits: 'bank' };
+
+  function migratePlatforms(state) {
+    for (const [section, old] of Object.entries(LEGACY_PLATFORM_KEYS)) {
+      for (const item of state[section] || []) {
+        if (item.platform == null && item[old] != null) item.platform = item[old];
+        delete item[old];
+      }
+    }
+    return state;
+  }
+
+  const CURRENCY_REGIONS = {
+    HKD: 'Hong Kong', GBP: 'United Kingdom', USD: 'United States', EUR: 'Eurozone', SGD: 'Singapore', MYR: 'Malaysia',
+    CNY: 'Mainland China', JPY: 'Japan', AUD: 'Australia', CAD: 'Canada', NZD: 'New Zealand', CHF: 'Switzerland', TWD: 'Taiwan',
+  };
+
+  // Totals per platform and per region (regions are assigned to platforms in state.platformMeta).
+  function platformBreakdown(state, today) {
+    const base = state.settings.baseCurrency;
+    const meta = state.platformMeta || {};
+    const rows = new Map();
+    for (const [section, group] of Object.entries(PLATFORM_GROUPS)) {
+      for (const item of state[section] || []) {
+        const name = String(item.platform || '').trim();
+        if (!rows.has(name)) rows.set(name, { name, region: (meta[name] && meta[name].region) || '', regionGuessed: false, cash: 0, invest: 0, deposits: 0, property: 0, other: 0, debt: 0, count: 0, currencies: new Set() });
+        const row = rows.get(name);
+        const v = convert(itemValue(section, item, today), item.currency || base, base, state.fx);
+        if (isFinite(v)) row[group] += v;
+        row.count += 1;
+        if (item.currency) row.currencies.add(item.currency);
+      }
+    }
+    const platforms = [...rows.values()].map((r) => {
+      const assets = r.cash + r.invest + r.deposits + r.property + r.other;
+      const currencies = [...r.currencies].sort();
+      let { region, regionGuessed } = r;
+      // No region set yet: guess from the platform's only currency (HKD -> Hong Kong, GBP -> UK...).
+      if (!region && r.name && currencies.length === 1 && CURRENCY_REGIONS[currencies[0]]) {
+        region = CURRENCY_REGIONS[currencies[0]];
+        regionGuessed = true;
+      }
+      return { ...r, region, regionGuessed, currencies, assets, net: assets - r.debt };
+    });
+    platforms.sort((a, b) => b.net - a.net);
+    const regionMap = new Map();
+    for (const p of platforms) {
+      const key = p.region || '';
+      const r = regionMap.get(key) || { region: key, assets: 0, debt: 0, net: 0, platforms: 0 };
+      r.assets += p.assets;
+      r.debt += p.debt;
+      r.net += p.net;
+      r.platforms += 1;
+      regionMap.set(key, r);
+    }
+    const regions = [...regionMap.values()].sort((a, b) => b.net - a.net);
+    return { platforms, regions };
+  }
+
   return {
     parseDate, toISO, addDays, addMonths, daysBetween, monthsBetween,
     convert,
-    depositGrowth, depositValue, impliedRate,
+    depositGrowth, depositMaturity, depositValue, impliedRate, settleDeposits,
     loanBalance,
     otherAssetValue,
     latestValuation, propertyValue,
     holdingValue,
     monthlyAmount, occurrences, nextOccurrence,
-    upsertHistory, monthsToGoal,
+    upsertHistory, monthsToGoal, spendingByMonth,
     summarize,
+    itemValue, migratePlatforms, platformBreakdown,
   };
 });

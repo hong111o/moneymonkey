@@ -147,3 +147,117 @@ test('summarize totals across currencies and categories', () => {
   assert.equal(s.events.length, 2);
   assert.ok(s.alerts.some((a) => a.text.includes('XYZ')));
 });
+
+test('deposit with an explicit end date', () => {
+  const v = C.depositValue({ principal: 1000, rate: 3.65, startDate: '2026-01-01', endDate: '2026-04-11', compounding: 'simple' }, '2026-02-01');
+  assert.equal(v.maturityDate, '2026-04-11');
+  assert.equal(v.termDays, 100);
+  assert.equal(v.termMonths, 3);
+  close(v.maturityInterest, 10);
+  close(C.impliedRate(1000, 10, '2026-01-01', 0, 'simple', '2026-04-11'), 3.65);
+});
+
+const fdState = (extra = {}) => ({
+  settings: { baseCurrency: 'HKD' },
+  fx: { base: 'HKD', rates: { HKD: 1, GBP: 0.1 } },
+  accounts: [],
+  deposits: [{ id: 'd1', platform: 'HSBC HK', currency: 'HKD', principal: 10000, rate: 4, startDate: '2026-01-01', termMonths: 12, compounding: 'simple', onMaturity: 'cash', ...extra }],
+  deleted: {},
+});
+
+test('matured deposit moves capital + interest to an auto cash account', () => {
+  const s = fdState();
+  assert.equal(C.settleDeposits(s, '2026-12-31', 1).length, 0);
+  const log = C.settleDeposits(s, '2027-01-01', 5);
+  assert.equal(log.length, 1);
+  assert.equal(s.deposits.length, 0);
+  assert.equal(s.accounts.length, 1);
+  assert.equal(s.accounts[0].id, 'auto-hsbc-hk-hkd');
+  assert.equal(s.accounts[0].name, 'HSBC HK cash');
+  close(s.accounts[0].balance, 10400);
+  assert.equal(s.deleted.d1, 5);
+  assert.equal(s.activity[0].kind, 'deposit-cash');
+  assert.equal(C.settleDeposits(s, '2027-02-01', 6).length, 0); // idempotent
+});
+
+test('matured deposit pays into a chosen account, converting currency', () => {
+  const s = fdState({ payoutAccountId: 'a1' });
+  s.accounts.push({ id: 'a1', name: 'Monzo', currency: 'GBP', balance: 100 });
+  C.settleDeposits(s, '2027-01-05', 1);
+  close(s.accounts[0].balance, 100 + 1040);
+  const noFx = fdState({ payoutAccountId: 'a1' });
+  noFx.fx = { base: 'HKD', rates: { HKD: 1 } };
+  noFx.accounts.push({ id: 'a1', name: 'X', currency: 'EUR', balance: 0 });
+  assert.equal(C.settleDeposits(noFx, '2027-01-05', 1).length, 0); // waits for FX
+  assert.equal(noFx.deposits.length, 1);
+});
+
+test('renewing deposits roll over repeatedly with deterministic ids', () => {
+  const s = fdState({ onMaturity: 'renew', termMonths: 6 });
+  const log = C.settleDeposits(s, '2027-02-01', 1);
+  assert.equal(log.length, 2); // matured Jul 2026 and Jan 2027
+  assert.equal(s.deposits.length, 1);
+  assert.equal(s.deposits[0].id, 'd1rr');
+  assert.equal(s.deposits[0].startDate, '2027-01-01');
+  assert.ok(s.deposits[0].principal > 10390);
+});
+
+test('legacy platform fields migrate to `platform`', () => {
+  const s = C.migratePlatforms({ accounts: [{ institution: 'HSBC' }], stocks: [{ broker: 'Futu' }], crypto: [{ wallet: 'Ledger' }], deposits: [{ bank: 'ZA' }] });
+  assert.deepEqual([s.accounts[0].platform, s.stocks[0].platform, s.crypto[0].platform, s.deposits[0].platform], ['HSBC', 'Futu', 'Ledger', 'ZA']);
+  assert.equal(s.accounts[0].institution, undefined);
+});
+
+test('platform and region breakdown', () => {
+  const state = {
+    settings: { baseCurrency: 'HKD' },
+    fx: { base: 'HKD', rates: { HKD: 1, GBP: 0.1 } },
+    platformMeta: { Monzo: { region: 'United Kingdom' } },
+    accounts: [{ platform: 'HSBC HK', balance: 1000, currency: 'HKD' }, { platform: 'Monzo', balance: 100, currency: 'GBP' }, { balance: 5, currency: 'HKD' }],
+    stocks: [{ platform: 'HSBC HK', quantity: 1, avgCost: 500, currency: 'HKD' }],
+    liabilities: [{ platform: 'Monzo', mode: 'manual', balance: 50, currency: 'GBP' }],
+  };
+  const { platforms, regions } = C.platformBreakdown(state, '2026-01-01');
+  const hsbc = platforms.find((p) => p.name === 'HSBC HK');
+  assert.equal(hsbc.net, 1500);
+  assert.equal(hsbc.region, 'Hong Kong');
+  assert.equal(hsbc.regionGuessed, true);
+  const monzo = platforms.find((p) => p.name === 'Monzo');
+  assert.equal(monzo.debt, 500);
+  assert.equal(monzo.net, 500);
+  assert.equal(monzo.regionGuessed, false);
+  assert.deepEqual(regions.map((r) => [r.region, r.net]), [['Hong Kong', 1500], ['United Kingdom', 500], ['', 5]]);
+});
+
+test('recorded spending replaces estimated spending and skips card-paid bills', () => {
+  const base = {
+    settings: { baseCurrency: 'HKD' },
+    fx: { base: 'HKD', rates: { HKD: 1, GBP: 0.1 } },
+    accounts: [{ balance: 30000, currency: 'HKD' }],
+    cashflows: [
+      { kind: 'income', amount: 20000, frequency: 'monthly', currency: 'HKD', nextDate: '2026-01-01' },
+      { kind: 'expense', name: 'Rent', amount: 8000, frequency: 'monthly', currency: 'HKD', nextDate: '2026-01-01' },
+      { kind: 'subscription', name: 'Netflix', amount: 100, frequency: 'monthly', currency: 'HKD', nextDate: '2026-01-01', onCard: true },
+    ],
+  };
+  const est = C.summarize({ ...base, spending: [] }, '2026-05-10');
+  assert.equal(est.spendingSource, 'estimate');
+  assert.equal(est.spending, 8100);
+  const spending = [
+    { month: '2026-04', amount: 5000, currency: 'HKD' }, { month: '2026-04', amount: 100, currency: 'GBP' },
+    { month: '2026-03', amount: 4000, currency: 'HKD' },
+    { month: '2026-02', amount: 3000, currency: 'HKD' },
+    { month: '2026-01', amount: 99999, currency: 'HKD' }, // older than the 3-month window
+  ];
+  const act = C.summarize({ ...base, spending }, '2026-05-10');
+  assert.equal(act.spendingSource, 'actual');
+  assert.equal(act.spendMonths[0].total, 6000);
+  close(act.cardSpendAvg, 13000 / 3);
+  close(act.spending, 13000 / 3 + 8000); // rent isn't on the card; Netflix is
+  close(act.netMonthly, 20000 - act.spending);
+});
+
+test('items without a platform never get a guessed region', () => {
+  const { platforms } = C.platformBreakdown({ settings: { baseCurrency: 'HKD' }, fx: { base: 'HKD', rates: { HKD: 1 } }, accounts: [{ balance: 1, currency: 'HKD' }] }, '2026-01-01');
+  assert.equal(platforms[0].region, '');
+});

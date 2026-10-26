@@ -2,10 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>MoneyMonkey</title>
-  <meta name="description" content="Track your net worth live: cash, stocks, crypto, fixed deposits, property, loans and cash flow.">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐒</text></svg>">
+  <meta name="description" content="Track your net worth live: cash, stocks, crypto, fixed deposits, property, loans and cash flow — across every platform.">
+  <meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a1a19" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="MoneyMonkey">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -13,30 +21,35 @@
     <a class="brand" href="#dashboard"><span aria-hidden="true">🐒</span> MoneyMonkey</a>
     <div class="topbar-right">
       <span id="status" class="status" aria-live="polite"></span>
-      <button class="btn small" data-action="refresh" title="Refresh prices now">↻</button>
-      <button class="btn small" id="privacy-btn" data-action="privacy" aria-pressed="false">Hide amounts</button>
+      <button id="sync-status" class="sync-chip" data-action="sync-status" hidden></button>
+      <button class="btn small icon-only" data-action="refresh" title="Refresh prices now" aria-label="Refresh prices">↻</button>
+      <button class="btn small" id="privacy-btn" data-action="privacy" aria-pressed="false"></button>
     </div>
   </header>
   <div class="layout">
     <nav id="nav" class="nav" aria-label="Sections"></nav>
     <main id="main" class="main"></main>
   </div>
+  <nav id="tabbar" class="tabbar" aria-label="Main"></nav>
 
   <dialog id="dialog"></dialog>
   <div id="tooltip" class="tooltip" hidden></div>
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <datalist id="currency-list">
-    <option value="USD"><option value="EUR"><option value="GBP"><option value="HKD"><option value="SGD"><option value="MYR">
-    <option value="CNY"><option value="JPY"><option value="AUD"><option value="CAD"><option value="NZD"><option value="CHF">
-    <option value="TWD"><option value="KRW"><option value="THB"><option value="IDR"><option value="PHP"><option value="INR">
+    <option value="HKD"><option value="GBP"><option value="USD"><option value="EUR"><option value="SGD"><option value="CNY">
+    <option value="JPY"><option value="AUD"><option value="CAD"><option value="NZD"><option value="CHF"><option value="TWD">
+    <option value="MYR"><option value="KRW"><option value="THB"><option value="IDR"><option value="PHP"><option value="INR">
     <option value="VND"><option value="AED"><option value="SEK"><option value="NOK"><option value="DKK"><option value="ZAR">
   </datalist>
   <datalist id="category-list"></datalist>
+  <datalist id="platform-list"></datalist>
+  <datalist id="region-list"></datalist>
 
   <script src="js/calc.js"></script>
   <script src="js/prices.js"></script>
   <script src="js/charts.js"></script>
+  <script src="js/sync.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
