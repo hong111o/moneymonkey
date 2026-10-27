@@ -3,7 +3,7 @@
  * Network-first for the app's own files (so updates show up straight away), falling back
  * to the cached copy when offline. Price, FX and GitHub requests are never cached.
  */
-const CACHE = 'moneymonkey-v16';
+const CACHE = 'moneymonkey-v17';
 const SHELL = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest',
   'js/calc.js', 'js/prices.js', 'js/charts.js', 'js/sync.js', 'js/app.js',
@@ -27,7 +27,9 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(
-    fetch(req)
+    // `no-cache` checks with the server every time, so a new version isn't held back by the
+    // browser's HTTP cache (GitHub Pages lets browsers keep files for 10 minutes).
+    fetch(req, { cache: 'no-cache' })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
