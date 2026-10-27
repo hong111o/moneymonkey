@@ -1469,9 +1469,17 @@
     const acctOpts = (v) => {
       const plat = platformOf(v);
       const rank = (a) => (a.type === 'brokerage' && (a.platform || '') === plat ? 0 : (a.platform || '') === plat ? 1 : a.type === 'brokerage' ? 2 : 3);
-      return [{ value: '', label: 'None — don’t change any cash balance' }, ...state.accounts.slice().sort((a, b) => rank(a) - rank(b)).map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }))];
+      // A broker with no cash account yet: offer to create "<broker> cash" (made on save).
+      const offerNew = plat && !brokerCashOn(plat);
+      return [
+        ...(offerNew ? [{ value: '__new', label: `+ New “${plat} cash” account` }] : []),
+        { value: '', label: 'None — don’t change any cash balance' },
+        ...state.accounts.slice().sort((a, b) => rank(a) - rank(b)).map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` })),
+      ];
     };
-    const acctOf = (v) => state.accounts.find((a) => a.id === v.accountId);
+    const brokerCashOn = (plat) => state.accounts.find((a) => a.type === 'brokerage' && (a.platform || '') === plat);
+    const newCashAcct = (v) => ({ id: '__new', name: `${platformOf(v)} cash`, platform: platformOf(v), type: 'brokerage', balances: [] });
+    const acctOf = (v) => (v.accountId === '__new' && platformOf(v) ? newCashAcct(v) : state.accounts.find((a) => a.id === v.accountId));
     const cashCurOpts = (v) => {
       const a = acctOf(v);
       if (!a) return [{ value: '', label: '—' }];
@@ -1525,7 +1533,7 @@
     const start = { side, holdingId: h0 ? h0.id : side === 'buy' ? '__new' : (list[0] || {}).id, date: todayISO() };
     if (!start.holdingId) return toast(`Nothing to sell yet — add a ${kind === 'coin' ? 'coin' : 'holding'} first.`);
     // Default to the broker's own cash account, if there is one.
-    start.accountId = (state.accounts.find((a) => a.type === 'brokerage' && (a.platform || '') === platformOf(start)) || {}).id || '';
+    start.accountId = (brokerCashOn(platformOf(start)) || {}).id || (platformOf(start) ? '__new' : '');
     if (h0 && (h0.lastPrice || h0.manualPrice)) start.price = +(h0.lastPrice || h0.manualPrice);
     if (side === 'sell' && h0) start.quantity = +h0.quantity;
     openForm({
@@ -1608,6 +1616,11 @@
         if (left > 0.005 && !confirm(`“${acctOf(v).name}” doesn’t have enough ${cashCur(v)} in the app — this leaves it ${money(-left, cashCur(v))}. If its real balance is higher, update it first. Record anyway?`)) return 'Not recorded — pick an account to top up from, or update the balance first.';
         const tuLeft = tu ? Calc.shortfall(tu.from, tu.fromCurrency, tu.amount, v.date) : 0;
         if (tuLeft > 0.005 && !confirm(`“${tu.from.name}” doesn’t have enough ${tu.fromCurrency} in the app for the top-up — it would be left at ${money(-tuLeft, tu.fromCurrency)}. Record anyway?`)) return 'Not recorded — pick another account to top up from.';
+        if (v.accountId === '__new' && acctOf(v)) {
+          const acct = { ...newCashAcct(v), id: uid(), updatedAt: new Date().toISOString(), _mt: Date.now() };
+          state.accounts.push(acct);
+          v.accountId = acct.id;
+        }
         const isNew = v.holdingId === '__new';
         const id = isNew ? uid() : v.holdingId;
         const newHolding = isNew ? {

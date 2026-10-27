@@ -97,7 +97,7 @@ On the Cash Flow page, tap any box (income, spending, left over, fixed bills, su
 
 ### Buying and selling
 
-Tap **Buy** or **Sell** on a holding, or **Buy / sell** at the top of the Stocks or Crypto page (which can also buy something new). Enter the quantity, price, fee and date, and pick the cash account. The broker's own cash account is picked for you if it has one.
+Tap **Buy** or **Sell** on a holding, or **Buy / sell** at the top of the Stocks or Crypto page (which can also buy something new). Enter the quantity, price, fee and date, and pick the cash account. The broker's own cash account is picked for you. If the broker doesn't have one yet, the default is **+ New "<broker> cash" account**, created when you save, so the money from a sale has somewhere to go. Choose "None" to only record the shares.
 
 - **Buying:** the cost comes out of the cash account and is added to the average cost, fee included. 10 shares at $100 plus 10 more at $150 gives 20 at an average of $125.
 - **Selling:** the money goes into the cash account. The average cost of what's left stays the same. The profit is recorded: 5 sold at $700 with an average cost of $100 makes $3,000. Selling everything can remove the holding.
