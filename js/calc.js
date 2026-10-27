@@ -810,15 +810,28 @@
     return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   }
 
+  // The account's currency a payment in `currency` comes out of (or goes into): that currency if
+  // the account holds it, else its largest balance — never a new (negative) line in a currency
+  // the account doesn't have. Null when the account has no balances at all.
+  function paymentCurrency(acct, currency) {
+    const lines = accountBalances(acct || {});
+    if (!lines.length || lines.some((b) => b.currency === currency)) return currency;
+    return lines.slice().sort((a, b) => (+b.amount || 0) - (+a.amount || 0))[0].currency;
+  }
+
   // Confirms (apply = true: change the balance by `amount`) or dismisses a pending payment.
-  function resolvePayment(state, p, apply, amount, nowMs) {
+  // `from` = { currency, amount } when the account is changed in another currency than the
+  // payment's (e.g. a £ card bill paid from HK$): that amount, in that currency, is used.
+  function resolvePayment(state, p, apply, amount, nowMs, from) {
     let acct = null;
     if (apply) {
       acct = (state.accounts || []).find((a) => a.id === p.accountId);
       if (!acct && p.type !== 'saver') return null;
     }
+    const other = from && from.currency && from.currency !== p.currency && isFinite(+from.amount) ? from : null;
     if (apply && acct) {
-      adjustLine(acct, p.currency, p.sign * amount, p.date);
+      if (other) adjustLine(acct, other.currency, p.sign * +other.amount, p.date);
+      else adjustLine(acct, p.currency, p.sign * amount, p.date);
       acct._mt = nowMs;
     }
     if (p.type === 'saver') {
@@ -839,6 +852,7 @@
     if (!apply) return { skipped: true };
     if (!acct) return { paidIn: true };
     const entry = { id: `pay-${p.key}`, date: p.date, kind: 'payment', name: p.name, amount: round2(p.sign * amount), currency: p.currency, accountId: acct.id, accountName: acct.name, _mt: nowMs };
+    if (other) { entry.paidCurrency = other.currency; entry.paidAmount = round2(+other.amount); }
     state.activity = [entry, ...(state.activity || []).filter((x) => x.id !== entry.id)].slice(0, 200);
     return entry;
   }
@@ -1057,6 +1071,6 @@
     itemValue, itemParts, migratePlatforms, platformBreakdown,
     accountBalances, migrateAccounts, cashByCurrency, accountForPlatform, linkDeposits,
     unpaidCardBills, cardDueDate, linkCards,
-    balanceValue, adjustLine, pendingPayments, resolvePayment, transfer, checkinDue, recordCheckin,
+    balanceValue, adjustLine, pendingPayments, resolvePayment, paymentCurrency, transfer, checkinDue, recordCheckin,
   };
 });

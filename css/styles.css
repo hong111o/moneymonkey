@@ -553,3 +553,5 @@ table.legend a:hover { text-decoration: underline; }
   .choice-grid { grid-template-columns: 1fr 1fr; }
   .choice-grid .choice { flex-direction: column; align-items: flex-start; }
 }
+.pay-cross { margin-top: 10px; }
+.pay-row .pay-from, .pay-row .pay-conv { flex: 1 1 130px; width: auto; }

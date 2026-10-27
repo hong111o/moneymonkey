@@ -805,7 +805,7 @@
     const ref = e.ref ? ` (${esc(e.ref)})` : '';
     if (e.kind === 'deposit-cash') return `${e.saver ? 'Regular saver' : 'Fixed deposit'} at ${esc(e.platform)}${ref} matured — ${money(e.amount, e.currency)} incl. ${money(e.interest, e.currency)} interest moved to “${esc(e.accountName)}”.`;
     if (e.kind === 'deposit-renew') return `Fixed deposit at ${esc(e.platform)}${ref} matured and renewed with ${money(e.amount, e.currency)} (incl. ${money(e.interest, e.currency)} interest).`;
-    if (e.kind === 'payment') return `${esc(e.name)}: ${money(Math.abs(e.amount), e.currency)} ${e.amount < 0 ? 'paid from' : 'received into'} “${esc(e.accountName)}”.`;
+    if (e.kind === 'payment') return `${esc(e.name)}: ${money(Math.abs(e.amount), e.currency)} ${e.amount < 0 ? 'paid from' : 'received into'} “${esc(e.accountName)}”${e.paidAmount != null ? ` (${money(e.paidAmount, e.paidCurrency)})` : ''}.`;
     if (e.kind === 'transfer') return `Transferred ${money(e.amount, e.currency)} from “${esc(e.accountName)}” to “${esc(e.toAccountName)}”${e.toCurrency !== e.currency ? ` (received ${money(e.received, e.toCurrency)})` : ''}${e.note ? ` — ${esc(e.note)}` : ''}.`;
     return esc(e.text || '');
   }
@@ -1442,15 +1442,16 @@
       <div class="card">${entries.length ? `<ul class="acct-bals stmt-list">${list}</ul>` : '<p class="sub">No statements yet. Tap “+ Statement” after each monthly statement arrives, or record them in the monthly check-in.</p>'}</div>`;
   }
 
+  // Paying a bill before its due date: the same confirm box as when it's due.
   function payCardBill(id) {
-    const e = state.spending.find((x) => x.id === id);
-    if (!e) return;
-    const card = cardById(e.cardId);
-    const acct = state.accounts.find((a) => a.id === (e.payFromAccountId || (card && card.payFromAccountId)));
-    if (!confirm(acct ? `Deduct ${money(e.amount, e.currency)} from “${acct.name}” and mark the ${fmtMonth(e.month)} bill paid?` : `Mark the ${fmtMonth(e.month)} bill as paid?`)) return;
-    Calc.resolvePayment(state, { key: `card:${e.id}`, type: 'card', id: e.id, date: todayISO(), name: `${e.platform || 'Card'} bill (${e.month})`, amount: +e.amount, currency: e.currency, accountId: acct ? acct.id : null, sign: -1 }, !!acct, +e.amount, Date.now());
-    commit();
-    toast('Bill marked as paid');
+    const billOf = () => {
+      const e = state.spending.find((x) => x.id === id && !x.paidOn);
+      if (!e) return [];
+      const card = cardById(e.cardId);
+      const acct = state.accounts.find((a) => a.id === (e.payFromAccountId || (card && card.payFromAccountId)));
+      return [{ key: `card:${e.id}`, type: 'card', id: e.id, date: todayISO(), name: `${e.platform || 'Card'} bill (${fmtMonth(e.month)})`, amount: +e.amount, currency: e.currency, accountId: acct ? acct.id : null, sign: -1 }];
+    };
+    paymentSheet(billOf);
   }
 
   // ---------------------------------------------------------------- goals
@@ -2071,45 +2072,78 @@
   // Linked bills, income and card bills whose date has arrived. Nothing changes a balance
   // until the user taps; "Already included" just marks it as handled.
   function reviewPayments(opts = {}) {
-    const list = Calc.pendingPayments(state, todayISO());
+    paymentSheet(() => Calc.pendingPayments(state, todayISO()), () => {
+      if (opts.thenCheckin && Calc.checkinDue(state, todayISO())) openCheckin();
+    });
+  }
+
+  // Converted amount for a payment taken from another currency, at today's rate.
+  const convertedPay = (amount, from, to) => {
+    const v = Calc.convert(+amount || 0, from, to, state.fx);
+    return isFinite(v) ? round2(v) : '';
+  };
+
+  // One box per payment; `getList` is re-read after each tap (another device may have handled one).
+  function paymentSheet(getList, onEmpty) {
+    const list = getList();
     if (!list.length) {
       if (dialog().open) dialog().close();
-      if (opts.thenCheckin && Calc.checkinDue(state, todayISO())) openCheckin();
+      if (onEmpty) onEmpty();
       return;
     }
     const items = list.map((p) => {
       const acct = state.accounts.find((a) => a.id === p.accountId);
       const confirmedAfter = acct && acct.updatedAt && acct.updatedAt.slice(0, 10) >= p.date;
-      return `<div class="pay-item" data-key="${esc(p.key)}">
+      // The account doesn't hold the payment's currency: take it from one it does hold.
+      const lines = acct ? Calc.accountBalances(acct) : [];
+      const fromCur = acct ? Calc.paymentCurrency(acct, p.currency) : p.currency;
+      const cross = fromCur !== p.currency ? `<div class="pay-cross">
+          <div class="hint">“${esc(acct.name)}” has no ${esc(p.currency)} balance. Enter what the bank ${p.sign > 0 ? 'added' : 'took'} in the account’s currency (filled in at today’s rate).</div>
+          <div class="pay-row">
+            <select class="pay-from" aria-label="${p.sign > 0 ? 'Into' : 'From'} balance">${lines.map((l) => `<option value="${esc(l.currency)}" ${l.currency === fromCur ? 'selected' : ''}>${p.sign > 0 ? 'Into' : 'From'} ${esc(l.currency)} balance</option>`).join('')}</select>
+            <input class="pay-conv" type="number" step="any" inputmode="decimal" value="${convertedPay(p.amount, p.currency, fromCur)}" aria-label="Amount in the account's currency">
+          </div>
+        </div>` : '';
+      const amtInput = `<input class="pay-amt" type="number" step="any" inputmode="decimal" value="${p.amount}" aria-label="Amount in ${esc(p.currency)}">${cross ? `<span class="cur-tag">${esc(p.currency)}</span>` : ''}`;
+      const buttons = p.type === 'saver'
+        ? `${acct ? '<button class="btn primary small" data-pay="apply">Pay in</button>' : ''}<button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already moved' : 'Paid in'}</button><button class="btn small ghost" data-pay="none">Not paid</button>`
+        : `${acct ? `<button class="btn primary small" data-pay="apply">${p.sign > 0 ? 'Add' : 'Deduct'}</button>` : ''}<button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already included' : p.type === 'card' ? 'Mark paid' : 'Dismiss'}</button>`;
+      return `<div class="pay-item" data-key="${esc(p.key)}" data-cur="${esc(p.currency)}">
         <div class="pay-head"><span class="badge ${p.sign > 0 ? 'kind-income' : 'kind-expense'}">${p.sign > 0 ? 'In' : 'Out'}</span><strong class="grow">${esc(p.name)}</strong><span class="sub">${fmtDate(p.date)}</span></div>
         <div class="sub">${acct ? `${p.sign > 0 ? 'Into' : 'From'} <strong>${esc(acct.name)}</strong>${acct.platform ? ` · ${esc(acct.platform)}` : ''}${p.type === 'saver' ? ' into the saver' : ''}` : p.accountId ? 'From <span class="neg">an account that was deleted</span>' : p.type === 'saver' ? 'No paying account linked — this just records it in the saver' : 'No paying account linked — this just marks it paid'} · ${esc(p.currency)}</div>
         ${confirmedAfter ? `<div class="hint">You updated this balance on ${fmtDate(acct.updatedAt)}, so it may already include this.</div>` : ''}
-        <div class="pay-row">
-          <input class="pay-amt" type="number" step="any" inputmode="decimal" value="${p.amount}" aria-label="Amount">
-          ${p.type === 'saver'
-            ? `${acct ? '<button class="btn primary small" data-pay="apply">Pay in</button>' : ''}<button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already moved' : 'Paid in'}</button><button class="btn small ghost" data-pay="none">Not paid</button>`
-            : `${acct ? `<button class="btn primary small" data-pay="apply">${p.sign > 0 ? 'Add' : 'Deduct'}</button>` : ''}
-          <button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already included' : p.type === 'card' ? 'Mark paid' : 'Dismiss'}</button>`}
-        </div>
+        ${cross ? `<div class="pay-row">${amtInput}</div>${cross}<div class="pay-row">${buttons}</div>` : `<div class="pay-row">${amtInput}${buttons}</div>`}
       </div>`;
     }).join('');
-    openSheet(`Confirm ${plural(list.length, 'payment')}`, `<p class="sub">Nothing changes until you tap. Change the amount first if it was different. “Already included” means the balance you entered already reflects it.</p>${items}`, (e) => {
+    openSheet(list.length === 1 ? 'Confirm payment' : `Confirm ${plural(list.length, 'payment')}`, `<p class="sub">Nothing changes until you tap. Change the amount first if it was different. “Already included” means the balance you entered already reflects it.</p><div class="pay-list">${items}</div>`, (e) => {
       const b = e.target.closest('[data-pay]');
       if (!b) return;
       const box = b.closest('.pay-item');
-      // Re-read: another device may have handled it in the meantime.
-      const p = Calc.pendingPayments(state, todayISO()).find((x) => x.key === box.dataset.key);
+      const p = getList().find((x) => x.key === box.dataset.key);
       if (p) {
         const apply = b.dataset.pay === 'apply';
         const none = b.dataset.pay === 'none';
         const amt = +$('.pay-amt', box).value;
         if (!none && (apply || p.type === 'saver') && !(amt >= 0)) return toast('Enter the amount first.', 'error');
-        Calc.resolvePayment(state, none ? { ...p, paidIn: false } : p, apply, amt, Date.now());
+        const fromSel = $('.pay-from', box);
+        const from = fromSel ? { currency: fromSel.value, amount: +$('.pay-conv', box).value } : null;
+        if (apply && from && !(from.amount >= 0 && $('.pay-conv', box).value !== '')) return toast(`Enter the amount in ${from.currency} first.`, 'error');
+        const res = Calc.resolvePayment(state, none ? { ...p, paidIn: false } : p, apply, amt, Date.now(), from);
         commit();
-        toast(none ? `${p.name}: not paid this month` : apply ? `${p.name}: balance updated` : p.type === 'saver' ? `${p.name}: ${money(amt, p.currency)} recorded` : `${p.name}: marked as already included`);
+        const used = res && res.paidAmount != null ? ` (${money(res.paidAmount, res.paidCurrency)})` : '';
+        toast(none ? `${p.name}: not paid this month` : apply ? `${p.name}: balance updated${used}` : p.type === 'saver' ? `${p.name}: ${money(amt, p.currency)} recorded` : `${p.name}: marked as already included`);
       }
-      reviewPayments(opts);
+      paymentSheet(getList, onEmpty);
     });
+    // Keep the converted amount in step with the amount and the chosen balance.
+    const listEl = $('.pay-list', dialog());
+    if (listEl) {
+      listEl.oninput = listEl.onchange = (e) => {
+        const box = e.target.closest('.pay-item');
+        if (!box || !$('.pay-from', box) || e.target.classList.contains('pay-conv')) return;
+        $('.pay-conv', box).value = convertedPay($('.pay-amt', box).value, box.dataset.cur, $('.pay-from', box).value);
+      };
+    }
   }
 
   // ---------------------------------------------------------------- monthly check-in

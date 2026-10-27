@@ -658,3 +658,17 @@ test('regular saver payments are confirmed, counted as saving once, and paid out
   close(state.accounts[0].balances[0].amount, 4700 + done[0].amount);
   assert.ok(done[0].amount > 300 && done[0].amount < 320);
 });
+
+test('a payment in a currency the account does not hold comes out of a balance it does hold', () => {
+  const acct = { id: 'hk', name: 'HSBC One', balances: [{ currency: 'USD', amount: 100 }, { currency: 'HKD', amount: 20000 }] };
+  assert.equal(C.paymentCurrency(acct, 'GBP'), 'HKD'); // the largest balance
+  assert.equal(C.paymentCurrency(acct, 'USD'), 'USD');
+  assert.equal(C.paymentCurrency({ balances: [] }, 'GBP'), 'GBP');
+  const state = { accounts: [acct], spending: [{ id: 'b', amount: 500, currency: 'GBP', dueDate: '2026-10-15' }], activity: [] };
+  const p = { key: 'card:b', type: 'card', id: 'b', date: '2026-10-15', name: 'Card bill', amount: 500, currency: 'GBP', accountId: 'hk', sign: -1 };
+  const entry = C.resolvePayment(state, p, true, 500, 1, { currency: 'HKD', amount: 5050 });
+  assert.deepEqual(acct.balances.map((b) => [b.currency, b.amount]), [['USD', 100], ['HKD', 14950]]); // no GBP −500 line
+  assert.equal(entry.paidAmount, 5050);
+  assert.equal(entry.paidCurrency, 'HKD');
+  assert.equal(state.spending[0].paidOn, '2026-10-15');
+});

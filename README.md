@@ -50,6 +50,7 @@ MoneyMonkey never changes a bank balance on its own; you always confirm:
 - **Bills, rent and income paid through a bank account:** link the cash-flow item to that account. When its payment date arrives, a box asks you to **Deduct/Add** (you can change the amount first) or mark it **Already included**. Bills ticked "Paid by credit card" never ask, because they're already in your card statement.
 - **Card bills:** when you record a month's card spending, optionally pick the account that pays it and the due date. You'll be asked to confirm the payment on that day.
 - **Monthly check-in:** at the start of each month, one box lists every account and currency, pre-filled, so you only correct what changed. It also asks for last month's card spending. You can choose "Remind me tomorrow" or "Skip this month". It's also on the Cash & Bank page any time.
+- **Paying in another currency:** if the paying account has no balance in the bill's currency (e.g. a £ card bill paid from an HKD-only account), the box asks which of the account's balances it came from and fills in the converted amount at today's rate. Change it to what the bank actually took. No negative balance is created in a currency the account doesn't hold.
 - **Transfers** between your own accounts or currencies (Transfer button on Cash & Bank or an account page) move the money and keep your net worth unchanged.
 
 The boxes pop up at most once a day per device, and alerts on the dashboard stay until you deal with them.
