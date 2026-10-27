@@ -2369,6 +2369,14 @@
     const s = Calc.summarize(state, todayISO());
     if (!s.assets && !s.liabilities) return;
     state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), t: Date.now() }, HISTORY_MAX);
+    // Demo history is stored as a share of today's net worth, so the chart joins up with
+    // today's figure whatever prices and exchange rates have loaded.
+    for (const h of state.history) {
+      if (h.demo == null) continue;
+      h.netWorth = round2(s.netWorth * h.demo);
+      h.liabilities = round2(s.liabilities);
+      h.assets = round2(h.netWorth + s.liabilities);
+    }
   }
 
   // Ticks the "interest earned today" figure every second without a full re-render.
@@ -2613,7 +2621,8 @@
     const t = new Date();
     const d = (days) => Calc.toISO(Calc.addDays(t, days));
     const m = (months) => Calc.toISO(Calc.addMonths(t, months));
-    const now = new Date().toISOString();
+    // Balances last confirmed 5 days ago, so payments since then ask to be confirmed without a warning.
+    const now = Calc.addDays(t, -5).toISOString();
     const s = defaultState();
     s.settings = { ...state.settings, baseCurrency: 'HKD' };
     const region = (r) => ({ region: r });
@@ -2623,9 +2632,13 @@
     };
     s.accounts = [
       { id: uid(), name: 'HSBC One', platform: 'HSBC HK', type: 'current', balances: [{ currency: 'HKD', amount: 38500 }, { currency: 'USD', amount: 2400 }, { currency: 'GBP', amount: 300 }], updatedAt: now },
-      { id: uid(), name: 'Savings', platform: 'ZA Bank', type: 'savings', balances: [{ currency: 'HKD', amount: 120000 }], updatedAt: now },
+      // A saver: interest is estimated day by day since the balance was last confirmed.
+      { id: uid(), name: 'Savings', platform: 'ZA Bank', type: 'saver', balances: [{ currency: 'HKD', amount: 120000, rate: 3.2, asOf: d(-12) }], updatedAt: now },
       { id: uid(), name: 'Current account', platform: 'Monzo', type: 'current', balances: [{ currency: 'GBP', amount: 2350 }], updatedAt: now },
       { id: uid(), name: 'Multi-currency', platform: 'Wise', type: 'ewallet', balances: [{ currency: 'USD', amount: 850 }, { currency: 'EUR', amount: 400 }, { currency: 'GBP', amount: 120 }], updatedAt: now },
+      // Uninvested cash in investment accounts.
+      { id: uid(), name: 'Futu cash', platform: 'Futu', type: 'brokerage', balances: [{ currency: 'HKD', amount: 15000 }, { currency: 'USD', amount: 600 }], updatedAt: now },
+      { id: uid(), name: 'Trading 212 cash', platform: 'Trading 212', type: 'brokerage', balances: [{ currency: 'GBP', amount: 420 }], updatedAt: now },
     ];
     s.stocks = [
       { id: uid(), symbol: '0700.HK', name: 'Tencent', platform: 'Futu', quantity: 200, avgCost: 310, manualPrice: 455, currency: 'HKD', source: 'manual', divMode: 'perShare', dividendPerShare: 3.4 },
@@ -2634,6 +2647,8 @@
     ];
     s.crypto = [{ id: uid(), coinId: 'bitcoin', symbol: 'BTC', platform: 'Revolut', quantity: 0.05, avgCost: 42000, currency: 'USD', source: 'live' }];
     s.deposits = [
+      // Matured a few days ago: moves into the account automatically when the demo loads.
+      { id: uid(), platform: 'ZA Bank', name: '1-month promo', currency: 'HKD', principal: 50000, startDate: Calc.toISO(Calc.addDays(Calc.addMonths(t, -1), -4)), termMonths: 1, compounding: 'simple', rate: 4.5, onMaturity: 'cash' },
       { id: uid(), platform: 'HSBC HK', name: '12-month HKD', currency: 'HKD', principal: 200000, startDate: m(-5), termMonths: 12, compounding: 'simple', rate: 3.8, onMaturity: 'cash' },
       { id: uid(), platform: 'ZA Bank', name: '3-month promo', currency: 'HKD', principal: 100000, startDate: Calc.toISO(Calc.addDays(Calc.addMonths(t, -3), 9)), termMonths: 3, compounding: 'simple', rate: 4.2, onMaturity: 'renew' },
       { id: uid(), platform: 'Monzo', name: '1-year fixed saver', currency: 'GBP', principal: 5000, startDate: m(-2), endDate: m(10), termMonths: 12, compounding: 'annually', rate: 4.1, onMaturity: 'cash' },
@@ -2661,11 +2676,25 @@
       { id: uid(), name: 'Netflix', kind: 'subscription', category: 'Entertainment', amount: 93, currency: 'HKD', frequency: 'monthly', nextDate: d(7), active: true, onCard: true },
       { id: uid(), name: 'Spotify', kind: 'subscription', category: 'Entertainment', amount: 11.99, currency: 'GBP', frequency: 'monthly', nextDate: d(16), active: true },
       { id: uid(), name: 'Monthly investing', kind: 'saving', category: 'Investing', amount: 8000, currency: 'HKD', frequency: 'monthly', nextDate: d(10), active: true },
+      // Same payment as the regular saver: counted once.
+      { id: uid(), name: 'Into regular saver', kind: 'saving', category: 'Saving', amount: 300, currency: 'GBP', frequency: 'monthly', nextDate: d(30), active: true },
+      { id: uid(), name: 'iCloud+', kind: 'subscription', category: 'Entertainment', amount: 2.99, currency: 'USD', frequency: 'monthly', nextDate: d(-1), active: true },
+      // Quarterly and yearly bills are averaged per month.
+      { id: uid(), name: 'Electricity', kind: 'expense', category: 'Utilities', amount: 1800, currency: 'HKD', frequency: 'quarterly', nextDate: d(20), active: true },
+      { id: uid(), name: 'Home insurance', kind: 'expense', category: 'Insurance', amount: 3600, currency: 'HKD', frequency: 'yearly', nextDate: m(5), active: true },
+      { id: uid(), name: 'Gym (paused)', kind: 'subscription', category: 'Health', amount: 480, currency: 'HKD', frequency: 'monthly', nextDate: d(4), active: false },
     ];
     const ym = (k) => Calc.toISO(Calc.addMonths(t, -k)).slice(0, 7);
     const hsbcId = s.accounts[0].id;
     const monzoId = s.accounts[2].id;
-    s.deposits[3].payFromAccountId = monzoId;
+    s.deposits.find((x) => x.kind === 'regular').payFromAccountId = monzoId;
+    const zaId = s.accounts[1].id;
+    // Linked to an account, so the app asks you to confirm when they're paid. "iCloud+" is in USD
+    // but paid from an HKD-only account, so its box asks how much HKD the bank took.
+    const link = (name, accountId, nextDate) => Object.assign(s.cashflows.find((c) => c.name === name), { accountId, nextDate, trackFrom: nextDate });
+    link('Salary', hsbcId, d(-2));
+    link('Rent (HK)', hsbcId, d(1));
+    link('iCloud+', zaId, d(-1));
     s.cards = [
       { id: uid(), name: 'HSBC Red', platform: 'HSBC HK', currency: 'HKD', dueDay: Math.min(28, t.getDate() + 6), payFromAccountId: hsbcId },
       { id: uid(), name: 'Monzo Flex', platform: 'Monzo', currency: 'GBP', dueDay: 15, payFromAccountId: monzoId },
@@ -2677,14 +2706,23 @@
       [4, 0, 12400, '', true],
     ].map(([k, ci, amount, note, paid]) => {
       const card = s.cards[ci];
-      const dueDate = Calc.cardDueDate(card, ym(k));
+      // Last month's Monzo Flex bill is a few days overdue, so it asks to be paid.
+      const dueDate = k === 1 && ci === 1 ? d(-3) : Calc.cardDueDate(card, ym(k));
       return { id: uid(), cardId: card.id, month: ym(k), platform: card.name, amount, currency: card.currency, note, dueDate, ...(paid ? { paidOn: dueDate } : {}) };
     });
     s.goals = [
       { id: uid(), name: 'Emergency fund', metric: 'cash', target: 250000 },
       { id: uid(), name: 'HK$5M net worth', metric: 'netWorth', target: 5000000, targetDate: m(60) },
     ];
+    s.activity = [
+      { id: `tr-${uid()}`, date: d(-10), kind: 'transfer', amount: 500, currency: 'GBP', received: 500, toCurrency: 'GBP', accountId: hsbcId, accountName: 'HSBC One', toAccountId: monzoId, toAccountName: 'Current account', note: 'Top up for UK bills' },
+    ];
     s.fx = state.fx;
+    // Six months of net-worth history for the chart (values filled in when the snapshot is taken).
+    s.history = Array.from({ length: 180 }, (_, i) => {
+      const k = 180 - i;
+      return { date: d(-k), demo: (1 - k * 0.0006) * (1 + 0.012 * Math.sin((i - 179) / 9) + 0.006 * Math.sin((i - 179) / 2.3)), netWorth: 0, assets: 0, liabilities: 0, currency: 'HKD', t: Date.now() };
+    });
     return s;
   }
 
