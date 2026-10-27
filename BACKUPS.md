@@ -19,3 +19,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 4 | 2026-10-27 | `cbdc03c` | Regular saver accounts (monthly payments, fixed AER, interest calculated daily and paid monthly) |
 | 5 | 2026-10-27 | `374b437` | Planned saving box shows the same total as its breakdown |
 | 6 | 2026-10-27 | `cca9781` | Paying a bill from an account without that currency takes it from a balance the account holds |
+| 7 | 2026-10-27 | `a6f0491` | Demo data covers every feature |
