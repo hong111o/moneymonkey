@@ -511,6 +511,11 @@
           help: 'Property rent already counts as income from the property itself; linking makes sure it’s only counted once.',
         },
         {
+          key: 'saverLink', label: 'Is this the payment into a regular saver?', type: 'select', span: true, transient: true, showIf: (v) => v.kind === 'saving' && state.deposits.some((d) => d.kind === 'regular'),
+          options: () => [{ value: '', label: 'Detect automatically (same amount as a regular saver)' }, { value: '__none', label: 'No — separate saving' }, ...state.deposits.filter((d) => d.kind === 'regular').map((d) => ({ value: d.id, label: `Yes — into the regular saver at ${d.platform || 'your bank'}${d.name ? ` (${d.name})` : ''}` }))],
+          help: 'A regular saver’s payment already counts as saving; linking makes sure it’s only counted (and confirmed) once.',
+        },
+        {
           key: 'loanLink', label: 'Is this a loan repayment?', type: 'select', span: true, transient: true, showIf: (v) => v.kind === 'expense' && state.liabilities.some((l) => l.type !== 'credit'),
           options: () => [{ value: '', label: 'Detect automatically (same amount as a loan)' }, { value: '__none', label: 'No — not a loan repayment' }, ...state.liabilities.filter((l) => l.type !== 'credit').map((l) => ({ value: l.id, label: `Yes — repayment for “${l.name}”` }))],
           help: 'Loan repayments are counted in your spending from Loans & Debts; linking a bill here makes sure it’s only counted once.',
@@ -523,13 +528,19 @@
         },
         { key: 'active', label: 'Active', type: 'checkbox', default: () => true },
       ],
-      editValues: (item) => ({ ...item, loanLink: item.notLoan ? '__none' : item.loanId || '', rentLink: item.notRent ? '__none' : item.propertyId || '' }),
+      editValues: (item) => ({ ...item, loanLink: item.notLoan ? '__none' : item.loanId || '', rentLink: item.notRent ? '__none' : item.propertyId || '', saverLink: item.notSaver ? '__none' : item.saverId || '' }),
       beforeSave: (item, prev) => {
         if (item.rentLink !== undefined) {
           item.propertyId = item.rentLink && item.rentLink !== '__none' ? item.rentLink : '';
           item.notRent = item.rentLink === '__none';
           if (!item.propertyId) delete item.propertyId;
           if (!item.notRent) delete item.notRent;
+        }
+        if (item.saverLink !== undefined) {
+          item.saverId = item.saverLink && item.saverLink !== '__none' ? item.saverLink : '';
+          item.notSaver = item.saverLink === '__none';
+          if (!item.saverId) delete item.saverId;
+          if (!item.notSaver) delete item.notSaver;
         }
         if (item.loanLink !== undefined) {
           item.loanId = item.loanLink && item.loanLink !== '__none' ? item.loanLink : '';
@@ -717,6 +728,7 @@
   let currentView = 'dashboard';
   let viewParam = null;
   let historyRange = '90';
+  let monthRange = '3';
   let summary = null;
   const filters = {};
 
@@ -1338,23 +1350,26 @@
         <span class="swatch" style="background:${color}"></span><span class="grow">${label}</span><span class="sub">${pctOf(sp[k])}</span><span class="num">${money(sp[k], base(), 0)}</span><span class="chev" aria-hidden="true">›</span></div>`).join('');
     const freeRow = `<div class="split-row free-row clickable" data-action="explain" data-what="cashflow" tabindex="0" role="button">
         <span class="swatch free"></span><span class="grow"><strong>${over ? 'Over budget' : 'Free'}</strong> <span class="sub">${over ? '' : 'to spend or save'}</span></span><span class="sub">${over ? '' : pctOf(sp.unallocated)}</span><span class="num"><strong class="${over ? 'neg' : 'pos'}">${money(Math.abs(sp.unallocated), base(), 0)}</strong></span><span class="chev" aria-hidden="true">›</span></div>`;
+    // Matches the app guessed (same amount & currency). Once answered they're no longer shown;
+    // the link can still be changed in the item's form.
+    const matchNote = (text, kind, cfId, targetId) => `<li><span class="grow">${text}</span><span class="note-actions"><button class="btn small primary" data-action="match-confirm" data-kind="${kind}" data-id="${esc(cfId)}" data-target="${esc(targetId)}">Yes, same</button><button class="btn small ghost" data-action="${kind}-unmatch" data-id="${esc(cfId)}">Not the same</button></span></li>`;
     const rentNotes = s.rentMatches.map((m) => {
       const cf = state.cashflows.find((c) => c.id === m.cashflowId);
       const prop = state.properties.find((p) => p.id === m.propertyId);
       if (!cf || !prop) return '';
-      return `<li><span class="grow">“${esc(cf.name)}” is the rent from “${esc(prop.name)}” — counted once, from the property.</span>${m.linked ? '' : `<button class="btn small ghost" data-action="rent-unmatch" data-id="${esc(cf.id)}">Not the same</button>`}</li>`;
+      return m.linked ? '' : matchNote(`“${esc(cf.name)}” looks like the rent from “${esc(prop.name)}” — counted once, from the property.`, 'rent', cf.id, prop.id);
     }).join('');
     const saverNotes = s.saverMatches.map((m) => {
       const cf = state.cashflows.find((c) => c.id === m.cashflowId);
       const dep = state.deposits.find((d) => d.id === m.depositId);
       if (!cf || !dep) return '';
-      return `<li><span class="grow">“${esc(cf.name)}” is the payment into the regular saver at ${esc(dep.platform || 'your bank')} — counted once, and confirmed from the saver.</span>${m.linked ? '' : `<button class="btn small ghost" data-action="saver-unmatch" data-id="${esc(cf.id)}">Not the same</button>`}</li>`;
+      return m.linked ? '' : matchNote(`“${esc(cf.name)}” looks like the payment into the regular saver at ${esc(dep.platform || 'your bank')} — counted once, and confirmed from the saver.`, 'saver', cf.id, dep.id);
     }).join('');
     const matches = rentNotes + saverNotes + s.loanMatches.map((m) => {
       const cf = state.cashflows.find((c) => c.id === m.cashflowId);
       const loan = state.liabilities.find((l) => l.id === m.loanId);
       if (!cf || !loan) return '';
-      return `<li><span class="grow">“${esc(cf.name)}” is the repayment for loan “${esc(loan.name)}” — counted once, under loan repayments.</span>${m.linked ? '' : `<button class="btn small ghost" data-action="loan-unmatch" data-id="${esc(cf.id)}">Not the same</button>`}</li>`;
+      return m.linked ? '' : matchNote(`“${esc(cf.name)}” looks like the repayment for loan “${esc(loan.name)}” — counted once, under loan repayments.`, 'loan', cf.id, loan.id);
     }).join('');
     return `<div class="card">
       <div class="card-head"><h2>Where your income goes</h2><span class="sub">a typical month</span></div>
@@ -1367,27 +1382,55 @@
   }
 
   // Month by month: recorded card spending + regular bills and loans, against regular income.
+  // Shows the last month, quarter or 6 months, or one row per year (all recorded months).
   function renderHistory() {
-    const h = summary.history;
-    if (!h.length) {
+    const s = summary;
+    const months = s.spendMonths; // newest first, every recorded month
+    if (!months.length) {
       return `<div class="card"><h2>Month by month</h2><p class="sub">Record your monthly card statements (Credit cards &amp; monthly spending, below) to see how each month compares with your income.</p></div>`;
+    }
+    const fixed = s.split.bills + s.loanRepayments;
+    const byYear = monthRange === 'year';
+    let h;
+    if (byYear) {
+      const years = new Map();
+      for (const m of months) {
+        const y = m.month.slice(0, 4);
+        const r = years.get(y) || { label: y, n: 0, card: 0 };
+        r.n += 1; r.card += m.total;
+        years.set(y, r);
+      }
+      h = [...years.values()].sort((x, y) => (x.label < y.label ? -1 : 1)).map((r) => {
+        const spending = r.card + fixed * r.n;
+        return { label: `${r.label}`, sub: plural(r.n, 'month'), income: s.incomeTotal * r.n, card: r.card, spending, net: s.incomeTotal * r.n - spending };
+      });
+    } else {
+      h = months.slice(0, +monthRange).reverse().map((m) => {
+        const spending = m.total + fixed;
+        return { label: fmtMonth(m.month), month: m.month, income: s.incomeTotal, card: m.total, spending, net: s.incomeTotal - spending };
+      });
     }
     const max = Math.max(1, ...h.map((m) => Math.max(m.income, m.spending)));
     const rows = h.map((m) => `<div class="hist-row">
-        <span class="hist-month">${fmtMonth(m.month)}</span>
+        <span class="hist-month">${m.label}${m.sub ? `<div class="sub">${m.sub}</div>` : ''}</span>
         <span class="hist-bars">
           <span class="hist-bar in" style="width:${(m.income / max) * 100}%" data-tip="Income: ${esc(money(m.income, base(), 0))}"></span>
           <span class="hist-bar out" style="width:${(m.spending / max) * 100}%" data-tip="Spent: ${esc(money(m.spending, base(), 0))} (cards ${esc(money(m.card, base(), 0))})"></span>
         </span>
         <span class="num ${m.net >= 0 ? 'pos' : 'neg'}">${m.net >= 0 ? '+' : '−'}${money(Math.abs(m.net), base(), 0)}</span>
       </div>`).join('');
-    const avgNet = h.reduce((t, m) => t + m.net, 0) / h.length;
-    const best = h.reduce((a, b) => (b.net > a.net ? b : a));
-    const worst = h.reduce((a, b) => (b.net < a.net ? b : a));
+    const ranges = [['1', 'Last month'], ['3', 'Quarter'], ['6', '6M'], ['year', 'By year']];
+    const seg = `<div class="seg" role="group" aria-label="Months shown">${ranges.map(([r, l]) => `<button data-action="month-range" data-range="${r}" class="${monthRange === r ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+    const nMonths = byYear ? months.length : h.length;
+    const avgNet = byYear ? h.reduce((t, m) => t + m.net, 0) / nMonths : h.reduce((t, m) => t + m.net, 0) / h.length;
+    const best = !byYear && h.length > 1 ? h.reduce((a, b) => (b.net > a.net ? b : a)) : null;
+    const worst = !byYear && h.length > 1 ? h.reduce((a, b) => (b.net < a.net ? b : a)) : null;
+    const more = !byYear && months.length > h.length ? ` ${plural(months.length - h.length, 'earlier month')} — see “By year”.` : '';
     return `<div class="card" style="${barValueWidth(h.map((m) => `+${money(Math.abs(m.net), base(), 0)}`))}">
-      <div class="card-head"><h2>Month by month</h2><span class="sub legend-inline"><span class="swatch" style="background:var(--series-1)"></span>income <span class="swatch" style="background:var(--series-2)"></span>spent</span></div>
+      <div class="card-head"><h2>Month by month</h2>${seg}</div>
+      <p class="sub legend-inline"><span class="swatch" style="background:var(--series-1)"></span>income <span class="swatch" style="background:var(--series-2)"></span>spent</p>
       ${rows}
-      <p class="sub">Left over ${money(avgNet, base(), 0)} a month on average (before planned saving)${h.length > 1 ? ` · best ${fmtMonth(best.month)}, highest spending ${fmtMonth(worst.month)}` : ''}. Card spending is what you recorded; income, bills and loan repayments are your regular amounts.</p>
+      <p class="sub">Left over ${money(avgNet, base(), 0)} a month on average${byYear ? ` across ${plural(nMonths, 'recorded month')}` : ''} (before planned saving)${best ? ` · best ${best.label}, highest spending ${worst.label}` : ''}.${more} Card spending is what you recorded; income is your regular monthly income (income items, interest, rent and dividends) and bills and loan repayments are your regular amounts.</p>
     </div>`;
   }
 
@@ -3007,6 +3050,8 @@
       [2, 0, 11850, '', true], [2, 1, 280, '', true],
       [3, 0, 16900, 'incl. flights', true], [3, 1, 295, '', true],
       [4, 0, 12400, '', true],
+      // Older statements, so "By year" has more than one year to show.
+      ...Array.from({ length: 14 }, (_, i) => [5 + i, 0, Math.round(11500 + 2600 * Math.abs(Math.sin(i * 1.7))), '', true]),
     ].map(([k, ci, amount, note, paid]) => {
       const card = s.cards[ci];
       // Last month's Monzo Flex bill is a few days overdue, so it asks to be paid.
@@ -3068,6 +3113,12 @@
       case 'pay-card': return payCardBill(id);
       case 'trade-buy': return openTrade(sec, id, 'buy');
       case 'trade-sell': return openTrade(sec, id, 'sell');
+      case 'match-confirm': {
+        const cf = state.cashflows.find((c) => c.id === id);
+        const key = { loan: 'loanId', rent: 'propertyId', saver: 'saverId' }[b.dataset.kind];
+        if (cf && key) { cf[key] = b.dataset.target; cf._mt = Date.now(); commit(); toast(`“${cf.name}” linked — you can change it in its form`); }
+        return;
+      }
       case 'saver-unmatch': {
         const cf = state.cashflows.find((c) => c.id === id);
         if (cf) { cf.notSaver = true; cf._mt = Date.now(); commit(); toast(`“${cf.name}” now counts as separate saving`); }
@@ -3091,6 +3142,7 @@
       case 'quick-add': return quickAdd();
       case 'menu': return openMenu();
       case 'range': historyRange = b.dataset.range; return render();
+      case 'month-range': monthRange = b.dataset.range; return render();
       case 'cur-filter':
         filters.accountsCurrency = b.dataset.cur && filters.accountsCurrency !== b.dataset.cur ? b.dataset.cur : null;
         return render();

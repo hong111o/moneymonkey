@@ -144,7 +144,7 @@ h3 { font-size: 0.95rem; margin: 12px 0 6px; }
 }
 .card.clickable { cursor: pointer; }
 .card.clickable:hover { border-color: var(--axis); }
-.card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px 12px; margin-bottom: 10px; flex-wrap: wrap; }
 .card-head h2 { margin: 0; }
 .card-head a { text-decoration: none; }
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -555,3 +555,7 @@ table.legend a:hover { text-decoration: underline; }
 }
 .pay-cross { margin-top: 10px; }
 .pay-row .pay-from, .pay-row .pay-conv { flex: 1 1 130px; width: auto; }
+.loan-notes li { flex-wrap: wrap; }
+.note-actions { display: flex; gap: 6px; margin-left: auto; }
+.hist-month .sub { font-size: 0.75rem; }
+.loan-notes li .grow { flex: 1 1 240px; }

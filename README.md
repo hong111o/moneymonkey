@@ -68,12 +68,13 @@ Every asset and loan has a **Platform** (HSBC HK, ZA Bank, Futu, Monzo, Trading 
 The Cash Flow page starts with:
 
 - **Where your income goes:** one bar splitting a typical month's income into bank bills, card spending, loan repayments and planned saving, and what's **free** (or how much you're over). Tap any part for the items behind it.
-- **Month by month:** income vs spending for each month you've recorded card statements, with what was left over.
+- **Month by month:** income against spending for the months you've recorded card statements, with what was left over. Choose **Last month**, **Quarter** (the default), **6M**, or **By year** (one row per year, covering every recorded month). Income here is your regular monthly income; only card spending changes from month to month.
 - **Fixed costs:** regular commitments (bills, subscriptions, loan repayments, however they're paid) as a share of income. Tap it to compare with your flexible card spending.
 - **Interest counts as income,** averaged per month the same way yearly and quarterly bills are (a HK$1,200 yearly bill counts as HK$100/mo). Fixed deposit and saver interest is shown on its own line, separate from regular income. A deposit set to renew keeps its interest, so that part also counts as saving. If you've entered a saver's interest yourself as an income item (linked to that account, with "interest" in its name), it isn't added twice.
 - **Rent counts once.** A property's monthly rent is income automatically, both in Cash Flow and in passive income, so you don't need to add it in Cash Flow too. If you already have it there (same currency and amount, monthly), it's counted only once. Tap "Not the same" if that's wrong, or choose in the income item's form whether it's a property's rent.
 - **Dividends:** give a stock or ETF its dividend per share or its yield. The yearly amount is averaged per month into income and passive income, and shows on the Stocks page. If it's reinvested (DRIP or an accumulating fund), it also counts as saving.
 - **Loan repayments** from Loans & Debts are counted in spending automatically. If a bill is the same payment (same currency and amount), it's counted once. Tap "Not the same" if that's wrong, or link a bill to a loan in its form.
+- **Matches the app guessed** (rent, a regular saver payment, a loan repayment entered again as an income, saving or bill item) show as blue notes. Tap **Yes, same** to link them, or **Not the same** to keep them separate. Either way the note goes away, and you can change it later in the item's form.
 
 ### Credit cards
 
