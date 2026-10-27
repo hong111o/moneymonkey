@@ -18,3 +18,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 3 | 2026-10-27 | `280b74e` | Property rent counted once as Cash Flow income; stock dividends in passive income and Cash Flow |
 | 4 | 2026-10-27 | `cbdc03c` | Regular saver accounts (monthly payments, fixed AER, interest calculated daily and paid monthly) |
 | 5 | 2026-10-27 | `374b437` | Planned saving box shows the same total as its breakdown |
+| 6 | 2026-10-27 | `cca9781` | Paying a bill from an account without that currency takes it from a balance the account holds |
