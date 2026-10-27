@@ -793,7 +793,7 @@
         ${tile('Investment P&L', signed(s.investPnl, base(), 0), s.investCost ? `${pct(s.investPnlPct)} on ${money(s.investCost, base(), 0)}` : 'No holdings yet', '', explainAttr('pnl'))}
         ${tile('Net cash flow / mo', signed(s.netMonthly, base(), 0), `${money(s.flow.income, base(), 0)} in · ${money(s.spending, base(), 0)} out${s.spendingSource === 'actual' ? ' (actual)' : ''}`, '', explainAttr('cashflow'))}
         ${tile('Savings rate', s.flow.income ? pct(s.savingsRate, false) : '—', 'of monthly income', '', explainAttr('cashflow'))}
-        ${tile('Passive income / mo', money(s.passiveMonthly, base(), 0), 'interest + rent', '', explainAttr('passive'))}
+        ${tile('Passive income / mo', money(s.passiveMonthly, base(), 0), 'earning rate · FD interest paid at maturity', '', explainAttr('passive'))}
         ${tile('Emergency runway', isFinite(s.runwayMonths) ? `${s.runwayMonths.toFixed(1)} mo` : '—', 'cash ÷ monthly spending', '', explainAttr('runway'))}
         ${tile('Subscriptions / mo', money(s.flow.subscription, base(), 0), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
       </section>
@@ -1804,6 +1804,7 @@
       const rents = daily ? [] : state.properties.filter((p) => +p.monthlyRent).map((p) => ({ v: toBase(p.monthlyRent, p.currency) || 0, html: row('#properties', esc(p.name), 'Rent', `${money(p.monthlyRent, p.currency)}/mo`) }));
       body = group('Fixed deposits', fds.sort(sortDesc).map((r) => r.html)) + group('Savers', savers.sort(sortDesc).map((r) => r.html)) + group('Rent', rents.sort(sortDesc).map((r) => r.html));
       if (!body) body = '<p class="sub">No interest or rent yet. Add a fixed deposit, set a rate on a saver account, or add rent to a property.</p>';
+      else if (!daily) body = '<p class="sub">How fast your money earns, not cash in hand: fixed deposit interest is paid at maturity, saver interest when the bank credits it. It isn’t counted in your monthly income or savings rate.</p>' + body;
       body += total('Total', daily ? `${money(s.interestDaily)}/day` : `${money(s.passiveMonthly, base(), 0)}/mo`);
     } else if (what === 'runway') {
       title = 'Emergency runway';
