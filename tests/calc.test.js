@@ -522,3 +522,41 @@ test('loan repayments count in spending once, even when also entered as a bill',
   const linked = { ...base, cashflows: base.cashflows.map((c) => (c.id === 'mbill' ? { ...c, amount: 1000, loanId: 'mort' } : c)) };
   assert.deepEqual(C.summarize(linked, '2026-10-27').loanMatches, [{ cashflowId: 'mbill', loanId: 'mort', linked: true }]);
 });
+
+test('interest counts as average monthly income; renewing deposits also count as saving', () => {
+  const base = {
+    settings: { baseCurrency: 'HKD' }, fx: { base: 'HKD', rates: { HKD: 1 } },
+    accounts: [
+      { id: 'sav', name: 'Saver', balances: [{ currency: 'HKD', amount: 120000, rate: 3, asOf: '2026-10-01' }] }, // 300/mo
+      { id: 'cur', name: 'Current', balances: [{ currency: 'HKD', amount: 50000 }] },
+    ],
+    deposits: [
+      { id: 'cash', accountId: 'cur', principal: 120000, rate: 5, startDate: '2026-06-01', termMonths: 12, compounding: 'simple', currency: 'HKD', onMaturity: 'cash' }, // 500/mo
+      { id: 'roll', accountId: 'cur', principal: 60000, rate: 4, startDate: '2026-06-01', termMonths: 12, compounding: 'simple', currency: 'HKD', onMaturity: 'renew' }, // 200/mo
+      { id: 'old', accountId: 'cur', principal: 99999, rate: 9, startDate: '2025-01-01', termMonths: 6, compounding: 'simple', currency: 'HKD', onMaturity: 'keep' }, // matured: no interest
+    ],
+    cashflows: [
+      { id: 'pay', name: 'Salary', kind: 'income', amount: 10000, currency: 'HKD', frequency: 'monthly', nextDate: '2026-11-01' },
+      { id: 'rent', name: 'Rent', kind: 'expense', amount: 6000, currency: 'HKD', frequency: 'monthly', nextDate: '2026-11-01' },
+      { id: 'ins', name: 'Insurance', kind: 'expense', amount: 1200, currency: 'HKD', frequency: 'yearly', nextDate: '2027-03-01' }, // 100/mo
+    ],
+  };
+  const s = C.summarize(base, '2026-10-27');
+  close(s.interest.fdCash, 500, 0.5);
+  close(s.interest.fdRenew, 200, 0.5);
+  close(s.interest.saver, 300, 0.5);
+  close(s.incomeTotal, 11000, 1.5);
+  assert.equal(s.flow.income, 10000); // regular income items stay separate
+  close(s.spending, 6100);
+  close(s.netMonthly, 11000 - 6100, 1.5);
+  close(s.savingsRate, (11000 - 6100) / 11000, 0.001);
+  close(s.split.saving, 200, 0.5); // the renewing deposit's interest stays saved
+  close(s.split.unallocated, 11000 - 6100 - 200, 1.5);
+
+  // A saver's interest already entered as an income item (linked + named "interest") isn't added twice.
+  const entered = { ...base, cashflows: [...base.cashflows, { id: 'si', name: 'Saver interest', kind: 'income', amount: 300, currency: 'HKD', frequency: 'monthly', nextDate: '2026-11-01', accountId: 'sav' }] };
+  const t = C.summarize(entered, '2026-10-27');
+  assert.equal(t.interest.saver, 0);
+  assert.deepEqual(t.interest.skippedAccounts, ['sav']);
+  close(t.incomeTotal, 11000, 1.5);
+});

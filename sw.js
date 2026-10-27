@@ -3,7 +3,7 @@
  * Network-first for the app's own files (so updates show up straight away), falling back
  * to the cached copy when offline. Price, FX and GitHub requests are never cached.
  */
-const CACHE = 'moneymonkey-v12';
+const CACHE = 'moneymonkey-v13';
 const SHELL = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest',
   'js/calc.js', 'js/prices.js', 'js/charts.js', 'js/sync.js', 'js/app.js',

@@ -53,6 +53,7 @@ The Cash Flow page starts with:
 - **Where your income goes:** one bar splitting a typical month's income into bank bills, card spending, loan repayments and planned saving, and what's **free** (or how much you're over). Tap any part for the items behind it.
 - **Month by month:** income vs spending for each month you've recorded card statements, with what was left over.
 - **Fixed costs:** regular commitments (bills, subscriptions, loan repayments, however they're paid) as a share of income. Tap it to compare with your flexible card spending.
+- **Interest counts as income,** averaged per month the same way yearly and quarterly bills are (a HK$1,200 yearly bill counts as HK$100/mo). Fixed deposit and saver interest is shown on its own line, separate from regular income. A deposit set to renew keeps its interest, so that part also counts as saving. If you've entered a saver's interest yourself as an income item (linked to that account, with "interest" in its name), it isn't added twice.
 - **Loan repayments** from Loans & Debts are counted in spending automatically. If a bill is the same payment (same currency and amount), it's counted once. Tap "Not the same" if that's wrong, or link a bill to a loan in its form.
 
 ### Credit cards

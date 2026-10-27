@@ -346,6 +346,7 @@
       return v;
     };
 
+    let fdInterestCash = 0, fdInterestRenew = 0;
     const totals = { cash: 0, stocks: 0, crypto: 0, deposits: 0, property: 0, other: 0 };
     let investCost = 0, investPnl = 0, dayChange = 0, depositDaily = 0, depositInterest = 0;
     const events = [];
@@ -353,11 +354,13 @@
     const horizon = toISO(addDays(parseDate(today), 30));
 
     let saverDaily = 0, saverAccrued = 0;
+    const saverMonthlyByAccount = {};
     for (const a of state.accounts || []) {
       for (const b of accountBalances(a)) {
         const bv = balanceValue(b, today);
         totals.cash += toBase(bv.value, b.currency);
         saverDaily += toBase(bv.daily, b.currency);
+        if (bv.daily > 0) saverMonthlyByAccount[a.id] = (saverMonthlyByAccount[a.id] || 0) + toBase(bv.daily, b.currency) * 365 / 12;
         saverAccrued += toBase(bv.accrued, b.currency);
       }
     }
@@ -376,6 +379,11 @@
       const v = depositValue(d, today);
       totals.deposits += toBase(v.value, d.currency);
       depositDaily += toBase(v.dailyInterest, d.currency);
+      // Interest as average monthly income (like yearly bills averaged per month). A renewing
+      // deposit keeps its interest, so that part is also counted as saving.
+      const fdMonthly = toBase(v.dailyInterest, d.currency) * 365 / 12;
+      if (d.onMaturity === 'renew') fdInterestRenew += fdMonthly;
+      else fdInterestCash += fdMonthly;
       depositInterest += toBase(v.interest, d.currency);
       if (v.maturityDate >= today && v.maturityDate <= horizon) {
         events.push({ date: v.maturityDate, label: `Fixed deposit matures: ${d.bank || d.name || 'FD'}`, amount: toBase(v.maturityValue, d.currency), kind: 'deposit' });
@@ -457,7 +465,22 @@
     const estimatedSpending = billsMonthly + loanRepayments;
     const actualSpending = cardSpendAvg == null ? null : cardSpendAvg + notOnCard + loanRepayments;
     const spending = actualSpending ?? estimatedSpending;
-    const netMonthly = flow.income - spending;
+    // Saver interest the user already entered as an income item (linked to that account and
+    // named/categorised "interest") isn't added again.
+    const enteredInterest = new Set((state.cashflows || [])
+      .filter((c) => c.active !== false && c.kind === 'income' && c.accountId && /interest/i.test(`${c.name} ${c.category || ''}`))
+      .map((c) => c.accountId));
+    let saverInterest = 0;
+    for (const [id, m] of Object.entries(saverMonthlyByAccount)) if (!enteredInterest.has(id)) saverInterest += m;
+    const interest = {
+      fdCash: fdInterestCash,
+      fdRenew: fdInterestRenew,
+      saver: saverInterest,
+      total: fdInterestCash + fdInterestRenew + saverInterest,
+      skippedAccounts: Object.keys(saverMonthlyByAccount).filter((id) => enteredInterest.has(id)),
+    };
+    const incomeTotal = flow.income + interest.total;
+    const netMonthly = incomeTotal - spending;
 
     // Where a typical month's income goes.
     const cardSpending = cardSpendAvg == null ? cardPaidBills : cardSpendAvg;
@@ -465,9 +488,9 @@
       bills: notOnCard,
       card: cardSpending,
       loans: loanRepayments,
-      saving: flow.saving,
+      saving: flow.saving + fdInterestRenew,
     };
-    split.unallocated = flow.income - (split.bills + split.card + split.loans + split.saving);
+    split.unallocated = incomeTotal - (split.bills + split.card + split.loans + split.saving);
     // Fixed = regular commitments however they're paid; flexible = the rest of card spending.
     const fixedCosts = notOnCard + cardPaidBills + loanRepayments;
     const flexibleCosts = cardSpendAvg == null ? null : Math.max(0, cardSpendAvg - cardPaidBills);
@@ -476,7 +499,7 @@
     // against regular income (only card spending is recorded per month, so that's what varies).
     const history = spendMonths.slice(0, 12).map((m) => {
       const spent = m.total + notOnCard + loanRepayments;
-      return { month: m.month, income: flow.income, card: m.total, fixed: notOnCard + loanRepayments, spending: spent, net: flow.income - spent };
+      return { month: m.month, income: incomeTotal, card: m.total, fixed: notOnCard + loanRepayments, spending: spent, net: incomeTotal - spent };
     }).reverse();
     const passiveMonthly = (depositDaily + saverDaily) * 365 / 12 + rentMonthly;
     const liquid = totals.cash;
@@ -507,7 +530,9 @@
       cardPaidBills,
       split,
       fixedCosts,
-      fixedPct: flow.income ? fixedCosts / flow.income : null,
+      fixedPct: incomeTotal ? fixedCosts / incomeTotal : null,
+      interest,
+      incomeTotal,
       flexibleCosts,
       history,
       spendingSource: actualSpending == null ? 'estimate' : 'actual',
@@ -518,7 +543,7 @@
       notOnCard,
       spendMonths,
       netMonthly,
-      savingsRate: flow.income ? (flow.income - spending) / flow.income : 0,
+      savingsRate: incomeTotal ? (incomeTotal - spending) / incomeTotal : 0,
       passiveMonthly,
       rentMonthly,
       debtPayments,

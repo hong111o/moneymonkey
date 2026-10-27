@@ -803,8 +803,8 @@
         ${tile('Total assets', money(s.assets, base(), 0), '', '', explainAttr('assets'))}
         ${tile('Liabilities', `<span class="${s.liabilities ? 'neg' : ''}">${money(s.liabilities, base(), 0)}</span>`, s.assets ? `Debt-to-asset ${(s.debtToAsset * 100).toFixed(1)}%` : '', '', explainAttr('liabilities'))}
         ${tile('Investment P&L', signed(s.investPnl, base(), 0), s.investCost ? `${pct(s.investPnlPct)} on ${money(s.investCost, base(), 0)}` : 'No holdings yet', '', explainAttr('pnl'))}
-        ${tile('Net cash flow / mo', signed(s.netMonthly, base(), 0), `${money(s.flow.income, base(), 0)} in · ${money(s.spending, base(), 0)} out${s.spendingSource === 'actual' ? ' (actual)' : ''}`, '', explainAttr('cashflow'))}
-        ${tile('Savings rate', s.flow.income ? pct(s.savingsRate, false) : '—', 'of monthly income', '', explainAttr('cashflow'))}
+        ${tile('Net cash flow / mo', signed(s.netMonthly, base(), 0), `${money(s.incomeTotal, base(), 0)} in · ${money(s.spending, base(), 0)} out${s.spendingSource === 'actual' ? ' (actual)' : ''}`, '', explainAttr('cashflow'))}
+        ${tile('Savings rate', s.incomeTotal ? pct(s.savingsRate, false) : '—', 'of monthly income', '', explainAttr('cashflow'))}
         ${tile('Passive income / mo', money(s.passiveMonthly, base(), 0), 'earning rate · FD interest paid at maturity', '', explainAttr('passive'))}
         ${tile('Emergency runway', isFinite(s.runwayMonths) ? `${s.runwayMonths.toFixed(1)} mo` : '—', 'cash ÷ monthly spending', '', explainAttr('runway'))}
         ${tile('Subscriptions / mo', money(s.flow.subscription, base(), 0), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
@@ -1219,9 +1219,9 @@
     const max = cats.length ? cats[0][1] : 0;
     const catBars = cats.map(([k, v]) => `<div class="hbar link clickable" data-action="explain" data-what="category" data-cat="${esc(k)}" tabindex="0" role="button"><span class="hbar-label">${esc(k)}</span><span class="hbar-track"><span style="width:${max ? (v / max) * 100 : 0}%"></span></span><span class="num">${money(v, base(), 0)}</span></div>`).join('');
     const tiles = `<section class="tiles">
-        ${tile('Income / mo', `<span class="pos">${money(s.flow.income)}</span>`, '', '', explainAttr('income'))}
+        ${tile('Income / mo', `<span class="pos">${money(s.incomeTotal)}</span>`, s.interest.total > 0.5 ? `incl. ${money(s.interest.total, base(), 0)} interest` : '', '', explainAttr('income'))}
         ${tile('Spending / mo', money(s.spending), `${s.spendingSource === 'actual' ? `actual · avg of last ${plural(s.spendAvgMonths, 'month')}` : 'estimated from your bills'}${s.loanRepayments ? ' · incl. loans' : ''}`, '', explainAttr('spending'))}
-        ${tile('Left over / mo', signed(s.netMonthly), s.flow.income ? `Savings rate ${pct(s.savingsRate, false)}` : '', '', explainAttr('cashflow'))}
+        ${tile('Left over / mo', signed(s.netMonthly), s.incomeTotal ? `Savings rate ${pct(s.savingsRate, false)}` : '', '', explainAttr('cashflow'))}
         ${tile('Fixed costs / mo', money(s.fixedCosts), s.fixedPct != null ? `${pct(s.fixedPct, false)} of income` : 'bills, subscriptions & loans', '', explainAttr('fixed'))}
         ${tile('Subscriptions / mo', money(s.flow.subscription), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
         ${tile('Planned saving / mo', money(s.flow.saving), '', '', explainAttr('saving'))}
@@ -1244,14 +1244,14 @@
   // One bar showing where a typical month's income goes, ending with what's genuinely free.
   function renderIncomeSplit() {
     const s = summary;
-    if (!s.flow.income && !s.spending) return '';
+    if (!s.incomeTotal && !s.spending) return '';
     const sp = s.split;
     const over = sp.unallocated < 0;
-    const scale = Math.max(s.flow.income, s.flow.income - sp.unallocated);
+    const scale = Math.max(s.incomeTotal, s.incomeTotal - sp.unallocated);
     const parts = SPLIT_PARTS.filter(([k]) => sp[k] > 0.5);
     const bar = parts.map(([k, label, color]) => `<span style="flex-grow:${sp[k]};background:${color}" data-tip="${esc(label)}: ${esc(money(sp[k], base(), 0))}"></span>`).join('')
       + (!over && sp.unallocated > 0.5 ? `<span class="free" style="flex-grow:${sp.unallocated}" data-tip="Free: ${esc(money(sp.unallocated, base(), 0))}"></span>` : '');
-    const pctOf = (v) => (s.flow.income ? `${((v / s.flow.income) * 100).toFixed(0)}%` : '');
+    const pctOf = (v) => (s.incomeTotal ? `${((v / s.incomeTotal) * 100).toFixed(0)}%` : '');
     const rows = parts.map(([k, label, color, what]) => `<div class="split-row clickable" data-action="explain" data-what="${what}" tabindex="0" role="button">
         <span class="swatch" style="background:${color}"></span><span class="grow">${label}</span><span class="sub">${pctOf(sp[k])}</span><span class="num">${money(sp[k], base(), 0)}</span><span class="chev" aria-hidden="true">›</span></div>`).join('');
     const freeRow = `<div class="split-row free-row clickable" data-action="explain" data-what="cashflow" tabindex="0" role="button">
@@ -1264,9 +1264,10 @@
     }).join('');
     return `<div class="card">
       <div class="card-head"><h2>Where your income goes</h2><span class="sub">a typical month</span></div>
-      <div class="stack split-bar" aria-hidden="true" style="width:${scale ? (Math.max(s.flow.income, 0) / scale) * 100 : 100}%">${bar}</div>
+      <div class="stack split-bar" aria-hidden="true" style="width:${scale ? (Math.max(s.incomeTotal, 0) / scale) * 100 : 100}%">${bar}</div>
       ${over ? `<p class="sub neg">Your regular spending is ${money(-sp.unallocated, base(), 0)} more than your income each month.</p>` : ''}
       <div class="split-rows">${rows}${freeRow}</div>
+      ${!over && s.interest.fdCash > 0.5 ? `<p class="sub">Income includes ${money(s.interest.total, base(), 0)}/mo of interest. ${money(s.interest.fdCash, base(), 0)} of it is fixed deposit interest you receive at maturity, not every month.</p>` : ''}
       ${matches ? `<ul class="loan-notes">${matches}</ul>` : ''}
     </div>`;
   }
@@ -1801,6 +1802,26 @@
       const cf = m && state.cashflows.find((c) => c.id === m.cashflowId);
       return { v: toBase(l.payment, l.currency) || 0, html: `<a class="ex-row" href="#" data-action="edit" data-sec="liabilities" data-id="${esc(l.id)}"><span class="grow"><strong>${esc(l.name)}</strong><div class="sub">${[esc(l.platform || ''), `${money(Calc.loanBalance(l, t).balance, l.currency, 0)} left`, cf ? `same as bill “${esc(cf.name)}”` : ''].filter(Boolean).join(' · ')}</div></span><span class="num">${money(toBase(l.payment, l.currency), base(), 0)}</span><span class="chev" aria-hidden="true">›</span></a>` };
     }).sort(sortDesc).map((r) => r.html);
+    // Interest as average monthly income: each fixed deposit and saver line.
+    const interestRows = () => {
+      const out = [];
+      for (const d of state.deposits) {
+        const v = Calc.depositValue(d, t);
+        if (!(v.dailyInterest > 0)) continue;
+        const m = toBase(v.dailyInterest, d.currency) * 365 / 12;
+        const how = d.onMaturity === 'renew' ? 'kept in the deposit when it renews' : `paid ${fmtDate(v.maturityDate)}`;
+        out.push({ v: m, html: row(acctHref(d.accountId), `${esc(d.platform || 'Fixed deposit')}${d.name ? ` · ${esc(d.name)}` : ''}`, `Fixed deposit interest · ${num(d.rate, 2)}% · ${how}`, money(m, base(), 0)) });
+      }
+      for (const a of state.accounts) {
+        if (s.interest.skippedAccounts.includes(a.id)) continue;
+        for (const b of Calc.accountBalances(a)) {
+          const bv = Calc.balanceValue(b, t);
+          if (bv.daily > 0) out.push({ v: toBase(bv.daily, b.currency) * 365 / 12, html: row(acctHref(a.id), `${esc(a.name)} · ${esc(b.currency)}`, `Saver interest · ${num(b.rate, 2)}%`, money(toBase(bv.daily, b.currency) * 365 / 12, base(), 0)) });
+        }
+      }
+      return out.sort(sortDesc).map((r) => r.html);
+    };
+    const skippedNote = () => (s.interest.skippedAccounts.length ? `<p class="sub">Interest from ${s.interest.skippedAccounts.map((id) => `“${esc(accountName(id))}”`).join(', ')} is already in your income items, so it isn’t added again.</p>` : '');
     const cardMonths = () => s.spendMonths.slice(0, s.spendAvgMonths).map((m) => row('#cashflows', `Card spending · ${fmtMonth(m.month)}`, plural(m.entries, 'card'), money(m.total, base(), 0)));
     let title = '', body = '';
 
@@ -1828,7 +1849,12 @@
     } else if (what === 'income') {
       title = 'Income per month';
       const rows = flowRows(active.filter((c) => c.kind === 'income'));
-      body = (rows.length ? group('Biggest first', rows) : '<p class="sub">No income yet. Add your salary and other income with “+ Add”.</p>') + total('Per month', money(s.flow.income, base(), 0)) + total('Per year', money(s.flow.income * 12, base(), 0));
+      const irows = interestRows();
+      body = (rows.length ? group(`Regular income · ${money(s.flow.income, base(), 0)}`, rows) : '<p class="sub">No regular income yet. Add your salary and other income with “+ Add”.</p>')
+        + group(`Interest · ${money(s.interest.total, base(), 0)}`, irows)
+        + (irows.length ? '<p class="sub">Interest is averaged per month, the same way yearly bills are. Fixed deposit interest arrives at maturity; a renewing deposit keeps it, so that part also counts as saving.</p>' : '')
+        + skippedNote()
+        + total('Per month', money(s.incomeTotal, base(), 0)) + total('Per year', money(s.incomeTotal * 12, base(), 0));
     } else if (what === 'spending') {
       title = 'Spending per month';
       if (s.spendingSource === 'actual') {
@@ -1871,9 +1897,14 @@
     } else if (what === 'saving') {
       title = 'Planned saving per month';
       const rows = flowRows(active.filter((c) => c.kind === 'saving'));
-      body = (rows.length ? group('Saving & investing', rows) : '<p class="sub">Nothing planned yet. Add a regular transfer to savings or investments with the type “Saving / investing”.</p>')
-        + total('Per month', money(s.flow.saving, base(), 0))
-        + (s.netMonthly > 0 && s.flow.saving ? `<p class="sub">That’s ${pct(s.flow.saving / s.netMonthly, false)} of what’s left over each month.</p>` : '');
+      const renew = state.deposits.filter((d) => d.onMaturity === 'renew').map((d) => {
+        const v = Calc.depositValue(d, t);
+        const m = toBase(v.dailyInterest, d.currency) * 365 / 12;
+        return m > 0 ? row(acctHref(d.accountId), `${esc(d.platform || 'Fixed deposit')}${d.name ? ` · ${esc(d.name)}` : ''}`, 'Interest kept when the deposit renews', money(m, base(), 0)) : '';
+      }).filter(Boolean);
+      body = (rows.length || renew.length ? group('Saving & investing', rows) + group('Interest kept in renewing deposits', renew) : '<p class="sub">Nothing planned yet. Add a regular transfer to savings or investments with the type “Saving / investing”.</p>')
+        + total('Per month', money(s.split.saving, base(), 0))
+        + (s.netMonthly > 0 && s.split.saving ? `<p class="sub">That’s ${pct(s.split.saving / s.netMonthly, false)} of what’s left over each month.</p>` : '');
     } else if (what === 'category') {
       const cat = param || '';
       title = cat;
@@ -1887,11 +1918,11 @@
         spend = [row('#cashflows', 'Card spending', `average of the last ${plural(s.spendAvgMonths, 'month')} you recorded`, money(s.cardSpendAvg, base(), 0)), ...flowRows(bills((c) => !c.onCard))];
       } else spend = flowRows(bills());
       spend = [...spend, ...loanRows()];
-      body = group(`Income · ${money(s.flow.income, base(), 0)}`, income)
+      body = group(`Income · ${money(s.incomeTotal, base(), 0)}`, [...income, ...interestRows()])
         + group(`Spending · ${money(s.spending, base(), 0)}${s.spendingSource === 'actual' ? ' (actual)' : ' (estimated from bills)'}`, spend)
         + total('Left over each month', signed(s.netMonthly, base(), 0))
-        + (s.flow.income ? total('Savings rate', pct(s.savingsRate, false)) : '')
-        + (s.flow.saving ? total('Planned saving', money(s.flow.saving, base(), 0)) + total(s.split.unallocated < 0 ? 'Over budget' : 'Free to spend or save', `<span class="${s.split.unallocated < 0 ? 'neg' : 'pos'}">${money(Math.abs(s.split.unallocated), base(), 0)}</span>`) : '');
+        + (s.incomeTotal ? total('Savings rate', pct(s.savingsRate, false)) : '')
+        + (s.split.saving ? total('Planned saving', money(s.split.saving, base(), 0)) + total(s.split.unallocated < 0 ? 'Over budget' : 'Free to spend or save', `<span class="${s.split.unallocated < 0 ? 'neg' : 'pos'}">${money(Math.abs(s.split.unallocated), base(), 0)}</span>`) : '');
     } else if (what === 'passive' || what === 'interest') {
       const daily = what === 'interest';
       title = daily ? 'Interest earned per day' : 'Passive income per month';
@@ -1909,7 +1940,7 @@
       const rents = daily ? [] : state.properties.filter((p) => +p.monthlyRent).map((p) => ({ v: toBase(p.monthlyRent, p.currency) || 0, html: row('#properties', esc(p.name), 'Rent', `${money(p.monthlyRent, p.currency)}/mo`) }));
       body = group('Fixed deposits', fds.sort(sortDesc).map((r) => r.html)) + group('Savers', savers.sort(sortDesc).map((r) => r.html)) + group('Rent', rents.sort(sortDesc).map((r) => r.html));
       if (!body) body = '<p class="sub">No interest or rent yet. Add a fixed deposit, set a rate on a saver account, or add rent to a property.</p>';
-      else if (!daily) body = '<p class="sub">How fast your money earns, not cash in hand: fixed deposit interest is paid at maturity, saver interest when the bank credits it. It isn’t counted in your monthly income or savings rate.</p>' + body;
+      else if (!daily) body = '<p class="sub">How fast your money earns, not cash in hand: fixed deposit interest is paid at maturity, saver interest when the bank credits it. In Cash Flow it counts as average monthly income, the same way yearly bills are averaged.</p>' + body;
       body += total('Total', daily ? `${money(s.interestDaily)}/day` : `${money(s.passiveMonthly, base(), 0)}/mo`);
     } else if (what === 'runway') {
       title = 'Emergency runway';
