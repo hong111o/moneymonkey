@@ -24,3 +24,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 9 | 2026-10-27 | `a735aec` | Buy & sell for stocks and crypto, realised profit, top-ups, low-balance warnings |
 | 10 | 2026-10-27 | `d7137c4` | Top-up in the Buy form chooses the balance and takes the real amounts sent/received; instant warnings |
 | 11 | 2026-10-27 | `3a7c74f` | Buy/Sell offers a new broker cash account when the platform has none |
+| 12 | 2026-10-27 | `8e121c2` | Confirm buttons on Cash Flow match notes; month-by-month ranges (last month, quarter, 6M, by year) |
