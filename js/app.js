@@ -13,7 +13,7 @@
   const HISTORY_MAX = 3650;
   const FX_MAX_AGE_MS = 60 * 60 * 1000;
   const SYNC_INTERVAL_MS = 2 * 60 * 1000;
-  const LIST_SECTIONS = ['accounts', 'stocks', 'crypto', 'deposits', 'properties', 'others', 'liabilities', 'cashflows', 'spending', 'goals'];
+  const LIST_SECTIONS = ['accounts', 'stocks', 'crypto', 'deposits', 'properties', 'others', 'liabilities', 'cashflows', 'spending', 'cards', 'goals'];
   const PLATFORM_SECTIONS = ['accounts', 'stocks', 'crypto', 'deposits', 'properties', 'others', 'liabilities'];
 
   const todayISO = () => Calc.toISO(new Date());
@@ -29,7 +29,7 @@
       version: 2,
       settings: { baseCurrency: 'USD', finnhubKey: '', refreshSec: 60, theme: 'auto', privacy: false },
       settingsMt: 0,
-      accounts: [], stocks: [], crypto: [], deposits: [], properties: [], others: [], liabilities: [], cashflows: [], spending: [], goals: [],
+      accounts: [], stocks: [], crypto: [], deposits: [], properties: [], others: [], liabilities: [], cashflows: [], spending: [], cards: [], goals: [],
       activity: [],
       platformMeta: {},
       deleted: {},
@@ -49,6 +49,7 @@
     Calc.migratePlatforms(s);
     Calc.migrateAccounts(s);
     Calc.linkDeposits(s);
+    Calc.linkCards(s);
     s.version = 2;
     return s;
   }
@@ -161,7 +162,7 @@
   const OTHER_CATS = opt([['vehicle', 'Vehicle'], ['gold', 'Gold / precious metals'], ['retirement', 'Retirement / pension (MPF, SIPP…)'], ['insurance', 'Insurance cash value'], ['business', 'Business stake'], ['receivable', 'Money owed to me'], ['collectible', 'Collectibles'], ['other', 'Other']]);
   const LOAN_TYPES = opt([['mortgage', 'Mortgage'], ['car', 'Car loan'], ['personal', 'Personal loan'], ['credit', 'Credit card'], ['student', 'Student loan'], ['other', 'Other']]);
   const ON_MATURITY = opt([['cash', 'Move capital + interest to cash'], ['renew', 'Renew automatically (same term & rate)'], ['keep', 'Do nothing — I’ll update it myself']]);
-  const EVENT_LABELS = { income: 'Income', expense: 'Expense', subscription: 'Subscription', saving: 'Saving', deposit: 'Deposit', property: 'Property' };
+  const EVENT_LABELS = { income: 'Income', expense: 'Expense', subscription: 'Subscription', saving: 'Saving', deposit: 'Deposit', property: 'Property', card: 'Card bill' };
   const CATEGORY_COLORS = { cash: 'var(--series-1)', stocks: 'var(--series-2)', crypto: 'var(--series-3)', deposits: 'var(--series-4)', property: 'var(--series-5)', other: 'var(--series-6)' };
   const CATEGORY_LABELS = { cash: 'Cash & bank', stocks: 'Stocks & ETFs', crypto: 'Crypto', deposits: 'Fixed deposits', property: 'Property', other: 'Other assets' };
   const CATEGORY_VIEW = { cash: 'accounts', stocks: 'stocks', crypto: 'crypto', deposits: 'deposits', property: 'properties', other: 'others' };
@@ -178,6 +179,14 @@
   const accountDeposits = (a) => state.deposits.filter((d) => d.accountId === a.id);
   const depositsTotal = (deps) => deps.reduce((t, d) => t + (toBase(Calc.depositValue(d, todayISO()).value, d.currency) || 0), 0);
   const accountName = (id) => (state.accounts.find((a) => a.id === id) || {}).name || '';
+  const cardById = (id) => state.cards.find((c) => c.id === id);
+  const accountOptions = () => state.accounts.map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }));
+  // "due 25 Nov", "paid ✓", "overdue since 25 Oct" for a card statement
+  function billStatus(e) {
+    if (e.paidOn) return 'paid ✓';
+    if (!e.dueDate) return '';
+    return e.dueDate < todayISO() ? `<span class="neg">overdue since ${fmtDate(e.dueDate)}</span>` : `due ${fmtDate(e.dueDate)}`;
+  }
   const currenciesWord = (n) => `${n} ${n === 1 ? 'currency' : 'currencies'}`;
   const balanceList = (a) => `<div class="bal-list">${Calc.accountBalances(a).map((b) => `<div><span class="cur-tag">${esc(b.currency)}</span> ${money(Calc.balanceValue(b, todayISO()).value, b.currency)}${+b.rate ? ` <span class="sub">${num(b.rate, 2)}%</span>` : ''}</div>`).join('')}</div>`;
   const platformLine = (item, more = '') => [item.platform, more].filter(Boolean).map(esc).join(' · ');
@@ -492,28 +501,72 @@
     },
 
     spending: {
-      title: 'Monthly spending',
-      singular: 'spending record',
+      title: 'Card statement',
+      singular: 'statement',
       fields: [
-        { key: 'month', label: 'Month', type: 'month', required: true, default: lastMonth },
-        platformField('Card / account', 'e.g. HSBC Red card, Amex'),
-        { key: 'amount', label: 'Amount spent', type: 'number', required: true, help: 'e.g. the total of that month’s credit card statement. Add one record per card.' },
-        currencyField,
-        { key: 'note', label: 'Note', placeholder: 'optional, e.g. incl. flights' },
         {
-          key: 'payFromAccountId', label: 'Bill paid from account (optional)', type: 'select', span: true,
-          options: () => [{ value: '', label: 'Not linked' }, ...state.accounts.map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }))],
-          help: 'MoneyMonkey will ask you to confirm the payment on the due date.',
+          key: 'cardId', label: 'Card', type: 'select', required: true, span: true,
+          options: () => [...state.cards.map((c) => ({ value: c.id, label: `${c.name}${c.platform ? ` · ${c.platform}` : ''}` })), { value: '__new', label: '+ New card…' }],
         },
-        { key: 'dueDate', label: 'Bill due date', type: 'date', required: true, showIf: (v) => !!v.payFromAccountId },
+        { key: 'newCardName', label: 'New card name', required: true, transient: true, placeholder: 'e.g. HSBC Red, Amex', showIf: (v) => v.cardId === '__new' },
+        { key: 'month', label: 'Month spent', type: 'month', required: true, default: lastMonth },
+        { key: 'amount', label: 'Statement amount', type: 'number', required: true, help: 'The total of that month’s statement for this card.' },
+        currencyField,
+        { key: 'dueDate', label: 'Payment due date', type: 'date', help: 'Leave blank to use the card’s due day.' },
+        {
+          key: 'payFromAccountId', label: 'Paid from', type: 'select', span: true,
+          options: (v) => {
+            const c = cardById(v.cardId);
+            return [{ value: '', label: c && c.payFromAccountId ? `The card’s usual account (${accountName(c.payFromAccountId)})` : 'Not linked — just remind me' }, ...accountOptions()];
+          },
+        },
+        { key: 'paid', label: 'Already paid (e.g. an old statement)', type: 'checkbox', transient: true, span: true },
+        { key: 'note', label: 'Note', placeholder: 'optional, e.g. incl. flights' },
       ],
+      preview: (v) => {
+        if (v.paid) return 'Recorded as paid — it won’t count as debt or ask you to pay.';
+        const c = cardById(v.cardId);
+        const due = v.dueDate || Calc.cardDueDate(c, v.month);
+        if (!due) return 'No due date: set a due day on the card (or a date here) to get a reminder and track it as debt until it’s paid.';
+        const acctId = v.payFromAccountId || (c && c.payFromAccountId);
+        if (due < todayISO()) return `Due <strong>${fmtDate(due)}</strong>, which has passed. If you’ve already paid it, tick “Already paid” — otherwise it shows as overdue debt until you confirm the payment.`;
+        return `Counts as debt until paid. Due <strong>${fmtDate(due)}</strong>${acctId ? ` — you’ll be asked to confirm paying it from <strong>${esc(accountName(acctId))}</strong>` : ' — you’ll be reminded to mark it paid'}.`;
+      },
+      editValues: (item) => ({ ...item, paid: !!item.paidOn }),
       beforeSave: (item, prev) => {
-        if (!item.payFromAccountId) {
-          delete item.dueDate;
-          delete item.paidOn;
-        } else if (prev && prev.dueDate !== item.dueDate) delete item.paidOn;
+        if (item.cardId === '__new') {
+          const c = { id: uid(), name: item.newCardName, platform: '', currency: item.currency, dueDay: null, payFromAccountId: '', _mt: Date.now() };
+          state.cards.push(c);
+          item.cardId = c.id;
+        }
+        const card = cardById(item.cardId);
+        item.platform = card ? card.name : '';
+        if (!item.dueDate) item.dueDate = Calc.cardDueDate(card, item.month);
+        if (!item.dueDate) delete item.dueDate;
+        if (!item.payFromAccountId) delete item.payFromAccountId;
+        if (item.paid) item.paidOn = (prev && prev.paidOn) || todayISO();
+        else delete item.paidOn;
       },
       validate: (v) => (/^\d{4}-\d{2}$/.test(v.month || '') ? null : 'Pick a month (YYYY-MM).'),
+      columns: [],
+    },
+
+    cards: {
+      title: 'Credit cards',
+      singular: 'card',
+      fields: [
+        { key: 'name', label: 'Card name', required: true, placeholder: 'e.g. HSBC Red, Amex' },
+        platformField('Bank / issuer', 'e.g. HSBC HK'),
+        { ...currencyField, label: 'Billing currency' },
+        { key: 'dueDay', label: 'Payment due day (each month)', type: 'number', step: '1', placeholder: 'e.g. 25', help: 'A statement for September is due on this day in October.' },
+        {
+          key: 'payFromAccountId', label: 'Usually paid from', type: 'select', span: true,
+          options: () => [{ value: '', label: 'Not linked — just remind me' }, ...accountOptions()],
+          help: 'On the due date you’ll be asked to confirm before the bill comes off this account.',
+        },
+        { key: 'note', label: 'Note', span: true },
+      ],
+      validate: (v) => (v.dueDay == null || (Number.isInteger(v.dueDay) && v.dueDay >= 1 && v.dueDay <= 31) ? null : 'The due day should be a day of the month, 1–31.'),
       columns: [],
     },
 
@@ -574,9 +627,10 @@
     { id: 'account', hidden: true },
     { id: 'platform', hidden: true },
     { id: 'region', hidden: true },
+    { id: 'card', hidden: true },
   ];
   // Detail pages highlight their parent in the navigation.
-  const NAV_PARENT = { account: 'accounts', deposits: 'accounts', platform: 'platforms', region: 'platforms' };
+  const NAV_PARENT = { account: 'accounts', deposits: 'accounts', platform: 'platforms', region: 'platforms', card: 'cashflows' };
 
   let currentView = 'dashboard';
   let viewParam = null;
@@ -631,6 +685,7 @@
     else if (currentView === 'account') main.innerHTML = renderAccount(viewParam);
     else if (currentView === 'platform') main.innerHTML = renderPlatformDetail(viewParam ?? '');
     else if (currentView === 'region') main.innerHTML = renderRegion(viewParam ?? '');
+    else if (currentView === 'card') main.innerHTML = renderCard(viewParam);
     else main.innerHTML = renderSection(currentView);
     Charts.bindLineHover(main, tooltip);
     tickLive();
@@ -701,7 +756,11 @@
     const first = hist[0];
     const histChange = first && hist.length > 1 ? s.netWorth - first.value : null;
 
-    const events = s.events.slice(0, 10).map((e) => `<li><span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label"><span class="badge kind-${esc(e.kind)}">${esc(EVENT_LABELS[e.kind] || e.kind)}</span> ${esc(e.label)}</span><span class="num">${e.amount != null ? money(e.amount) : ''}</span></li>`).join('');
+    const events = s.events.slice(0, 12).map((e) => {
+      const label = `<span class="badge kind-${esc(e.kind)}">${esc(EVENT_LABELS[e.kind] || e.kind)}</span> ${esc(e.label)}${e.overdue ? ' <span class="badge overdue">overdue</span>' : ''}`;
+      const inner = `<span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${label}</span><span class="num">${e.amount != null ? money(e.amount) : ''}</span>`;
+      return e.kind === 'card' ? `<li class="clickable" data-action="open-card" data-id="${esc(e.cardId)}" tabindex="0">${inner}</li>` : `<li>${inner}</li>`;
+    }).join('');
     const recent = state.activity.filter((e) => String(e.kind).startsWith('deposit-') && Calc.daysBetween(e.date, todayISO()) <= 14).slice(0, 3);
     const alerts = [...recent.map((e) => ({ level: 'good', html: activityText(e) })), ...s.alerts, ...setupAlerts()]
       .map((a) => `<li class="alert ${a.level}"><span aria-hidden="true">${a.level === 'warn' ? '⚠' : a.level === 'good' ? '✓' : 'ℹ'}</span><span>${a.html || esc(a.text)}</span></li>`).join('');
@@ -872,6 +931,8 @@
         </div>
       </div>
       ${opts.tiles ?? sectionTiles(key, items)}
+      ${opts.before || ''}
+      ${opts.listTitle && items.length ? `<div class="section-head" id="all-items"><h2>${opts.listTitle}</h2><button class="btn small primary" data-action="add" data-sec="${key}">+ Add</button></div>` : ''}
       ${key === 'accounts' ? renderCashByCurrency(filter == null ? all : all.filter((x) => (x.platform || '') === filter)) : ''}
       ${items.length ? renderItemsTable(key, items)
         : `<div class="card empty">No ${sec.singular}s${filter != null || curFilter ? ' match this filter' : ' yet'}. <button class="btn primary" data-action="add" data-sec="${key}">+ Add ${sec.singular}</button></div>`}
@@ -1152,29 +1213,84 @@
         ${tile('Subscriptions / mo', money(s.flow.subscription), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
         ${tile('Planned saving / mo', money(s.flow.saving), '', '', explainAttr('saving'))}
       </section>`;
-    const after = renderSpendingCard() + (cats.length ? `<div class="card"><h2>Fixed bills by category</h2><div class="hbars" style="${barValueWidth(cats.map(([, v]) => money(v, base(), 0)))}">${catBars}</div></div>` : '');
-    return renderSection('cashflows', { tiles, after });
+    const before = (state.cashflows.length ? '<p class="jump"><a href="#" data-action="jump" data-target="all-items">All income, bills &amp; subscriptions ↓</a></p>' : '')
+      + renderCardsCard()
+      + (cats.length ? `<div class="card"><h2>Fixed bills by category</h2><div class="hbars" style="${barValueWidth(cats.map(([, v]) => money(v, base(), 0)))}">${catBars}</div></div>` : '');
+    return renderSection('cashflows', { tiles, before, listTitle: 'All income, bills &amp; subscriptions' });
   }
 
-  function renderSpendingCard() {
+  // Credit cards and the monthly spending recorded from their statements, in one place.
+  function renderCardsCard() {
     const s = summary;
     const months = s.spendMonths.slice(0, 12);
     const max = Math.max(1, ...months.map((m) => m.total));
+    const cardRows = state.cards.map((c) => {
+      const entries = state.spending.filter((e) => e.cardId === c.id).sort((a, b) => (a.month < b.month ? 1 : -1));
+      const last = entries[0];
+      const owed = entries.filter((e) => e.dueDate && !e.paidOn).reduce((t, e) => t + (toBase(e.amount, e.currency) || 0), 0);
+      const meta = [esc(c.platform || ''), c.dueDay ? `due day ${c.dueDay}` : 'no due day set', c.payFromAccountId ? `paid from ${esc(accountName(c.payFromAccountId))}` : ''].filter(Boolean).join(' · ');
+      return `<li class="clickable" data-action="open-card" data-id="${esc(c.id)}" tabindex="0">
+        <span class="grow"><strong>${esc(c.name)}</strong><div class="sub">${meta}</div>
+          ${last ? `<div class="sub">${fmtMonth(last.month)}: ${money(last.amount, last.currency)}${billStatus(last) ? ` · ${billStatus(last)}` : ''}</div>` : '<div class="sub">No statements yet</div>'}</span>
+        <span class="num">${owed ? `<span class="neg">${money(owed, base(), 0)}</span><div class="sub">owed</div>` : ''}</span><span class="chev" aria-hidden="true">›</span></li>`;
+    }).join('');
     const rows = months.map((m) => {
       const entries = state.spending.filter((e) => e.month === m.month);
       return `<div class="spend-month">
         <div class="hbar"><span class="hbar-label"><strong>${fmtMonth(m.month)}</strong></span><span class="hbar-track"><span style="width:${(m.total / max) * 100}%"></span></span><span class="num"><strong>${money(m.total, base(), 0)}</strong></span></div>
-        <ul class="spend-entries">${entries.map((e) => `<li class="clickable" data-action="edit" data-sec="spending" data-id="${esc(e.id)}" tabindex="0"><span>${esc(e.platform || 'Spending')}${e.note ? ` <span class="sub">· ${esc(e.note)}</span>` : ''}${e.payFromAccountId ? ` <span class="sub">· ${e.paidOn ? 'paid ✓' : `due ${fmtDate(e.dueDate)} from ${esc(accountName(e.payFromAccountId))}`}</span>` : ''}</span><span class="num">${money(e.amount, e.currency)}</span></li>`).join('')}</ul>
+        <ul class="spend-entries">${entries.map((e) => `<li class="clickable" data-action="edit" data-sec="spending" data-id="${esc(e.id)}" tabindex="0"><span>${esc(e.platform || 'Card')}${e.note ? ` <span class="sub">· ${esc(e.note)}</span>` : ''}${billStatus(e) ? ` <span class="sub">· ${billStatus(e)}</span>` : ''}</span><span class="num">${money(e.amount, e.currency)}</span></li>`).join('')}</ul>
       </div>`;
     }).join('');
     const avgNote = s.spendingSource === 'actual'
-      ? `Average of the last ${plural(s.spendAvgMonths, 'month')}: <strong>${money(s.cardSpendAvg, base(), 0)}</strong>. Your cash flow uses this plus ${money(s.notOnCard, base(), 0)}/mo of fixed bills not paid by card — tick “Paid by credit card” on bills that are already in your statement so they aren’t counted twice.`
-      : 'Record what you actually spend each month — e.g. each credit card statement total — and your cash flow, savings rate and runway will use real numbers instead of estimates.';
+      ? `Average of the last ${plural(s.spendAvgMonths, 'month')}: <strong>${money(s.cardSpendAvg, base(), 0)}</strong>. Your cash flow uses this plus ${money(s.notOnCard, base(), 0)}/mo of bills not paid by card.`
+      : '';
     return `<div class="card" id="spending" style="${barValueWidth(months.map((m) => money(m.total, base(), 0)))}">
-      <div class="card-head"><h2>💳 Actual monthly spending</h2><button class="btn small primary" data-action="add" data-sec="spending">+ Record</button></div>
-      <p class="sub">${avgNote}</p>
-      ${rows}
+      <div class="card-head"><h2>💳 Credit cards &amp; monthly spending</h2><div class="row-actions"><button class="btn small" data-action="add" data-sec="cards">+ Card</button><button class="btn small primary" data-action="add" data-sec="spending">+ Statement</button></div></div>
+      ${state.cards.length ? `<ul class="card-list">${cardRows}</ul>` : '<p class="sub">Add your credit cards once (name, due day, which account pays them), then record each month’s statement. Bills show up in “Next 30 days”, count as debt until paid, and you’re asked to confirm the payment on the due date. Your cash flow then uses what you really spent.</p>'}
+      ${months.length ? `<h3>Spent per month</h3>${avgNote ? `<p class="sub">${avgNote}</p>` : ''}${rows}` : ''}
     </div>`;
+  }
+
+  // ---------------------------------------------------------------- one credit card
+
+  function renderCard(id) {
+    const c = cardById(id);
+    const back = '<a class="back" href="#cashflows">‹ Cash flow</a>';
+    if (!c) return `${back}<div class="card empty">This card no longer exists.</div>`;
+    const entries = state.spending.filter((e) => e.cardId === c.id).sort((a, b) => (a.month < b.month ? 1 : -1));
+    const unpaid = entries.filter((e) => e.dueDate && !e.paidOn);
+    const owed = unpaid.reduce((t, e) => t + (toBase(e.amount, e.currency) || 0), 0);
+    const recent = entries.slice(0, 3);
+    const avg = recent.length ? recent.reduce((t, e) => t + (toBase(e.amount, e.currency) || 0), 0) / recent.length : 0;
+    const next = unpaid.sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1))[0];
+    const meta = [c.platform ? `<a href="#platform/${encodeURIComponent(c.platform)}">${esc(c.platform)}</a>` : '', c.dueDay ? `due on day ${c.dueDay} each month` : 'no due day set', c.payFromAccountId ? `paid from <a href="#account/${encodeURIComponent(c.payFromAccountId)}">${esc(accountName(c.payFromAccountId))}</a>` : 'not linked to an account', esc(c.note || '')].filter(Boolean).join(' · ');
+    const list = entries.map((e) => `<li class="clickable" data-action="edit" data-sec="spending" data-id="${esc(e.id)}" tabindex="0">
+        <span class="grow"><strong>${fmtMonth(e.month)}</strong><div class="sub">${billStatus(e) || 'no due date'}${e.note ? ` · ${esc(e.note)}` : ''}</div></span>
+        <span class="num">${money(e.amount, e.currency)}</span>
+        ${e.dueDate && !e.paidOn ? `<button class="btn small" data-action="pay-card" data-id="${esc(e.id)}">Pay</button>` : ''}</li>`).join('');
+    return `${back}
+      <div class="page-head">
+        <div><h1>💳 ${esc(c.name)}</h1><p class="sub">${meta}</p></div>
+        <div class="row-actions"><button class="btn" data-action="edit" data-sec="cards" data-id="${esc(c.id)}">Edit card</button><button class="btn primary" data-action="add" data-sec="spending" data-card="${esc(c.id)}">+ Statement</button></div>
+      </div>
+      <section class="tiles">
+        ${tile('Owed now', owed ? `<span class="neg">${money(owed)}</span>` : money(0), unpaid.length ? plural(unpaid.length, 'unpaid bill') : 'all paid')}
+        ${tile('Next due', next ? fmtDate(next.dueDate) : '—', next ? money(next.amount, next.currency) : '')}
+        ${tile('Average / month', money(avg), recent.length ? `last ${plural(recent.length, 'statement')}` : '')}
+      </section>
+      <div class="section-head"><h2>Statements</h2></div>
+      <div class="card">${entries.length ? `<ul class="acct-bals stmt-list">${list}</ul>` : '<p class="sub">No statements yet. Tap “+ Statement” after each monthly statement arrives, or record them in the monthly check-in.</p>'}</div>`;
+  }
+
+  function payCardBill(id) {
+    const e = state.spending.find((x) => x.id === id);
+    if (!e) return;
+    const card = cardById(e.cardId);
+    const acct = state.accounts.find((a) => a.id === (e.payFromAccountId || (card && card.payFromAccountId)));
+    if (!confirm(acct ? `Deduct ${money(e.amount, e.currency)} from “${acct.name}” and mark the ${fmtMonth(e.month)} bill paid?` : `Mark the ${fmtMonth(e.month)} bill as paid?`)) return;
+    Calc.resolvePayment(state, { key: `card:${e.id}`, type: 'card', id: e.id, date: todayISO(), name: `${e.platform || 'Card'} bill (${e.month})`, amount: +e.amount, currency: e.currency, accountId: acct ? acct.id : null, sign: -1 }, !!acct, +e.amount, Date.now());
+    commit();
+    toast('Bill marked as paid');
   }
 
   // ---------------------------------------------------------------- goals
@@ -1460,6 +1576,13 @@
     const prev = id ? state[sec].find((x) => x.id === id) : null;
     if (id && !prev) return;
     preset = { ...(filters[sec] ? { platform: filters[sec] } : {}), ...preset };
+    if (sec === 'spending' && !prev) {
+      const c = cardById(preset.cardId) || state.cards[0];
+      if (c && !preset.cardId) preset.cardId = c.id;
+      if (c && c.currency) preset.currency = c.currency;
+      if (!state.cards.length) preset.cardId = '__new';
+      delete preset.platform;
+    }
     if (sec === 'deposits' && !prev) {
       // Adding from an account or platform page: hold the deposit in that account.
       const acct = state.accounts.find((a) => a.id === preset.accountId) || (preset.platform != null ? state.accounts.find((a) => a.platform === preset.platform) : null);
@@ -1481,12 +1604,18 @@
       validate: def.validate,
       onDelete: prev ? () => {
         const deps = sec === 'accounts' ? accountDeposits(prev) : [];
-        const extra = deps.length ? ` and its ${plural(deps.length, 'fixed deposit')}` : '';
-        if (!confirm(`Delete “${prev.name || prev.symbol || prev.coinId || prev.platform}”${extra}?`)) return false;
+        const stmts = sec === 'cards' ? state.spending.filter((e) => e.cardId === prev.id) : [];
+        const extra = deps.length ? ` and its ${plural(deps.length, 'fixed deposit')}` : stmts.length ? ` and its ${plural(stmts.length, 'statement')}` : '';
+        if (!confirm(`Delete “${prev.name || prev.symbol || prev.coinId || prev.platform || (sec === 'spending' ? `${fmtMonth(prev.month)} statement` : '')}”${extra}?`)) return false;
         for (const d of deps) {
           state.deposits = state.deposits.filter((x) => x.id !== d.id);
           state.deleted[d.id] = Date.now();
         }
+        for (const e of stmts) {
+          state.spending = state.spending.filter((x) => x.id !== e.id);
+          state.deleted[e.id] = Date.now();
+        }
+        if (sec === 'cards' && currentView === 'card') location.hash = '#cashflows';
         removeItem(sec, prev.id);
         if (sec === 'accounts' && currentView === 'account') location.hash = '#accounts';
         return true;
@@ -1547,14 +1676,14 @@
   }
 
   function quickAdd() {
-    const items = [['accounts', '¤', 'Bank / cash account'], ['stocks', '↗', 'Stock or ETF'], ['crypto', '₿', 'Crypto'], ['deposits', '%', 'Fixed deposit'], ['properties', '⌂', 'Property'], ['others', '◆', 'Other asset'], ['liabilities', '−', 'Loan or debt'], ['cashflows', '⇄', 'Income, bill or subscription'], ['spending', '💳', 'Monthly spending (card bill)'], ['transfer', '⇆', 'Transfer between my accounts'], ['goals', '★', 'Goal']];
+    const items = [['accounts', '¤', 'Bank / cash account'], ['stocks', '↗', 'Stock or ETF'], ['crypto', '₿', 'Crypto'], ['deposits', '%', 'Fixed deposit'], ['properties', '⌂', 'Property'], ['others', '◆', 'Other asset'], ['liabilities', '−', 'Loan or debt'], ['cashflows', '⇄', 'Income, bill or subscription'], ['spending', '💳', 'Card statement'], ['cards', '💳', 'Credit card'], ['transfer', '⇆', 'Transfer between my accounts'], ['goals', '★', 'Goal']];
     openSheet('Add…', `<div class="choice-grid">${items.map(([k, icon, label]) => `<button class="choice" data-sheet-add="${k}"><span class="icon" aria-hidden="true">${icon}</span>${label}</button>`).join('')}</div>`, (e) => {
       const b = e.target.closest('[data-sheet-add]');
       if (!b) return;
       const sec = b.dataset.sheetAdd;
       dialog().close();
       if (sec === 'transfer') return openTransfer();
-      const view = sec === 'spending' ? 'cashflows' : sec;
+      const view = sec === 'spending' || sec === 'cards' ? 'cashflows' : sec;
       if (currentView !== view) {
         // Show the list we're adding to, then open the form on top of it.
         history.replaceState(null, '', `#${view}`);
@@ -1601,7 +1730,10 @@
         const b = Calc.loanBalance(l, t).balance;
         return { v: toBase(b, l.currency) || 0, html: row('#liabilities', esc(l.name), [esc(l.platform || ''), l.rate ? `${num(l.rate, 2)}%` : '', l.payment ? `${money(l.payment, l.currency)}/mo` : ''].filter(Boolean).join(' · '), `<span class="neg">${money(b, l.currency)}</span>`) };
       });
-      body = (rows.length ? group('Loans & debts', rows.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No loans or debts recorded.</p>') + total('Total owed', `<span class="neg">${money(s.liabilities, base(), 0)}</span>`);
+      const bills = Calc.unpaidCardBills(state).map((e) => ({ v: toBase(e.amount, e.currency) || 0, html: row(`#card/${encodeURIComponent(e.cardId)}`, `💳 ${esc(e.platform || 'Card')} · ${fmtMonth(e.month)}`, billStatus(e), `<span class="neg">${money(e.amount, e.currency)}</span>`) }));
+      body = (rows.length || bills.length
+        ? group('Loans & debts', rows.sort(sortDesc).map((r) => r.html)) + group('Unpaid card bills', bills.sort(sortDesc).map((r) => r.html))
+        : '<p class="sub">No loans, debts or unpaid card bills.</p>') + total('Total owed', `<span class="neg">${money(s.liabilities, base(), 0)}</span>`);
     } else if (what === 'pnl') {
       title = 'Investment profit / loss';
       const rows = [...state.stocks.map((h) => ['stocks', h, h.symbol]), ...state.crypto.map((h) => ['crypto', h, h.symbol || h.coinId])].map(([k, h, label]) => {
@@ -1708,12 +1840,12 @@
       const confirmedAfter = acct && acct.updatedAt && acct.updatedAt.slice(0, 10) >= p.date;
       return `<div class="pay-item" data-key="${esc(p.key)}">
         <div class="pay-head"><span class="badge ${p.sign > 0 ? 'kind-income' : 'kind-expense'}">${p.sign > 0 ? 'In' : 'Out'}</span><strong class="grow">${esc(p.name)}</strong><span class="sub">${fmtDate(p.date)}</span></div>
-        <div class="sub">${p.sign > 0 ? 'Into' : 'From'} ${acct ? `<strong>${esc(acct.name)}</strong>${acct.platform ? ` · ${esc(acct.platform)}` : ''}` : '<span class="neg">an account that was deleted</span>'} · ${esc(p.currency)}</div>
+        <div class="sub">${acct ? `${p.sign > 0 ? 'Into' : 'From'} <strong>${esc(acct.name)}</strong>${acct.platform ? ` · ${esc(acct.platform)}` : ''}` : p.accountId ? 'From <span class="neg">an account that was deleted</span>' : 'No paying account linked — this just marks it paid'} · ${esc(p.currency)}</div>
         ${confirmedAfter ? `<div class="hint">You updated this balance on ${fmtDate(acct.updatedAt)}, so it may already include this.</div>` : ''}
         <div class="pay-row">
           <input class="pay-amt" type="number" step="any" inputmode="decimal" value="${p.amount}" aria-label="Amount">
           ${acct ? `<button class="btn primary small" data-pay="apply">${p.sign > 0 ? 'Add' : 'Deduct'}</button>` : ''}
-          <button class="btn small" data-pay="skip">${acct ? 'Already included' : 'Dismiss'}</button>
+          <button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already included' : p.type === 'card' ? 'Mark paid' : 'Dismiss'}</button>
         </div>
       </div>`;
     }).join('');
@@ -1741,7 +1873,13 @@
     if (!state.accounts.length) return toast('Add a bank account first.');
     const t = todayISO();
     const lm = lastMonth();
-    const spendRow = () => `<div class="ci-spend"><input class="ci-card" list="platform-list" placeholder="Card" aria-label="Card"><input class="ci-amt" type="number" step="any" inputmode="decimal" placeholder="Amount" aria-label="Amount"><input class="ci-cur" list="currency-list" maxlength="3" value="${esc(base())}" aria-label="Currency"></div>`;
+    const spendRow = () => `<div class="ci-spend"><input class="ci-card" placeholder="New card name" aria-label="Card"><input class="ci-amt" type="number" step="any" inputmode="decimal" placeholder="Amount" aria-label="Amount"><input class="ci-cur" list="currency-list" maxlength="3" value="${esc(base())}" aria-label="Currency"></div>`;
+    const cardLines = state.cards.map((c) => {
+      const done = state.spending.find((e) => e.cardId === c.id && e.month === lm);
+      return `<label class="ci-line ci-card-line"><span class="ci-card-name">${esc(c.name)}</span>${done
+        ? `<span class="sub">recorded: ${money(done.amount, done.currency)}</span>`
+        : `<input type="number" step="any" inputmode="decimal" data-card="${esc(c.id)}" placeholder="${esc(c.currency || base())} statement" aria-label="${esc(c.name)} statement for ${fmtMonth(lm)}">`}</label>`;
+    }).join('');
     const blocks = state.accounts.map((a) => {
       const lines = Calc.accountBalances(a);
       return `<div class="ci-acct" data-id="${esc(a.id)}">
@@ -1752,13 +1890,13 @@
         }).join('') || '<p class="sub">No balances yet — tap the account later to add some.</p>'}
       </div>`;
     }).join('');
-    const recorded = state.spending.filter((e) => e.month === lm);
     const html = `<p class="sub">Update each balance from your bank apps; leave the ones that haven’t changed.</p>
       ${blocks}
       <h3>💳 Card spending for ${fmtMonth(lm)}</h3>
-      <p class="sub">${recorded.length ? `Already recorded: ${esc(recorded.map((e) => `${e.platform || 'card'} ${money(e.amount, e.currency)}`).join(', '))}. Add more below if needed.` : 'Optional — the totals from your card statements.'}</p>
-      <div class="ci-spend-rows">${spendRow()}</div>
-      <button type="button" class="btn small" data-ci="add-card">+ Another card</button>
+      <p class="sub">Optional — each card’s statement total. Leave blank to skip a card.</p>
+      ${cardLines}
+      <div class="ci-spend-rows">${state.cards.length ? '' : spendRow()}</div>
+      <button type="button" class="btn small" data-ci="add-card">+ ${state.cards.length ? 'A card not listed' : 'Another card'}</button>
       <div class="row-actions ci-actions"><button class="btn primary" data-ci="save">Save check-in</button><button class="btn" data-ci="later">Remind me tomorrow</button><button class="btn ghost" data-ci="skip">Skip this month</button></div>
       <p class="form-error" role="alert"></p>`;
     openSheet(`Monthly check-in — ${fmtMonth(t.slice(0, 7))}`, html, (e) => {
@@ -1771,7 +1909,10 @@
       if (action === 'skip') { Calc.recordCheckin(state, t, true, Date.now()); dialog().close(); commit(); return; }
       // save: validate card rows first
       const cards = [...box.querySelectorAll('.ci-spend')].map((r) => ({ platform: $('.ci-card', r).value.trim(), amount: $('.ci-amt', r).value, currency: $('.ci-cur', r).value.trim().toUpperCase() })).filter((c) => c.amount !== '');
+      const known = [...box.querySelectorAll('input[data-card]')].filter((i) => i.value !== '').map((i) => ({ cardId: i.dataset.card, amount: i.value }));
+      for (const c of known) if (!isFinite(+c.amount)) return ($('.form-error', box).textContent = 'Card amounts must be numbers.');
       for (const c of cards) {
+        if (!c.platform) return ($('.form-error', box).textContent = 'Give the new card a name.');
         if (!isFinite(+c.amount)) return ($('.form-error', box).textContent = 'Card amounts must be numbers.');
         if (!/^[A-Z]{3}$/.test(c.currency)) return ($('.form-error', box).textContent = 'Card currency must be a 3-letter code like HKD or GBP.');
       }
@@ -1796,11 +1937,19 @@
           acct._mt = now;
         }
       }
-      for (const c of cards) state.spending.push({ id: uid(), month: lm, platform: c.platform, amount: +c.amount, currency: c.currency, note: '', _mt: now });
+      for (const k of known) {
+        const card = cardById(k.cardId);
+        state.spending.push({ id: uid(), cardId: k.cardId, month: lm, platform: card.name, amount: +k.amount, currency: card.currency || base(), dueDate: Calc.cardDueDate(card, lm) || undefined, note: '', _mt: now });
+      }
+      for (const c of cards) {
+        const card = { id: uid(), name: c.platform, platform: '', currency: c.currency, dueDay: null, payFromAccountId: '', _mt: now };
+        state.cards.push(card);
+        state.spending.push({ id: uid(), cardId: card.id, month: lm, platform: card.name, amount: +c.amount, currency: c.currency, note: '', _mt: now });
+      }
       Calc.recordCheckin(state, t, false, now);
       dialog().close();
       commit();
-      toast(`Check-in saved — ${plural(changed, 'balance')} updated${cards.length ? `, ${plural(cards.length, 'card')} recorded` : ''}`);
+      toast(`Check-in saved — ${plural(changed, 'balance')} updated${known.length + cards.length ? `, ${plural(known.length + cards.length, 'card statement')} recorded` : ''}`);
     });
   }
 
@@ -1869,6 +2018,7 @@
 
   function commit() {
     Calc.linkDeposits(state);
+    Calc.linkCards(state);
     const settled = Calc.settleDeposits(state, todayISO(), Date.now());
     recordSnapshot();
     save();
@@ -2233,12 +2383,22 @@
       { id: uid(), name: 'Monthly investing', kind: 'saving', category: 'Investing', amount: 8000, currency: 'HKD', frequency: 'monthly', nextDate: d(10), active: true },
     ];
     const ym = (k) => Calc.toISO(Calc.addMonths(t, -k)).slice(0, 7);
+    const hsbcId = s.accounts[0].id;
+    const monzoId = s.accounts[2].id;
+    s.cards = [
+      { id: uid(), name: 'HSBC Red', platform: 'HSBC HK', currency: 'HKD', dueDay: Math.min(28, t.getDate() + 6), payFromAccountId: hsbcId },
+      { id: uid(), name: 'Monzo Flex', platform: 'Monzo', currency: 'GBP', dueDay: 15, payFromAccountId: monzoId },
+    ];
     s.spending = [
-      [1, 'HSBC Red card', 14200, 'HKD'], [1, 'Monzo', 310, 'GBP'],
-      [2, 'HSBC Red card', 11850, 'HKD'], [2, 'Monzo', 280, 'GBP'],
-      [3, 'HSBC Red card', 16900, 'HKD', 'incl. flights'], [3, 'Monzo', 295, 'GBP'],
-      [4, 'HSBC Red card', 12400, 'HKD'],
-    ].map(([k, platform, amount, currency, note]) => ({ id: uid(), month: ym(k), platform, amount, currency, note: note || '' }));
+      [1, 0, 14200, '', false], [1, 1, 310, '', false],
+      [2, 0, 11850, '', true], [2, 1, 280, '', true],
+      [3, 0, 16900, 'incl. flights', true], [3, 1, 295, '', true],
+      [4, 0, 12400, '', true],
+    ].map(([k, ci, amount, note, paid]) => {
+      const card = s.cards[ci];
+      const dueDate = Calc.cardDueDate(card, ym(k));
+      return { id: uid(), cardId: card.id, month: ym(k), platform: card.name, amount, currency: card.currency, note, dueDate, ...(paid ? { paidOn: dueDate } : {}) };
+    });
     s.goals = [
       { id: uid(), name: 'Emergency fund', metric: 'cash', target: 250000 },
       { id: uid(), name: 'HK$5M net worth', metric: 'netWorth', target: 5000000, targetDate: m(60) },
@@ -2259,6 +2419,7 @@
         const preset = {};
         if (b.dataset.platform != null) preset.platform = b.dataset.platform;
         if (b.dataset.account) preset.accountId = b.dataset.account;
+        if (b.dataset.card) preset.cardId = b.dataset.card;
         if (b.dataset.type) {
           preset.type = b.dataset.type;
           if (b.dataset.type === 'brokerage' && preset.platform) preset.name = `${preset.platform} cash`;
@@ -2271,6 +2432,9 @@
       case 'open-account': location.hash = `#account/${encodeURIComponent(id)}`; return;
       case 'open-platform': location.hash = `#platform/${encodeURIComponent(b.dataset.name)}`; return;
       case 'open-region': location.hash = `#region/${encodeURIComponent(b.dataset.name)}`; return;
+      case 'open-card': location.hash = `#card/${encodeURIComponent(id)}`; return;
+      case 'pay-card': return payCardBill(id);
+      case 'jump': { const el = document.getElementById(b.dataset.target); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
       case 'explain': return explain(b.dataset.what, b.dataset.cat);
       case 'edit': return editItem(sec, id);
       case 'edit-platform': return editPlatform(b.dataset.name);

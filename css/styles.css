@@ -324,6 +324,20 @@ a.pill:hover { background: var(--grid); }
 .broker-cash { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .cur-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; background: var(--surface-2); color: var(--text); text-decoration: none; font-size: 0.88rem; }
 
+.badge.overdue { background: var(--neg); color: #fff; }
+.badge.kind-card { background: color-mix(in srgb, var(--series-2) 18%, transparent); color: var(--text); }
+.events li.clickable { cursor: pointer; border-radius: 8px; }
+.events li.clickable:active { background: var(--surface-2); }
+.card-list { list-style: none; margin: 0 0 6px; padding: 0; }
+.card-list li { display: flex; align-items: center; gap: 10px; padding: 10px 6px; border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 8px; }
+.card-list li:last-child { border-bottom: 0; }
+.card-list li:hover, .card-list li:active { background: var(--surface-2); }
+.stmt-list li .btn { margin-left: 6px; }
+.jump { margin: -6px 0 12px; }
+.jump a { text-decoration: none; font-size: 0.9rem; }
+.ci-card-line { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
+.ci-card-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .back { display: inline-block; margin: 0 0 8px; color: var(--accent); text-decoration: none; font-size: 0.95rem; padding: 4px 0; }
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 22px 0 10px; }
 .section-head h2 { margin: 0; }

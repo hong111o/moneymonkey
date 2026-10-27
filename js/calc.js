@@ -401,6 +401,16 @@
       liabilities += toBase(v.balance, l.currency);
       if (v.balance > 0) debtPayments += toBase(l.payment, l.currency);
     }
+    // A card bill is owed from when it's recorded until the payment is confirmed.
+    let cardOwed = 0;
+    for (const e of unpaidCardBills(state)) {
+      cardOwed += toBase(e.amount, e.currency);
+      if (e.dueDate <= horizon) {
+        const overdue = e.dueDate < today;
+        events.push({ date: e.dueDate, label: `${e.platform || 'Card'} bill`, amount: toBase(e.amount, e.currency), kind: 'card', overdue, cardId: e.cardId });
+      }
+    }
+    liabilities += cardOwed;
 
     const flow = { income: 0, expense: 0, subscription: 0, saving: 0 };
     let notOnCard = 0;
@@ -413,7 +423,8 @@
         events.push({ date, label: cf.name, amount: toBase(cf.amount, cf.currency), kind: cf.kind });
       }
     }
-    events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    // Overdue card bills first, then by date.
+    events.sort((a, b) => (!!a.overdue !== !!b.overdue ? (a.overdue ? -1 : 1) : a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
     const assets = Object.values(totals).reduce((s, x) => s + x, 0);
     const netWorth = assets - liabilities;
@@ -436,6 +447,7 @@
       totals,
       assets,
       liabilities,
+      cardOwed,
       netWorth,
       investCost,
       investPnl,
@@ -557,9 +569,11 @@
         out.push({ key: `cf:${cf.id}:${date}`, type: 'cashflow', id: cf.id, date, name: cf.name, amount: +cf.amount || 0, currency: cf.currency, accountId: cf.accountId, sign: OUTGOING[cf.kind] ? -1 : 1 });
       }
     }
-    for (const e of state.spending || []) {
-      if (!e.payFromAccountId || !e.dueDate || e.paidOn || e.dueDate > today) continue;
-      out.push({ key: `card:${e.id}`, type: 'card', id: e.id, date: e.dueDate, name: `${e.platform || 'Card'} bill (${e.month})`, amount: +e.amount || 0, currency: e.currency, accountId: e.payFromAccountId, sign: -1 });
+    for (const e of unpaidCardBills(state)) {
+      if (e.dueDate > today) continue;
+      const card = (state.cards || []).find((c) => c.id === e.cardId);
+      const accountId = e.payFromAccountId || (card && card.payFromAccountId) || null;
+      out.push({ key: `card:${e.id}`, type: 'card', id: e.id, date: e.dueDate, name: `${e.platform || 'Card'} bill (${e.month})`, amount: +e.amount || 0, currency: e.currency, accountId, sign: -1 });
     }
     return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   }
@@ -627,6 +641,43 @@
 
   // Every fixed deposit is held in a bank account (`accountId`) and takes that account's
   // platform. Older deposits that only had a platform are attached to a matching account.
+  // ---------- credit cards ----------
+
+  // Bills that are recorded with a due date and not yet confirmed as paid.
+  function unpaidCardBills(state) {
+    return (state.spending || []).filter((e) => e.dueDate && !e.paidOn && +e.amount);
+  }
+
+  // Payment due date for a statement month: the card's due day in the following month.
+  function cardDueDate(card, month) {
+    const day = +(card && card.dueDay);
+    if (!day || !/^\d{4}-\d{2}$/.test(month || '')) return null;
+    const next = addMonths(parseDate(`${month}-01`), 1);
+    const last = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    return toISO(new Date(next.getFullYear(), next.getMonth(), Math.min(day, last)));
+  }
+
+  // Every spending record belongs to a card (`cardId`) and shows its name. Older records that
+  // only had a card name get a card created for that name (deterministic id, so devices agree).
+  function linkCards(state) {
+    state.cards = state.cards || [];
+    for (const e of state.spending || []) {
+      let card = state.cards.find((c) => c.id === e.cardId);
+      if (!card) {
+        const name = String(e.platform || 'Card').trim() || 'Card';
+        const id = `card-${slug(name)}`;
+        card = state.cards.find((c) => c.id === id);
+        if (!card) {
+          card = { id, name, platform: '', currency: e.currency, dueDay: e.dueDate ? +e.dueDate.slice(8, 10) : null, payFromAccountId: e.payFromAccountId || '' };
+          state.cards.push(card);
+        }
+        e.cardId = card.id;
+      }
+      if (e.platform !== card.name) e.platform = card.name;
+    }
+    return state;
+  }
+
   function linkDeposits(state) {
     state.accounts = state.accounts || [];
     for (const dep of state.deposits || []) {
@@ -699,6 +750,15 @@
         row.count += 1;
       }
     }
+    for (const e of unpaidCardBills(state)) {
+      const card = (state.cards || []).find((c) => c.id === e.cardId);
+      const name = String((card && card.platform) || '').trim();
+      if (!rows.has(name)) rows.set(name, { name, region: (meta[name] && meta[name].region) || '', regionGuessed: false, cash: 0, invest: 0, deposits: 0, property: 0, other: 0, debt: 0, count: 0, currencies: new Set() });
+      const row = rows.get(name);
+      const v = convert(+e.amount || 0, e.currency || base, base, state.fx);
+      if (isFinite(v)) row.debt += v;
+      if (e.currency) row.currencies.add(e.currency);
+    }
     const platforms = [...rows.values()].map((r) => {
       const assets = r.cash + r.invest + r.deposits + r.property + r.other;
       const currencies = [...r.currencies].sort();
@@ -738,6 +798,7 @@
     summarize,
     itemValue, itemParts, migratePlatforms, platformBreakdown,
     accountBalances, migrateAccounts, cashByCurrency, accountForPlatform, linkDeposits,
+    unpaidCardBills, cardDueDate, linkCards,
     balanceValue, adjustLine, pendingPayments, resolvePayment, transfer, checkinDue, recordCheckin,
   };
 });

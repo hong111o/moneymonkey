@@ -407,3 +407,74 @@ test('monthly check-in is due once per month', () => {
   assert.equal(C.checkinDue(state, '2026-04-01'), true);
   assert.equal(C.checkinDue({ accounts: [], activity: [] }, '2026-04-01'), false);
 });
+
+test('card due date is the due day in the month after the statement month', () => {
+  assert.equal(C.cardDueDate({ dueDay: 25 }, '2026-09'), '2026-10-25');
+  assert.equal(C.cardDueDate({ dueDay: 31 }, '2026-01'), '2026-02-28');
+  assert.equal(C.cardDueDate({ dueDay: 5 }, '2026-12'), '2027-01-05');
+  assert.equal(C.cardDueDate({}, '2026-09'), null);
+});
+
+test('older spending records get a card for their name', () => {
+  const s = { cards: [], spending: [
+    { id: '1', month: '2026-08', platform: 'Amex', amount: 1, currency: 'HKD', dueDate: '2026-09-20', payFromAccountId: 'hsbc' },
+    { id: '2', month: '2026-09', platform: 'Amex', amount: 2, currency: 'HKD' },
+    { id: '3', month: '2026-09', platform: 'HSBC Red', amount: 3, currency: 'HKD' },
+  ] };
+  C.linkCards(s);
+  assert.deepEqual(s.cards.map((c) => [c.id, c.name, c.dueDay, c.payFromAccountId]), [['card-amex', 'Amex', 20, 'hsbc'], ['card-hsbc-red', 'HSBC Red', null, '']]);
+  assert.deepEqual(s.spending.map((e) => e.cardId), ['card-amex', 'card-amex', 'card-hsbc-red']);
+  s.cards[0].name = 'Amex Platinum';
+  C.linkCards(s);
+  assert.equal(s.spending[1].platform, 'Amex Platinum'); // records follow a renamed card
+  assert.equal(s.cards.length, 2);
+});
+
+test('unpaid card bills are debt and show in the next 30 days until paid', () => {
+  const state = {
+    settings: { baseCurrency: 'HKD' }, fx: { base: 'HKD', rates: { HKD: 1 } },
+    accounts: [{ id: 'hsbc', name: 'HSBC One', balances: [{ currency: 'HKD', amount: 50000 }] }],
+    cards: [{ id: 'red', name: 'HSBC Red', platform: 'HSBC HK', dueDay: 25, payFromAccountId: 'hsbc' }, { id: 'amex', name: 'Amex', dueDay: 10 }],
+    spending: [
+      { id: 'a', cardId: 'red', platform: 'HSBC Red', month: '2026-09', amount: 12000, currency: 'HKD', dueDate: '2026-10-25' },
+      { id: 'b', cardId: 'amex', platform: 'Amex', month: '2026-10', amount: 3000, currency: 'HKD', dueDate: '2026-11-10' },
+      { id: 'c', cardId: 'amex', platform: 'Amex', month: '2026-08', amount: 999, currency: 'HKD', dueDate: '2026-09-10', paidOn: '2026-09-10' },
+      { id: 'd', cardId: 'amex', platform: 'Amex', month: '2026-07', amount: 500, currency: 'HKD' }, // no due date: not tracked
+    ],
+    activity: [],
+  };
+  const s = C.summarize(state, '2026-10-27');
+  assert.equal(s.cardOwed, 15000);
+  assert.equal(s.liabilities, 15000);
+  assert.equal(s.netWorth, 50000 - 15000);
+  assert.deepEqual(s.events.filter((e) => e.kind === 'card').map((e) => [e.label, e.overdue]), [['HSBC Red bill', true], ['Amex bill', false]]);
+  assert.equal(s.events[0].kind, 'card'); // overdue goes first
+  const hsbc = C.platformBreakdown(state, '2026-10-27').platforms.find((p) => p.name === 'HSBC HK');
+  assert.equal(hsbc.debt, 12000);
+  // Due bills ask for confirmation: from the card's usual account, or just "mark paid" without one.
+  const p = C.pendingPayments(state, '2026-11-10');
+  assert.deepEqual(p.map((x) => [x.key, x.accountId]), [['card:a', 'hsbc'], ['card:b', null]]);
+  C.resolvePayment(state, p[0], true, 12000, 1);
+  C.resolvePayment(state, p[1], false, 0, 1);
+  const after = C.summarize(state, '2026-11-10');
+  assert.equal(after.cardOwed, 0);
+  assert.equal(state.accounts[0].balances[0].amount, 38000);
+  assert.equal(after.netWorth, 38000); // paying a bill doesn't change net worth: cash and debt both drop
+});
+
+test('next 30 days: overdue card bills first, then everything by date', () => {
+  const state = {
+    settings: { baseCurrency: 'HKD' }, fx: { base: 'HKD', rates: { HKD: 1 } },
+    cards: [{ id: 'red', name: 'HSBC Red' }, { id: 'mz', name: 'Monzo' }],
+    spending: [
+      { id: 'a', cardId: 'red', platform: 'HSBC Red', month: '2026-09', amount: 1, currency: 'HKD', dueDate: '2026-10-28' },
+      { id: 'b', cardId: 'mz', platform: 'Monzo', month: '2026-09', amount: 1, currency: 'HKD', dueDate: '2026-10-15' },
+    ],
+    cashflows: [
+      { id: 'r', name: 'Rent', kind: 'expense', amount: 1, currency: 'HKD', frequency: 'monthly', nextDate: '2026-11-05' },
+      { id: 'g', name: 'Groceries', kind: 'expense', amount: 1, currency: 'HKD', frequency: 'once', nextDate: '2026-10-29' },
+    ],
+  };
+  const ev = C.summarize(state, '2026-10-27').events.map((e) => `${e.date} ${e.label}`);
+  assert.deepEqual(ev, ['2026-10-15 Monzo bill', '2026-10-28 HSBC Red bill', '2026-10-29 Groceries', '2026-11-05 Rent']);
+});

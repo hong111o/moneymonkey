@@ -46,6 +46,16 @@ Add one line per currency inside an account (**+ Add currency** in the form). Th
 
 Every asset and loan has a **Platform** (HSBC HK, ZA Bank, Futu, Monzo, Trading 212, Nationwide…). The **Platforms** page shows cash, investments, deposits and debts per platform. Tap a platform to open its own page, with totals and every account, deposit, holding and loan on it, each tappable to edit. Add new items to that platform from there, or rename it and set its region. You can give each platform a **region** (e.g. Hong Kong, United Kingdom) to see totals by country. Tap a region to see its totals and every platform in it. Regions are guessed from currency until you set them. You can also filter any list by platform, or rename a platform everywhere at once.
 
+### Credit cards
+
+On the Cash Flow page, **Credit cards & monthly spending** keeps your cards and their statements together:
+
+- Add each card once: name, bank, billing currency, **payment due day** and the account that usually pays it.
+- Record each month's statement (**+ Statement**, or in the monthly check-in). Its due date fills in from the card's due day.
+- Unpaid bills appear in **Next 30 days** on the home page (overdue ones at the top) and count as **debt** until you confirm they're paid.
+- On the due date you're asked to confirm the payment: it's deducted from the paying account, or just marked paid if no account is linked. Each card's page also has a **Pay** button.
+- The Cash Flow page shows its summary boxes, cards & spending and categories first; the full list of income, bills and subscriptions is at the bottom (with a jump link).
+
 ### Credit-card spending without double counting
 
 If most of your spending goes on a credit card, record each month's statement total under **Cash Flow → Actual monthly spending** (or the **+** button). Tick **"Paid by credit card"** on fixed bills and subscriptions that are charged to the card. Your monthly spending is then:
