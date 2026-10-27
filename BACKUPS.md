@@ -14,3 +14,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | # | Date | Commit | Version before… |
 |---|------|--------|-----------------|
 | 1 | 2026-10-27 | `2ffbbb7` | Cash Flow analysis: income split bar, month-by-month history, fixed vs flexible costs, loan repayments in cash flow |
+| 2 | 2026-10-27 | `e22f471` | Interest from fixed deposits & savers counted as monthly income in Cash Flow |
