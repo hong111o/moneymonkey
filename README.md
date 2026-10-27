@@ -95,6 +95,20 @@ so things like Netflix on the card aren't counted twice.
 
 On the Cash Flow page, tap any box (income, spending, left over, fixed bills, subscriptions, planned saving) or a category bar to see the items behind it. Tap an item to edit it. When last month's spending hasn't been recorded yet, the dashboard reminds you.
 
+### Buying and selling
+
+Tap **Buy** or **Sell** on a holding, or **Buy / sell** at the top of the Stocks or Crypto page (which can also buy something new). Enter the quantity, price, fee and date, and pick the cash account. The broker's own cash account is picked for you if it has one.
+
+- **Buying:** the cost comes out of the cash account and is added to the average cost, fee included. 10 shares at $100 plus 10 more at $150 gives 20 at an average of $125.
+- **Selling:** the money goes into the cash account. The average cost of what's left stays the same. The profit is recorded: 5 sold at $700 with an average cost of $100 makes $3,000. Selling everything can remove the holding.
+- **Different currency:** if the cash account holds another currency (e.g. GBP cash buying a USD stock), the amount is filled in at today's rate. Change it to what the broker actually charged.
+- **Not enough cash:** pick an account to **top up from**. The shortfall (or an amount you enter) is recorded as a transfer into the broker's cash first, then the buy.
+- **Realised profit** this year shows as a box on the Stocks and Crypto pages. Tap it to see each sale. Trades also appear in the cash account's activity.
+
+Net worth only changes by the fee, because the money just moves between the holding and the cash.
+
+**Low-balance warning:** a transfer, buy or confirmed payment that would leave an account below zero in the app asks first. You can update the balance, or go ahead if the real balance is higher than the app shows.
+
 ### Cash in your investment accounts
 
 If part of a broker or exchange account is uninvested cash, add it with **+ Cash** in the **By account** section of the Stocks (or Crypto) page. This creates a multi-currency account of type **Brokerage cash** on that platform. Each broker then shows *invested + cash = total*. The cash counts as cash in your net worth and appears under the broker on the Platforms page.

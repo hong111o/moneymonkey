@@ -16,7 +16,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const SECTIONS = ['accounts', 'stocks', 'crypto', 'deposits', 'properties', 'others', 'liabilities', 'cashflows', 'spending', 'cards', 'goals', 'activity'];
+  const SECTIONS = ['accounts', 'stocks', 'crypto', 'deposits', 'properties', 'others', 'liabilities', 'cashflows', 'spending', 'cards', 'goals', 'activity', 'trades'];
   const VOLATILE_ITEM_KEYS = ['lastPrice', 'prevClose'];
   const LOCAL_ONLY_SETTINGS = ['privacy', 'theme'];
   const GIST_DESCRIPTION = 'MoneyMonkey encrypted sync';

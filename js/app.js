@@ -43,7 +43,7 @@
     const d = defaultState();
     const s = { ...d, ...(raw || {}) };
     s.settings = { ...d.settings, ...(raw && raw.settings) };
-    for (const k of [...LIST_SECTIONS, 'activity', 'history']) if (!Array.isArray(s[k])) s[k] = [];
+    for (const k of [...LIST_SECTIONS, 'activity', 'history', 'trades']) if (!Array.isArray(s[k])) s[k] = [];
     for (const k of ['platformMeta', 'deleted']) if (!s[k] || typeof s[k] !== 'object') s[k] = {};
     if (!s.fx || !s.fx.rates) s.fx = d.fx;
     Calc.migratePlatforms(s);
@@ -267,6 +267,7 @@
         { key: 'dividendYield', label: 'Dividend yield (% per year)', type: 'number', required: true, showIf: (v) => v.divMode === 'yield', help: 'Applied to the current value of your shares.' },
         { key: 'dividendReinvest', label: 'Reinvested automatically (DRIP / accumulating fund)', type: 'checkbox', span: true, showIf: (v) => !!v.divMode },
       ],
+      actions: [{ id: 'trade-buy', label: 'Buy' }, { id: 'trade-sell', label: 'Sell' }],
       beforeSave: (item, prev) => {
         if (!prev || prev.symbol !== item.symbol || item.source === 'manual') { item.lastPrice = null; item.prevClose = null; }
         if (!item.divMode) { delete item.dividendPerShare; delete item.dividendYield; delete item.dividendReinvest; }
@@ -293,6 +294,7 @@
         if (!prev || prev.coinId !== item.coinId || prev.currency !== item.currency || item.source === 'manual') { item.lastPrice = null; item.prevClose = null; }
       },
       columns: holdingColumns('coin'),
+      actions: [{ id: 'trade-buy', label: 'Buy' }, { id: 'trade-sell', label: 'Sell' }],
       total: (items) => items.reduce((s, h) => s + (toBase(Calc.holdingValue(h).marketValue, h.currency) || 0), 0),
     },
 
@@ -808,6 +810,7 @@
     if (e.kind === 'deposit-cash') return `${e.saver ? 'Regular saver' : 'Fixed deposit'} at ${esc(e.platform)}${ref} matured — ${money(e.amount, e.currency)} incl. ${money(e.interest, e.currency)} interest moved to “${esc(e.accountName)}”.`;
     if (e.kind === 'deposit-renew') return `Fixed deposit at ${esc(e.platform)}${ref} matured and renewed with ${money(e.amount, e.currency)} (incl. ${money(e.interest, e.currency)} interest).`;
     if (e.kind === 'payment') return `${esc(e.name)}: ${money(Math.abs(e.amount), e.currency)} ${e.amount < 0 ? 'paid from' : 'received into'} “${esc(e.accountName)}”${e.paidAmount != null ? ` (${money(e.paidAmount, e.paidCurrency)})` : ''}.`;
+    if (e.kind === 'trade') return `${e.side === 'buy' ? 'Bought' : 'Sold'} ${num(e.quantity, 8)} ${esc(e.symbol)} at ${money(e.price, e.currency)}${e.fee ? ` (fee ${money(e.fee, e.currency)})` : ''} — ${e.side === 'buy' ? '−' : '+'}${money(e.cashAmount, e.cashCurrency)}${e.side === 'sell' && e.realised != null ? `, profit ${signed(e.realised, e.currency)}` : ''}.`;
     if (e.kind === 'transfer') return `Transferred ${money(e.amount, e.currency)} from “${esc(e.accountName)}” to “${esc(e.toAccountName)}”${e.toCurrency !== e.currency ? ` (received ${money(e.received, e.toCurrency)})` : ''}${e.note ? ` — ${esc(e.note)}` : ''}.`;
     return esc(e.text || '');
   }
@@ -975,6 +978,11 @@
       const tap = (what) => `${explainAttr(what)} data-cat="${key}"`;
       extra = tile('Profit / loss', signed(mv - cost), cost ? `${pct((mv - cost) / cost)} on ${money(cost, base(), 0)}` : '', '', items.length ? tap('pnl') : '') + tile(key === 'crypto' ? 'Last 24h' : 'Today', signed(day), '', '', items.length ? tap('today') : '')
         + (cash ? tile('Uninvested cash', money(cash), 'in your investment accounts', '', tap('brokercash')) : '')
+        + (state.trades.some((e) => e.section === key && e.side === 'sell') ? (() => {
+          const year = todayISO().slice(0, 4);
+          const r = Calc.realisedProfit(state.trades, (v, c) => toBase(v, c) || 0, key, `${year}-01-01`);
+          return tile(`Realised profit ${year}`, signed(r.total), `${plural(r.sells.length, 'sale')} this year`, '', tap('realised'));
+        })() : '')
         + (divYear ? tile('Dividends / yr', `<span class="pos">${money(divYear, base(), 0)}</span>`, `${money(divYear / 12, base(), 0)} a month on average`, '', explainAttr('dividends')) : '');
     } else if (key === 'deposits') {
       let interest = 0, daily = 0;
@@ -1010,7 +1018,7 @@
         <div class="row-actions">
           ${showFilter ? `<select class="filter" data-filter="${key}" aria-label="Filter by platform"><option value="__all">All platforms</option>${platformNames.map((p) => `<option value="${esc(p)}" ${filter === p ? 'selected' : ''}>${esc(p || 'No platform')}</option>`).join('')}</select>` : ''}
           ${currencies.length > 1 ? `<select class="filter" data-filter="accountsCurrency" aria-label="Filter by currency"><option value="__all">All currencies</option>${currencies.map((c) => `<option value="${esc(c)}" ${curFilter === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : ''}
-          ${key === 'stocks' || key === 'crypto' ? '<button class="btn" data-action="refresh">↻ Prices</button>' : ''}
+          ${key === 'stocks' || key === 'crypto' ? `<button class="btn" data-action="refresh">↻ Prices</button><button class="btn" data-action="trade-buy" data-sec="${key}">Buy / sell</button>` : ''}
           ${key === 'accounts' && state.accounts.length ? '<button class="btn" data-action="checkin">Check-in</button><button class="btn" data-action="transfer">Transfer</button>' : ''}
           <button class="btn primary" data-action="add" data-sec="${key}">+ Add</button>
         </div>
@@ -1104,7 +1112,8 @@
         <span class="sub">${b.currency !== base() ? `≈ ${money(toBase(bv.value, b.currency), base(), 0)}` : ''}</span></li>`;
     }).join('');
     const ACTIVITY_KINDS = ['deposit-cash', 'deposit-renew', 'payment', 'transfer'];
-    const history = state.activity.filter((e) => ACTIVITY_KINDS.includes(e.kind) && (e.accountId === a.id || e.heldIn === a.id || e.toAccountId === a.id)).slice(0, 15);
+    const history = [...state.activity.filter((e) => ACTIVITY_KINDS.includes(e.kind) && (e.accountId === a.id || e.heldIn === a.id || e.toAccountId === a.id)), ...state.trades.filter((e) => e.accountId === a.id).map((e) => ({ ...e, kind: 'trade' }))]
+      .sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : (y._mt || 0) - (x._mt || 0))).slice(0, 15);
     const meta = [a.platform ? `<a href="#platform/${encodeURIComponent(a.platform)}">${esc(a.platform)}</a>` : '', esc(labelOf(ACCOUNT_TYPES, a.type)), esc(a.note || '')].filter(Boolean).join(' · ');
     return `<a class="back" href="#accounts">‹ Cash &amp; Bank</a>
       <div class="page-head">
@@ -1443,6 +1452,158 @@
       </section>
       <div class="section-head"><h2>Statements</h2></div>
       <div class="card">${entries.length ? `<ul class="acct-bals stmt-list">${list}</ul>` : '<p class="sub">No statements yet. Tap “+ Statement” after each monthly statement arrives, or record them in the monthly check-in.</p>'}</div>`;
+  }
+
+  // ---------------------------------------------------------------- buy & sell
+
+  // Buying or selling moves money between a holding and a cash account (usually the broker's
+  // "Brokerage cash"), so net worth only changes by the fee. Average cost is updated on buys;
+  // sells record the realised profit. A buy short of cash can top the account up first.
+  function openTrade(section, holdingId, side) {
+    const kind = section === 'crypto' ? 'coin' : 'share';
+    const list = state[section];
+    const holdingOf = (v) => list.find((h) => h.id === v.holdingId);
+    const label = (h) => `${h.symbol || h.coinId}${h.platform ? ` · ${h.platform}` : ''} (${num(h.quantity, 8)})`;
+    const curOf = (v) => (holdingOf(v) || {}).currency || (/^[A-Z]{3}$/.test(v.currency || '') ? v.currency : base());
+    const platformOf = (v) => (holdingOf(v) ? holdingOf(v).platform : v.platform) || '';
+    const acctOpts = (v) => {
+      const plat = platformOf(v);
+      const rank = (a) => (a.type === 'brokerage' && (a.platform || '') === plat ? 0 : (a.platform || '') === plat ? 1 : a.type === 'brokerage' ? 2 : 3);
+      return [{ value: '', label: 'None — don’t change any cash balance' }, ...state.accounts.slice().sort((a, b) => rank(a) - rank(b)).map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }))];
+    };
+    const acctOf = (v) => state.accounts.find((a) => a.id === v.accountId);
+    const cashCurOpts = (v) => {
+      const a = acctOf(v);
+      if (!a) return [{ value: '', label: '—' }];
+      const first = Calc.paymentCurrency(a, curOf(v));
+      const lines = Calc.accountBalances(a).map((b) => b.currency);
+      return [first, ...lines.filter((c) => c !== first)].map((c) => ({ value: c, label: `${c} balance` }));
+    };
+    const cashCur = (v) => (acctOf(v) ? v.cashCurrency || cashCurOpts(v)[0].value : '');
+    const gross = (v) => (v.side === 'buy' ? 1 : -1) * (+v.fee || 0) + (+v.quantity || 0) * (+v.price || 0);
+    const cashAmt = (v) => {
+      const cc = cashCur(v);
+      if (!cc) return null;
+      if (cc === curOf(v)) return round2(gross(v));
+      if (v.cashAmount != null) return v.cashAmount;
+      const c = Calc.convert(gross(v), curOf(v), cc, state.fx);
+      return isFinite(c) ? round2(c) : null;
+    };
+    const short = (v) => (v.side === 'buy' && acctOf(v) && cashAmt(v) != null ? Calc.shortfall(acctOf(v), cashCur(v), cashAmt(v), v.date || todayISO()) : 0);
+    const topUpOf = (v) => {
+      const from = state.accounts.find((a) => a.id === v.topUpFrom);
+      if (!from || v.side !== 'buy' || !acctOf(v)) return null;
+      const received = v.topUpAmount != null ? v.topUpAmount : short(v);
+      if (!(received > 0)) return null;
+      const fromCurrency = Calc.paymentCurrency(from, cashCur(v));
+      const amount = fromCurrency === cashCur(v) ? received : round2(Calc.convert(received, cashCur(v), fromCurrency, state.fx));
+      return { fromId: from.id, from, fromCurrency, amount, received };
+    };
+    const newFields = SECTIONS[section].fields
+      .filter((f) => ['symbol', 'name', 'coinId', 'currency', 'platform', 'source'].includes(f.key))
+      .map((f) => ({ ...f, showIf: (v) => v.holdingId === '__new' }));
+    const h0 = list.find((h) => h.id === holdingId);
+    const start = { side, holdingId: h0 ? h0.id : side === 'buy' ? '__new' : (list[0] || {}).id, date: todayISO() };
+    if (!start.holdingId) return toast(`Nothing to sell yet — add a ${kind === 'coin' ? 'coin' : 'holding'} first.`);
+    // Default to the broker's own cash account, if there is one.
+    start.accountId = (state.accounts.find((a) => a.type === 'brokerage' && (a.platform || '') === platformOf(start)) || {}).id || '';
+    if (h0 && (h0.lastPrice || h0.manualPrice)) start.price = +(h0.lastPrice || h0.manualPrice);
+    if (side === 'sell' && h0) start.quantity = +h0.quantity;
+    openForm({
+      title: `${side === 'buy' ? 'Buy' : 'Sell'}${h0 ? ` ${h0.symbol || h0.coinId}` : ''}`,
+      intro: 'Moves money between the holding and a cash account, so your net worth only changes by the fee. Buying updates the average cost; selling keeps it and records your profit.',
+      fields: [
+        { key: 'side', label: 'Action', type: 'select', options: opt([['buy', 'Buy'], ['sell', 'Sell']]) },
+        { key: 'holdingId', label: kind === 'coin' ? 'Coin' : 'Holding', type: 'select', span: true, options: (v) => [...list.map((h) => ({ value: h.id, label: label(h) })), ...(v.side === 'buy' ? [{ value: '__new', label: `+ New ${kind === 'coin' ? 'coin' : 'holding'}…` }] : [])] },
+        ...newFields,
+        { key: 'quantity', label: kind === 'coin' ? 'Quantity' : 'Shares', type: 'number', required: true },
+        { key: 'price', label: `Price per ${kind}`, type: 'number', required: true, help: 'In the holding’s currency.' },
+        { key: 'fee', label: 'Fee (optional)', type: 'number', help: 'In the holding’s currency, e.g. commission or FX fee.' },
+        { key: 'date', label: 'Date', type: 'date', required: true, default: todayISO },
+        { key: 'accountId', label: 'Cash account', type: 'select', span: true, options: acctOpts, help: 'Where the money comes from (buy) or goes to (sell) — usually the broker’s cash.' },
+        { key: 'cashCurrency', label: 'From / into', type: 'select', options: cashCurOpts, showIf: (v) => !!acctOf(v) },
+        { key: 'cashAmount', label: 'Amount in that currency', type: 'number', showIf: (v) => !!acctOf(v) && cashCur(v) !== curOf(v), help: 'What the broker actually charged or paid — leave blank to use today’s rate.' },
+        { key: 'topUpFrom', label: 'Not enough cash? Top up first from', type: 'select', span: true, showIf: (v) => v.side === 'buy' && !!acctOf(v), options: (v) => [{ value: '', label: 'No top-up' }, ...state.accounts.filter((a) => a.id !== v.accountId).map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }))] },
+        { key: 'topUpAmount', label: 'Top-up amount (received)', type: 'number', showIf: (v) => v.side === 'buy' && !!v.topUpFrom && !!acctOf(v), help: 'In the cash account’s currency — leave blank to top up exactly what’s missing.' },
+        { key: 'removeIfEmpty', label: 'Remove the holding if this sells all of it', type: 'checkbox', span: true, default: () => true, showIf: (v) => v.side === 'sell' },
+      ],
+      values: start,
+      isNew: true,
+      submitLabel: side === 'buy' ? 'Record buy' : 'Record sale',
+      preview: (v) => {
+        const h = holdingOf(v);
+        const cur = curOf(v);
+        const qty = +v.quantity || 0, price = +v.price || 0, fee = +v.fee || 0;
+        if (!(qty > 0) || !(price >= 0)) return '';
+        const held = h ? +h.quantity || 0 : 0, avg = h ? +h.avgCost || 0 : 0;
+        const out = [];
+        if (v.side === 'buy') {
+          const cost = qty * price + fee;
+          const nq = held + qty;
+          out.push(`Cost <strong>${money(cost, cur)}</strong>${fee ? ` incl. ${money(fee, cur)} fee` : ''}.`);
+          out.push(`After: ${num(nq, 8)} at an average of <strong>${money((held * avg + cost) / nq, cur)}</strong>${held ? ` (was ${money(avg, cur)})` : ''}.`);
+        } else {
+          if (h && qty > held + 1e-9) return `<span class="neg">You only hold ${num(held, 8)}.</span>`;
+          const realised = qty * price - fee - qty * avg;
+          out.push(`You receive <strong>${money(qty * price - fee, cur)}</strong>${fee ? ` after ${money(fee, cur)} fee` : ''}.`);
+          out.push(`Profit on this sale: <strong class="${realised >= 0 ? 'pos' : 'neg'}">${signed(realised, cur)}</strong> (sold at ${money(price, cur)} vs average cost ${money(avg, cur)}).`);
+          out.push(`After: ${num(held - qty, 8)} left${held - qty > 1e-9 ? `, average cost stays ${money(avg, cur)}` : ''}.`);
+        }
+        const a = acctOf(v);
+        if (a) {
+          const amt = cashAmt(v);
+          const cc = cashCur(v);
+          if (amt == null) out.push('No exchange rate yet — enter the amount in the account’s currency.');
+          else {
+            out.push(`${v.side === 'buy' ? 'From' : 'Into'} “${esc(a.name)}”: ${v.side === 'buy' ? '−' : '+'}${money(amt, cc)}${cc !== cur && v.cashAmount == null ? ' at today’s rate' : ''}.`);
+            const sf = short(v);
+            const tu = topUpOf(v);
+            if (sf > 0) {
+              if (tu) out.push(`Top-up: ${money(tu.amount, tu.fromCurrency)} from “${esc(tu.from.name)}” → +${money(tu.received, cc)} first${tu.received + 0.005 < sf ? ` — still <span class="neg">${money(sf - tu.received, cc)} short</span>` : ''}.`);
+              else out.push(`<span class="neg">“${esc(a.name)}” only has ${money(Calc.balanceValue(Calc.accountBalances(a).find((b) => b.currency === cc) || { amount: 0 }, todayISO()).value, cc)} in ${esc(cc)} — ${money(sf, cc)} short.</span> Pick an account to top up from, or update its balance.`);
+            }
+          }
+        } else out.push('No cash account picked: only the holding changes.');
+        return out.join('<br>');
+      },
+      validate: (v) => {
+        if (!(v.quantity > 0)) return 'Enter a quantity above 0.';
+        if (!(v.price >= 0)) return 'Enter the price.';
+        const h = holdingOf(v);
+        if (v.side === 'sell' && (!h || v.quantity > (+h.quantity || 0) + 1e-9)) return `You only hold ${num(h ? h.quantity : 0, 8)}.`;
+        if (acctOf(v) && cashAmt(v) == null) return 'No exchange rate yet — enter the amount in the account’s currency.';
+        if (v.holdingId === '__new' && section === 'stocks' && !v.symbol) return 'Enter the ticker symbol.';
+        if (v.holdingId === '__new' && section === 'crypto' && !v.coinId) return 'Enter the CoinGecko id.';
+        return null;
+      },
+      onSave: (v) => {
+        const tu = topUpOf(v);
+        const left = Math.max(0, short(v) - (tu ? tu.received : 0));
+        if (left > 0.005 && !confirm(`“${acctOf(v).name}” doesn’t have enough ${cashCur(v)} in the app — this leaves it ${money(-left, cashCur(v))}. If its real balance is higher, update it first. Record anyway?`)) return 'Not recorded — pick an account to top up from, or update the balance first.';
+        const tuLeft = tu ? Calc.shortfall(tu.from, tu.fromCurrency, tu.amount, v.date) : 0;
+        if (tuLeft > 0.005 && !confirm(`“${tu.from.name}” doesn’t have enough ${tu.fromCurrency} in the app for the top-up — it would be left at ${money(-tuLeft, tu.fromCurrency)}. Record anyway?`)) return 'Not recorded — pick another account to top up from.';
+        const isNew = v.holdingId === '__new';
+        const id = isNew ? uid() : v.holdingId;
+        const newHolding = isNew ? {
+          ...(section === 'crypto' ? { coinId: v.coinId, symbol: v.symbol || v.coinId.toUpperCase() } : { symbol: v.symbol, name: v.name || '' }),
+          platform: v.platform || '', currency: curOf(v), source: v.source || 'live', ...(v.source === 'manual' ? { manualPrice: +v.price } : {}),
+        } : null;
+        try {
+          const e = Calc.applyTrade(state, {
+            id: `trade-${uid()}`, side: v.side, section, holdingId: id, newHolding, quantity: +v.quantity, price: +v.price, fee: +v.fee || 0, date: v.date,
+            accountId: acctOf(v) ? v.accountId : null, cashCurrency: cashCur(v) || null, cashAmount: cashAmt(v),
+            topUp: tu ? { fromId: tu.fromId, fromCurrency: tu.fromCurrency, amount: tu.amount, received: tu.received } : null,
+            removeIfEmpty: !!v.removeIfEmpty,
+          }, Date.now());
+          commit();
+          toast(e.side === 'buy' ? `Bought ${num(e.quantity, 8)} ${e.symbol}` : `Sold ${num(e.quantity, 8)} ${e.symbol} · profit ${money(e.realised, e.currency)}`);
+          if (isNew && section === 'stocks') refreshPrices({ force: true });
+        } catch (err) {
+          return err.message;
+        }
+        return null;
+      },
+    });
   }
 
   // Paying a bill before its due date: the same confirm box as when it's due.
@@ -1957,6 +2118,16 @@
       body = (moved.length ? group('Biggest moves first', moved.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No price moves yet. Daily changes come with live prices; holdings with a manual price don’t have one.</p>')
         + (rows.length > moved.length ? `<p class="sub">${plural(rows.length - moved.length, 'holding')} didn’t move or ${rows.length - moved.length === 1 ? 'has' : 'have'} no live price.</p>` : '')
         + total('Total', signed(rows.reduce((a, r) => a + r.b, 0), base(), 0));
+    } else if (what === 'realised') {
+      const year = t.slice(0, 4);
+      title = `Realised profit ${year}`;
+      const r = Calc.realisedProfit(state.trades, (v, c) => toBase(v, c) || 0, param, `${year}-01-01`);
+      const rows = r.sells.map((e) => row(e.accountId ? acctHref(e.accountId) : `#${param}`, `${fmtDate(e.date)} · sold ${num(e.quantity, 8)} ${esc(e.symbol)}`, `at ${money(e.price, e.currency)} · average cost ${money(e.before.avgCost, e.currency)}${e.fee ? ` · fee ${money(e.fee, e.currency)}` : ''}${e.platform ? ` · ${esc(e.platform)}` : ''}`, signed(e.realised, e.currency)));
+      const earlier = Calc.realisedProfit(state.trades, (v, c) => toBase(v, c) || 0, param).total - r.total;
+      body = (rows.length ? group('Sales this year', rows) : '<p class="sub">No sales this year yet.</p>')
+        + total('Total this year', signed(r.total, base(), 0))
+        + (Math.abs(earlier) > 0.5 ? total('Earlier years', signed(earlier, base(), 0)) : '')
+        + '<p class="sub">Profit (or loss) you’ve made by selling: sale price minus fees minus the average cost of the shares sold. The Profit / loss box shows what you still hold.</p>';
     } else if (what === 'dividends') {
       title = 'Dividends per year';
       const list = state.stocks.filter((h) => Calc.dividendPerYear(h) > 0).map((h) => {
@@ -2212,6 +2383,12 @@
         const fromSel = $('.pay-from', box);
         const from = fromSel ? { currency: fromSel.value, amount: +$('.pay-conv', box).value } : null;
         if (apply && from && !(from.amount >= 0 && $('.pay-conv', box).value !== '')) return toast(`Enter the amount in ${from.currency} first.`, 'error');
+        const acct = state.accounts.find((a) => a.id === p.accountId);
+        if (apply && acct && p.sign < 0) {
+          const cur = from ? from.currency : p.currency;
+          const left = Calc.shortfall(acct, cur, from ? from.amount : amt, p.date);
+          if (left > 0 && !confirm(`“${acct.name}” only has ${money((from ? from.amount : amt) - left, cur)} in ${cur} in the app — this would leave it at ${money(-left, cur)}. If its real balance is higher, update it first. Deduct anyway?`)) return;
+        }
         const res = Calc.resolvePayment(state, none ? { ...p, paidIn: false } : p, apply, amt, Date.now(), from);
         commit();
         const used = res && res.paidAmount != null ? ` (${money(res.paidAmount, res.paidCurrency)})` : '';
@@ -2372,6 +2549,9 @@
         return null;
       },
       onSave: (v) => {
+        const from = accts.find((a) => a.id === v.fromId);
+        const left = Calc.shortfall(from, v.fromCurrency, v.amount, v.date);
+        if (left > 0 && !confirm(`“${from.name}” only has ${money(v.amount - left, v.fromCurrency)} in ${v.fromCurrency} in the app — this would leave it at ${money(-left, v.fromCurrency)}. If its real balance is higher, update it first. Transfer anyway?`)) return 'Not transferred — update the account’s balance first if it has more.';
         Calc.transfer(state, { id: `tr-${uid()}`, fromId: v.fromId, fromCurrency: v.fromCurrency, amount: v.amount, toId: v.toId, toCurrency: v.toCurrency, received: received(v), date: v.date, note: v.note }, Date.now());
         commit();
         toast('Transfer recorded');
@@ -2798,6 +2978,15 @@
       { id: uid(), name: 'Emergency fund', metric: 'cash', target: 250000 },
       { id: uid(), name: 'HK$5M net worth', metric: 'netWorth', target: 5000000, targetDate: m(60) },
     ];
+    // Past trades, so "Realised profit" and the account history have something to show.
+    const futuCash = s.accounts.find((a) => a.name === 'Futu cash');
+    const aapl = s.stocks.find((h) => h.symbol === 'AAPL');
+    const vusa = s.stocks.find((h) => h.symbol === 'VUSA.L');
+    const t212 = s.accounts.find((a) => a.name === 'Trading 212 cash');
+    s.trades = [
+      { id: `trade-${uid()}`, date: m(-1), side: 'sell', section: 'stocks', holdingId: aapl.id, symbol: 'AAPL', platform: 'Futu', quantity: 10, price: 228, fee: 1, currency: 'USD', total: 2279, before: { quantity: 35, avgCost: 165 }, realised: 629, accountId: futuCash.id, accountName: futuCash.name, cashCurrency: 'USD', cashAmount: 2279 },
+      { id: `trade-${uid()}`, date: m(-3), side: 'buy', section: 'stocks', holdingId: vusa.id, symbol: 'VUSA.L', platform: 'Trading 212', quantity: 20, price: 80, fee: 0, currency: 'GBP', total: 1600, before: { quantity: 40, avgCost: 62 }, realised: null, accountId: t212.id, accountName: t212.name, cashCurrency: 'GBP', cashAmount: 1600 },
+    ];
     s.activity = [
       { id: `tr-${uid()}`, date: d(-10), kind: 'transfer', amount: 500, currency: 'GBP', received: 500, toCurrency: 'GBP', accountId: hsbcId, accountName: 'HSBC One', toAccountId: monzoId, toAccountName: 'Current account', note: 'Top up for UK bills' },
     ];
@@ -2838,6 +3027,8 @@
       case 'open-region': location.hash = `#region/${encodeURIComponent(b.dataset.name)}`; return;
       case 'open-card': location.hash = `#card/${encodeURIComponent(id)}`; return;
       case 'pay-card': return payCardBill(id);
+      case 'trade-buy': return openTrade(sec, id, 'buy');
+      case 'trade-sell': return openTrade(sec, id, 'sell');
       case 'saver-unmatch': {
         const cf = state.cashflows.find((c) => c.id === id);
         if (cf) { cf.notSaver = true; cf._mt = Date.now(); commit(); toast(`“${cf.name}” now counts as separate saving`); }

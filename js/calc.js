@@ -873,6 +873,79 @@
     return out;
   }
 
+  // How much `amount` (in `currency`) is more than the account holds in that currency today
+  // (0 when it's covered). Used to warn before a transfer, buy or payment overdraws it.
+  function shortfall(acct, currency, amount, today) {
+    const line = accountBalances(acct || {}).find((b) => b.currency === currency);
+    const have = line ? balanceValue(line, today).value : 0;
+    return Math.max(0, round2((+amount || 0) - have));
+  }
+
+  // ---------- buying & selling ----------
+  // Average-cost method: a buy adds its cost (fee included) to the average; a sell keeps the
+  // average and records the realised profit = proceeds − fee − quantity × average cost.
+  // The cash side is in the account's own currency (`cashCurrency`/`cashAmount`), so a USD
+  // stock bought with GBP uses what the broker actually charged.
+  function applyTrade(state, t, nowMs) {
+    const list = state[t.section] = state[t.section] || [];
+    let h = list.find((x) => x.id === t.holdingId);
+    if (!h && t.side === 'buy' && t.newHolding) {
+      h = { ...t.newHolding, id: t.holdingId, quantity: 0, avgCost: 0 };
+      list.push(h);
+    }
+    if (!h) throw new Error('Holding not found');
+    const qty = +t.quantity || 0;
+    const price = +t.price || 0;
+    const fee = +t.fee || 0;
+    const held = +h.quantity || 0;
+    if (!(qty > 0)) throw new Error('Enter a quantity above 0.');
+    if (t.side === 'sell' && qty > held + 1e-9) throw new Error(`You only hold ${held}.`);
+    const before = { quantity: held, avgCost: +h.avgCost || 0 };
+    let realised = null;
+    if (t.side === 'buy') {
+      const cost = held * before.avgCost + qty * price + fee;
+      h.quantity = +(held + qty).toFixed(10);
+      h.avgCost = h.quantity ? cost / h.quantity : 0;
+    } else {
+      realised = round2(qty * price - fee - qty * before.avgCost);
+      h.quantity = Math.max(0, +(held - qty).toFixed(10));
+    }
+    if (h.source === 'manual' && t.updatePrice !== false) h.manualPrice = price;
+    h._mt = nowMs;
+    // Top up the cash account first (a transfer), then move the cash for the trade.
+    if (t.topUp && +t.topUp.amount > 0) {
+      transfer(state, { id: `tr-${t.id}`, fromId: t.topUp.fromId, fromCurrency: t.topUp.fromCurrency, amount: +t.topUp.amount, toId: t.accountId, toCurrency: t.cashCurrency, received: +t.topUp.received, date: t.date, note: `Top-up to ${t.side === 'buy' ? 'buy' : 'trade'} ${h.symbol || h.coinId || ''}`.trim() }, nowMs);
+    }
+    const acct = t.accountId ? (state.accounts || []).find((a) => a.id === t.accountId) : null;
+    const gross = t.side === 'buy' ? qty * price + fee : qty * price - fee;
+    const cashCurrency = acct ? t.cashCurrency || h.currency : null;
+    const cashAmount = acct ? round2(cashCurrency === h.currency || !isFinite(+t.cashAmount) || t.cashAmount == null ? gross : +t.cashAmount) : null;
+    if (acct) {
+      adjustLine(acct, cashCurrency, t.side === 'buy' ? -cashAmount : cashAmount, t.date);
+      acct._mt = nowMs;
+    }
+    const entry = {
+      id: t.id, date: t.date, side: t.side, section: t.section, holdingId: h.id, symbol: h.symbol || h.coinId || '', platform: h.platform || '',
+      quantity: qty, price, fee, currency: h.currency, total: round2(gross), before, realised,
+      // A millisecond after any top-up, so history lists the top-up before the trade.
+      accountId: acct ? acct.id : null, accountName: acct ? acct.name : null, cashCurrency, cashAmount, _mt: nowMs + 1,
+    };
+    state.trades = [entry, ...(state.trades || [])];
+    if (t.side === 'sell' && h.quantity === 0 && t.removeIfEmpty) {
+      state[t.section] = list.filter((x) => x.id !== h.id);
+      state.deleted = { ...(state.deleted || {}), [h.id]: nowMs };
+    }
+    return entry;
+  }
+
+  // Realised profit of sells (optionally one section, from a date), in base via `toBaseFn`.
+  function realisedProfit(trades, toBaseFn, section, fromDate) {
+    let total = 0;
+    const sells = (trades || []).filter((e) => e.side === 'sell' && e.realised != null && (!section || e.section === section) && (!fromDate || e.date >= fromDate));
+    for (const e of sells) total += toBaseFn(e.realised, e.currency);
+    return { total, sells };
+  }
+
   // Moves money between two of the user's own accounts (or currencies in one account).
   function transfer(state, t, nowMs) {
     const from = (state.accounts || []).find((a) => a.id === t.fromId);
@@ -1071,6 +1144,6 @@
     itemValue, itemParts, migratePlatforms, platformBreakdown,
     accountBalances, migrateAccounts, cashByCurrency, accountForPlatform, linkDeposits,
     unpaidCardBills, cardDueDate, linkCards,
-    balanceValue, adjustLine, pendingPayments, resolvePayment, paymentCurrency, transfer, checkinDue, recordCheckin,
+    balanceValue, adjustLine, pendingPayments, resolvePayment, paymentCurrency, shortfall, applyTrade, realisedProfit, transfer, checkinDue, recordCheckin,
   };
 });

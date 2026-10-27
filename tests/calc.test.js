@@ -672,3 +672,42 @@ test('a payment in a currency the account does not hold comes out of a balance i
   assert.equal(entry.paidCurrency, 'HKD');
   assert.equal(state.spending[0].paidOn, '2026-10-15');
 });
+
+test('buy & sell: average cost, realised profit and the cash account', () => {
+  const state = {
+    accounts: [{ id: 't212', name: 'Trading 212 cash', balances: [{ currency: 'USD', amount: 600 }] }, { id: 'hsbc', name: 'HSBC', balances: [{ currency: 'USD', amount: 5000 }] }],
+    stocks: [{ id: 'aapl', symbol: 'AAPL', currency: 'USD', quantity: 10, avgCost: 100, source: 'live' }],
+    activity: [],
+  };
+  // Sell 5 at $700: the average cost stays $100 and $3,000 profit is realised.
+  const sell = C.applyTrade(state, { id: 's1', side: 'sell', section: 'stocks', holdingId: 'aapl', quantity: 5, price: 700, fee: 0, date: '2026-10-01', accountId: 't212', cashCurrency: 'USD' }, 1);
+  assert.equal(sell.realised, 3000);
+  assert.equal(state.stocks[0].quantity, 5);
+  assert.equal(state.stocks[0].avgCost, 100);
+  assert.equal(state.accounts[0].balances[0].amount, 4100);
+  // Buy 10 more at $150 (+$1 fee): average becomes (5×100 + 10×150 + 1) / 15.
+  C.applyTrade(state, { id: 'b1', side: 'buy', section: 'stocks', holdingId: 'aapl', quantity: 10, price: 150, fee: 1, date: '2026-10-02', accountId: 't212', cashCurrency: 'USD' }, 2);
+  close(state.stocks[0].avgCost, 2001 / 15, 1e-9);
+  assert.equal(state.accounts[0].balances[0].amount, 2599);
+  // Not enough cash: a top-up from another account is recorded as a transfer first.
+  assert.equal(C.shortfall(state.accounts[0], 'USD', 3000, '2026-10-03'), 401);
+  C.applyTrade(state, { id: 'b2', side: 'buy', section: 'stocks', holdingId: 'aapl', quantity: 20, price: 150, fee: 0, date: '2026-10-03', accountId: 't212', cashCurrency: 'USD', topUp: { fromId: 'hsbc', fromCurrency: 'USD', amount: 401, received: 401 } }, 3);
+  assert.equal(state.accounts[0].balances[0].amount, 0);
+  assert.equal(state.accounts[1].balances[0].amount, 4599);
+  assert.equal(state.activity[0].kind, 'transfer');
+  // A buy in another currency uses what the broker charged in the account's currency.
+  const gbp = { id: 'g', name: 'GBP cash', balances: [{ currency: 'GBP', amount: 1000 }] };
+  state.accounts.push(gbp);
+  C.applyTrade(state, { id: 'b3', side: 'buy', section: 'stocks', holdingId: 'aapl', quantity: 1, price: 150, date: '2026-10-04', accountId: 'g', cashCurrency: 'GBP', cashAmount: 118.5 }, 4);
+  assert.equal(gbp.balances[0].amount, 881.5);
+  // Selling everything can remove the holding; selling more than you hold is refused.
+  assert.throws(() => C.applyTrade(state, { id: 'x', side: 'sell', section: 'stocks', holdingId: 'aapl', quantity: 100, price: 1, date: '2026-10-05' }, 5));
+  C.applyTrade(state, { id: 's2', side: 'sell', section: 'stocks', holdingId: 'aapl', quantity: 36, price: 200, date: '2026-10-05', removeIfEmpty: true }, 6);
+  assert.equal(state.stocks.length, 0);
+  assert.ok(state.deleted.aapl);
+  const r = C.realisedProfit(state.trades, (v) => v, 'stocks', '2026-01-01');
+  assert.equal(r.sells.length, 2);
+  // A new holding can be bought straight away.
+  C.applyTrade(state, { id: 'b4', side: 'buy', section: 'crypto', holdingId: 'btc', newHolding: { coinId: 'bitcoin', symbol: 'BTC', currency: 'USD', source: 'live' }, quantity: 0.01, price: 60000, date: '2026-10-06' }, 7);
+  assert.deepEqual([state.crypto[0].quantity, state.crypto[0].avgCost], [0.01, 60000]);
+});
