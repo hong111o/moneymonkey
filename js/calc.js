@@ -86,6 +86,7 @@
   }
 
   function depositValue(dep, today) {
+    if (dep.kind === 'regular') return regularSaverValue(dep, today);
     const principal = +dep.principal || 0;
     const start = parseDate(dep.startDate) || parseDate(today);
     const maturity = depositMaturity(dep, start);
@@ -112,6 +113,104 @@
       matured,
       progress: termDays ? elapsed / termDays : 1,
       dailyInterest,
+      monthlyInterest: dailyInterest * 365 / 12,
+    };
+  }
+
+  // ---------- regular savers ----------
+  // A fixed rate for a set term (usually 12 months) with a payment in every month. Interest is
+  // calculated daily on the balance and paid into the saver once a month, on `interestDay`
+  // (default: the day it was opened), and at maturity. The rate is an AER, so the daily rate
+  // is the gross rate that gives that AER when paid monthly.
+
+  // Dates on day `day` of each month (clamped to month end) from `from` (inclusive) to `to` (exclusive).
+  function monthlyDates(from, day, to) {
+    const out = [];
+    for (let k = 0; k < 1200; k++) {
+      const m = new Date(from.getFullYear(), from.getMonth() + k, 1);
+      const d = new Date(m.getFullYear(), m.getMonth(), Math.min(day, new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate()));
+      if (d >= to) break;
+      if (d >= from) out.push(toISO(d));
+    }
+    return out;
+  }
+
+  function regularSaverSchedule(dep, today) {
+    const start = parseDate(dep.startDate) || parseDate(today);
+    const maturity = depositMaturity({ termMonths: +dep.termMonths || 12, endDate: dep.endDate }, start);
+    return {
+      start,
+      maturity,
+      payDates: monthlyDates(start, +dep.payDay || start.getDate(), maturity),
+      creditDates: [...monthlyDates(addDays(start, 1), +dep.interestDay || start.getDate(), maturity), toISO(maturity)],
+    };
+  }
+
+  // Amount paid in on a scheduled date: before `trackFrom` the plan is assumed kept; after it,
+  // only confirmed payments count. With `project`, unconfirmed dates are assumed paid in full.
+  function regularPaid(dep, date, project) {
+    if (dep.paid && dep.paid[date] != null) return +dep.paid[date] || 0;
+    if (dep.trackFrom && date < dep.trackFrom) return +dep.monthlyAmount || 0;
+    if (project && !(dep.lastHandled && date <= dep.lastHandled)) return +dep.monthlyAmount || 0;
+    return 0;
+  }
+
+  function regularSaverValue(dep, today) {
+    const { start, maturity, payDates, creditDates } = regularSaverSchedule(dep, today);
+    const aer = (+dep.rate || 0) / 100;
+    const dayRate = 12 * (Math.pow(1 + aer, 1 / 12) - 1) / 365;
+    const maturityISO = toISO(maturity);
+    const run = (until, project) => {
+      const events = [...payDates.map((d) => [d, 1]), ...creditDates.map((d) => [d, 0])].filter(([d]) => d <= until).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]));
+      let balance = 0, accrued = 0, paidIn = 0, last = toISO(start);
+      const history = [];
+      for (const [date, isPay] of events) {
+        accrued += balance * dayRate * Math.max(0, daysBetween(last, date));
+        last = date;
+        if (isPay) {
+          const amt = regularPaid(dep, date, project);
+          balance += amt; paidIn += amt;
+          history.push({ date, kind: 'payment', amount: amt });
+        } else if (accrued > 0) {
+          const amt = round2(accrued);
+          balance += amt; accrued = 0;
+          history.push({ date, kind: 'interest', amount: amt });
+        }
+      }
+      if (until > last) accrued += balance * dayRate * daysBetween(last, until);
+      return { balance, accrued, paidIn, history };
+    };
+    const end = today < maturityISO ? today : maturityISO;
+    const now = today < toISO(start) ? { balance: 0, accrued: 0, paidIn: 0, history: [] } : run(end, false);
+    const atEnd = run(maturityISO, true);
+    const termDays = Math.max(0, daysBetween(start, maturity));
+    const daysLeft = Math.max(0, daysBetween(today, maturity));
+    const matured = termDays > 0 && daysLeft === 0;
+    const value = now.balance + now.accrued;
+    const termMonths = monthsBetween(start, maturity);
+    const maturityValue = matured ? value : atEnd.balance;
+    return {
+      principal: now.paidIn,
+      paidIn: now.paidIn,
+      plannedIn: atEnd.paidIn,
+      interest: value - now.paidIn,
+      interestThisPeriod: now.accrued,
+      value,
+      startDate: toISO(start),
+      maturityDate: maturityISO,
+      termMonths,
+      termDays,
+      maturityValue,
+      maturityInterest: maturityValue - (matured ? now.paidIn : atEnd.paidIn),
+      daysLeft,
+      matured,
+      progress: termDays ? Math.min(1, Math.max(0, daysBetween(start, end)) / termDays) : 1,
+      dailyInterest: matured || today < toISO(start) ? 0 : now.balance * dayRate,
+      // Averaged over the whole term, like yearly bills: the balance (and interest) grows each month.
+      monthlyInterest: matured ? 0 : (atEnd.balance - atEnd.paidIn) / Math.max(1, termMonths),
+      grossRate: dayRate * 365 * 100,
+      history: now.history,
+      nextPayment: payDates.find((d) => d >= today) || null,
     };
   }
 
@@ -140,12 +239,13 @@
     for (let pass = 0, again = true; again && pass < 200; pass++) {
       again = false;
       for (const dep of [...(state.deposits || [])]) {
-        const mode = dep.onMaturity || 'keep';
+        let mode = dep.onMaturity || 'keep';
+        if (dep.kind === 'regular' && mode === 'renew') mode = 'cash';
         if (mode !== 'cash' && mode !== 'renew') continue;
         const v = depositValue(dep, today);
         if (!v.matured) continue;
         const label = dep.platform || 'Bank';
-        const entry = { id: `fd-${dep.id}`, heldIn: dep.accountId || null, date: v.maturityDate, kind: mode === 'cash' ? 'deposit-cash' : 'deposit-renew', platform: label, ref: dep.name || '', amount: round2(v.maturityValue), interest: round2(v.maturityInterest), currency: dep.currency, _mt: nowMs };
+        const entry = { id: `fd-${dep.id}`, heldIn: dep.accountId || null, date: v.maturityDate, kind: mode === 'cash' ? 'deposit-cash' : 'deposit-renew', saver: dep.kind === 'regular' || undefined, platform: label, ref: dep.name || '', amount: round2(v.maturityValue), interest: round2(v.maturityInterest), currency: dep.currency, _mt: nowMs };
         if (mode === 'cash') {
           state.accounts = state.accounts || [];
           // The chosen payout account, else the account the deposit is held in, else
@@ -356,7 +456,7 @@
 
     let fdInterestCash = 0, fdInterestRenew = 0;
     const totals = { cash: 0, stocks: 0, crypto: 0, deposits: 0, property: 0, other: 0 };
-    let investCost = 0, investPnl = 0, dayChange = 0, depositDaily = 0, depositInterest = 0;
+    let investCost = 0, investPnl = 0, dayChange = 0, depositDaily = 0, depositMonthly = 0, depositInterest = 0;
     const events = [];
     const alerts = [];
     const horizon = toISO(addDays(parseDate(today), 30));
@@ -389,7 +489,11 @@
       depositDaily += toBase(v.dailyInterest, d.currency);
       // Interest as average monthly income (like yearly bills averaged per month). A renewing
       // deposit keeps its interest, so that part is also counted as saving.
-      const fdMonthly = toBase(v.dailyInterest, d.currency) * 365 / 12;
+      const fdMonthly = toBase(v.monthlyInterest, d.currency);
+      depositMonthly += fdMonthly;
+      if (d.kind === 'regular' && !v.matured && v.nextPayment && v.nextPayment <= horizon) {
+        events.push({ date: v.nextPayment, label: `Pay into regular saver: ${d.platform || d.name || 'saver'}`, amount: toBase(d.monthlyAmount, d.currency), kind: 'saver' });
+      }
       if (d.onMaturity === 'renew') fdInterestRenew += fdMonthly;
       else fdInterestCash += fdMonthly;
       depositInterest += toBase(v.interest, d.currency);
@@ -465,7 +569,13 @@
     }
     const dividends = { cash: dividendCash, reinvested: dividendReinvested, total: dividendCash + dividendReinvested };
 
-    const matchedIds = new Set([...loanMatches.map((m) => m.cashflowId), ...rentMatches.map((m) => m.cashflowId)]);
+    // Regular saver payments are planned saving. A "Saving" item for the same payment is counted once.
+    const saverMatches = regularSaverMatches(state, today);
+    let regularSaving = 0;
+    for (const d of state.deposits || []) {
+      if (d.kind === 'regular' && !depositValue(d, today).matured) regularSaving += toBase(d.monthlyAmount, d.currency);
+    }
+    const matchedIds = new Set([...loanMatches.map((m) => m.cashflowId), ...rentMatches.map((m) => m.cashflowId), ...saverMatches.map((m) => m.cashflowId)]);
     const loanRepayments = loans.reduce((t, l) => t + toBase(l.payment, l.currency), 0);
 
     const flow = { income: 0, expense: 0, subscription: 0, saving: 0 };
@@ -520,7 +630,7 @@
       bills: notOnCard,
       card: cardSpending,
       loans: loanRepayments,
-      saving: flow.saving + fdInterestRenew + dividends.reinvested,
+      saving: flow.saving + regularSaving + fdInterestRenew + dividends.reinvested,
     };
     split.unallocated = incomeTotal - (split.bills + split.card + split.loans + split.saving);
     // Fixed = regular commitments however they're paid; flexible = the rest of card spending.
@@ -533,7 +643,7 @@
       const spent = m.total + notOnCard + loanRepayments;
       return { month: m.month, income: incomeTotal, card: m.total, fixed: notOnCard + loanRepayments, spending: spent, net: incomeTotal - spent };
     }).reverse();
-    const passiveMonthly = (depositDaily + saverDaily) * 365 / 12 + rentMonthly + dividends.total;
+    const passiveMonthly = depositMonthly + saverDaily * 365 / 12 + rentMonthly + dividends.total;
     const liquid = totals.cash;
 
     if (missingFx.size) alerts.push({ level: 'warn', text: `No exchange rate for ${[...missingFx].join(', ')} — those items are excluded from totals. Refresh rates in Settings.` });
@@ -566,6 +676,8 @@
       interest,
       dividends,
       rentMatches,
+      saverMatches,
+      regularSaving,
       incomeTotal,
       flexibleCosts,
       history,
@@ -669,8 +781,19 @@
   // with a "paid from" account that are due. Nothing changes a balance until it is confirmed.
   function pendingPayments(state, today) {
     const out = [];
+    // A cash-flow item that is a regular saver's payment is confirmed by the saver instead.
+    const savedBySaver = new Set(regularSaverMatches(state, today).map((m) => m.cashflowId));
+    for (const dep of state.deposits || []) {
+      if (dep.kind !== 'regular' || !(+dep.monthlyAmount > 0)) continue;
+      const { payDates } = regularSaverSchedule(dep, today);
+      for (const date of payDates) {
+        if (date > today || (dep.trackFrom && date < dep.trackFrom) || (dep.lastHandled && date <= dep.lastHandled)) continue;
+        if (dep.paid && dep.paid[date] != null) continue;
+        out.push({ key: `rs:${dep.id}:${date}`, type: 'saver', id: dep.id, date, name: `Regular saver: ${dep.platform || dep.name || 'saver'}`, amount: +dep.monthlyAmount, currency: dep.currency, accountId: dep.payFromAccountId || null, sign: -1 });
+      }
+    }
     for (const cf of state.cashflows || []) {
-      if (cf.active === false || !cf.accountId) continue;
+      if (cf.active === false || !cf.accountId || savedBySaver.has(cf.id)) continue;
       if (cf.onCard && (cf.kind === 'expense' || cf.kind === 'subscription')) continue;
       const after = cf.lastHandled ? toISO(addDays(parseDate(cf.lastHandled), 1)) : null;
       const from = [cf.trackFrom, after].filter(Boolean).sort().pop() || today;
@@ -692,11 +815,20 @@
     let acct = null;
     if (apply) {
       acct = (state.accounts || []).find((a) => a.id === p.accountId);
-      if (!acct) return null;
+      if (!acct && p.type !== 'saver') return null;
+    }
+    if (apply && acct) {
       adjustLine(acct, p.currency, p.sign * amount, p.date);
       acct._mt = nowMs;
     }
-    if (p.type === 'cashflow') {
+    if (p.type === 'saver') {
+      const dep = (state.deposits || []).find((d) => d.id === p.id);
+      if (dep) {
+        if (!dep.lastHandled || dep.lastHandled < p.date) dep.lastHandled = p.date;
+        if (p.paidIn !== false) dep.paid = { ...(dep.paid || {}), [p.date]: round2(amount) };
+        dep._mt = nowMs;
+      }
+    } else if (p.type === 'cashflow') {
       const cf = (state.cashflows || []).find((c) => c.id === p.id);
       if (cf && (!cf.lastHandled || cf.lastHandled < p.date)) cf.lastHandled = p.date;
       if (cf) cf._mt = nowMs;
@@ -705,9 +837,26 @@
       if (e) { e.paidOn = p.date; e._mt = nowMs; }
     }
     if (!apply) return { skipped: true };
+    if (!acct) return { paidIn: true };
     const entry = { id: `pay-${p.key}`, date: p.date, kind: 'payment', name: p.name, amount: round2(p.sign * amount), currency: p.currency, accountId: acct.id, accountName: acct.name, _mt: nowMs };
     state.activity = [entry, ...(state.activity || []).filter((x) => x.id !== entry.id)].slice(0, 200);
     return entry;
+  }
+
+  // "Saving" cash-flow items that are a regular saver's monthly payment (linked with `saverId`, or
+  // same currency + amount, monthly), so the payment is counted and confirmed once.
+  function regularSaverMatches(state, today) {
+    const savers = (state.deposits || []).filter((d) => d.kind === 'regular' && +d.monthlyAmount > 0 && !depositValue(d, today).matured);
+    const out = [];
+    for (const cf of state.cashflows || []) {
+      if (cf.active === false || cf.kind !== 'saving' || cf.notSaver) continue;
+      const taken = new Set(out.map((m) => m.depositId));
+      const hit = cf.saverId
+        ? savers.find((d) => d.id === cf.saverId)
+        : savers.find((d) => !taken.has(d.id) && d.currency === cf.currency && cf.frequency === 'monthly' && Math.abs(+cf.amount - +d.monthlyAmount) <= Math.max(1, 0.01 * +d.monthlyAmount));
+      if (hit) out.push({ cashflowId: cf.id, depositId: hit.id, linked: !!cf.saverId });
+    }
+    return out;
   }
 
   // Moves money between two of the user's own accounts (or currencies in one account).
@@ -897,7 +1046,7 @@
   return {
     parseDate, toISO, addDays, addMonths, daysBetween, monthsBetween,
     convert,
-    depositGrowth, depositMaturity, depositValue, impliedRate, settleDeposits,
+    depositGrowth, depositMaturity, depositValue, regularSaverValue, regularSaverMatches, monthlyDates, impliedRate, settleDeposits,
     loanBalance,
     otherAssetValue,
     latestValuation, propertyValue,

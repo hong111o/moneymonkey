@@ -23,6 +23,22 @@ No server and no dependencies. Your data is stored on your devices and, if you t
 
 Tap an account in **Cash & Bank** to open its overview: its total, its cash in every currency (tap to update the balances), and the **fixed deposits held in it**. Add a deposit there with **+ Add fixed deposit**. Every fixed deposit belongs to a bank account. When it matures, capital and interest go back into that account (or another account you pick), in the deposit's currency. Fixed deposits still count as their own category on the dashboard, and **Cash & Bank → Fixed deposits → see all** lists every deposit across your accounts.
 
+### Regular savers
+
+For an account where you pay in every month at a fixed rate (e.g. £300 a month at 6.5% AER for a year), open the bank account and tap **+ Regular saver**. Enter:
+
+- the monthly payment and the account it's paid from;
+- the start date and term;
+- the AER;
+- optionally, the payment day and the day interest is paid. Both default to the day you opened it.
+
+How it works:
+
+- **Interest** is calculated daily on the balance and added to the saver once a month, so it earns interest too. The AER already includes that, so the app uses the matching gross rate (6.31% for 6.5% AER). £300 a month for 12 months comes to about £125 interest.
+- **Each payment date** a box asks you to confirm: **Pay in** moves the money from the paying account, **Already moved** records it without changing that account, and **Not paid** skips the month. Only confirmed payments count. If the saver started before you added it, earlier payments are assumed made on schedule.
+- **In Cash Flow** the monthly payment is planned saving. A "Saving" item for the same payment is counted (and confirmed) once. The interest is averaged over the term as income.
+- **At maturity** what's in the saver moves to the account you chose. Edit the saver to see its payments and interest so far.
+
 ### Saver accounts
 
 Set an account's type to **Saver (earns interest)** and give each currency line its interest rate. Interest is estimated day by day on top of the balance you last entered. It's added to the live "interest earned today" counter and to passive income, but the balance you typed is never overwritten. When you next update the balance from your bank app, the estimate restarts from there.

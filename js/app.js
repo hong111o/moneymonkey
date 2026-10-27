@@ -299,8 +299,9 @@
     deposits: {
       title: 'Fixed Deposits',
       singular: 'fixed deposit',
-      intro: 'All your fixed deposits across your bank accounts. Each deposit is held in a bank account; open an account in Cash & Bank to see its cash and deposits together. Interest accrues day by day, and at maturity the money can go back into the account automatically.',
+      intro: 'All your fixed deposits and regular savers across your bank accounts. Each one is held in a bank account; open an account in Cash & Bank to see its cash and deposits together. Interest accrues day by day, and at maturity the money can go back into the account automatically.',
       fields: [
+        { key: 'kind', label: 'Type', type: 'select', span: true, options: opt([['', 'Fixed deposit (one amount)'], ['regular', 'Regular saver (pay in every month, fixed rate)']]) },
         {
           key: 'accountId', label: 'Held in bank account', type: 'select', required: true, span: true,
           options: () => [
@@ -312,16 +313,24 @@
         { key: 'newAccountPlatform', label: 'Bank / platform', required: true, transient: true, list: 'platform-list', placeholder: 'e.g. HSBC HK', showIf: (v) => v.accountId === '__new' },
         { key: 'name', label: 'Reference (optional)', placeholder: 'e.g. 6-month HKD promo' },
         currencyField,
-        { key: 'principal', label: 'Amount deposited', type: 'number', required: true },
+        { key: 'principal', label: 'Amount deposited', type: 'number', required: true, showIf: (v) => v.kind !== 'regular' },
+        { key: 'monthlyAmount', label: 'Monthly payment', type: 'number', required: true, showIf: (v) => v.kind === 'regular' },
         { key: 'startDate', label: 'Start date', type: 'date', required: true, default: todayISO },
+        {
+          key: 'payFromAccountId', label: 'Paid from', type: 'select', span: true, showIf: (v) => v.kind === 'regular',
+          options: () => [{ value: '', label: 'No account — just record it' }, ...state.accounts.map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }))],
+          help: 'On each payment date you’re asked to confirm; it’s then moved from this account into the saver.',
+        },
+        { key: 'payDay', label: 'Payment day of month', type: 'number', step: '1', placeholder: 'Same day as start', showIf: (v) => v.kind === 'regular' },
+        { key: 'interestDay', label: 'Interest paid on day', type: 'number', step: '1', placeholder: 'Same day as start', showIf: (v) => v.kind === 'regular', help: 'Interest is calculated daily and added to the saver on this day each month (31 = last day of the month).' },
         { key: 'termMode', label: 'Term entered as', type: 'select', options: opt([['months', 'Number of months'], ['enddate', 'End (maturity) date']]), transient: true },
         { key: 'termMonths', label: 'Term (months)', type: 'number', required: true, default: () => 12, step: '1', showIf: (v) => v.termMode !== 'enddate' },
         { key: 'endDate', label: 'Maturity date', type: 'date', required: true, showIf: (v) => v.termMode === 'enddate' },
-        { key: 'compounding', label: 'Interest type', type: 'select', options: COMPOUNDING },
-        { key: 'rateMode', label: 'I know the…', type: 'select', options: opt([['rate', 'Interest rate (% p.a.)'], ['interest', 'Total interest amount at maturity']]), transient: true },
-        { key: 'rate', label: 'Interest rate (% per year)', type: 'number', showIf: (v) => v.rateMode !== 'interest', required: true },
-        { key: 'interestAmount', label: 'Total interest at maturity', type: 'number', showIf: (v) => v.rateMode === 'interest', required: true, transient: true },
-        { key: 'onMaturity', label: 'When it matures', type: 'select', options: ON_MATURITY, span: true },
+        { key: 'compounding', label: 'Interest type', type: 'select', options: COMPOUNDING, showIf: (v) => v.kind !== 'regular' },
+        { key: 'rateMode', label: 'I know the…', type: 'select', options: opt([['rate', 'Interest rate (% p.a.)'], ['interest', 'Total interest amount at maturity']]), transient: true, showIf: (v) => v.kind !== 'regular' },
+        { key: 'rate', label: 'Interest rate (% per year)', type: 'number', showIf: (v) => v.kind === 'regular' || v.rateMode !== 'interest', required: true, help: 'For a regular saver, enter the AER.' },
+        { key: 'interestAmount', label: 'Total interest at maturity', type: 'number', showIf: (v) => v.kind !== 'regular' && v.rateMode === 'interest', required: true, transient: true },
+        { key: 'onMaturity', label: 'When it matures', type: 'select', options: (v) => (v.kind === 'regular' ? ON_MATURITY.filter((o) => o.value !== 'renew') : ON_MATURITY), span: true },
         {
           key: 'payoutAccountId', label: 'Move the money into', type: 'select', span: true, showIf: (v) => v.onMaturity === 'cash',
           options: (v) => [
@@ -335,13 +344,23 @@
       validate: (v) => {
         if (v.termMode === 'enddate' && v.endDate && v.startDate && v.endDate <= v.startDate) return 'The maturity date must be after the start date.';
         if (v.termMode !== 'enddate' && !(v.termMonths >= 1)) return 'The term must be at least 1 month (or enter an end date).';
+        for (const k of ['payDay', 'interestDay']) if (v.kind === 'regular' && v[k] != null && v[k] !== '' && !(v[k] >= 1 && v[k] <= 31)) return 'Days of the month go from 1 to 31.';
         return null;
       },
       editValues: (item) => ({ ...item, termMode: item.endDate ? 'enddate' : 'months' }),
       beforeSave: (item) => {
         if (item.termMode === 'enddate') item.termMonths = Calc.monthsBetween(item.startDate, item.endDate);
         else item.endDate = null;
-        if (item.rateMode === 'interest') item.rate = +Calc.impliedRate(item.principal, item.interestAmount, item.startDate, item.termMonths, item.compounding, item.endDate).toFixed(8);
+        if (item.kind === 'regular') {
+          delete item.principal; delete item.compounding;
+          if (!item.trackFrom) item.trackFrom = todayISO();
+          if (item.onMaturity === 'renew') item.onMaturity = 'cash';
+          for (const k of ['payDay', 'interestDay', 'payFromAccountId']) if (!item[k]) delete item[k];
+        } else {
+          delete item.kind;
+          for (const k of ['monthlyAmount', 'payFromAccountId', 'payDay', 'interestDay', 'trackFrom', 'paid', 'lastHandled']) delete item[k];
+        }
+        if (item.kind !== 'regular' && item.rateMode === 'interest') item.rate = +Calc.impliedRate(item.principal, item.interestAmount, item.startDate, item.termMonths, item.compounding, item.endDate).toFixed(8);
         if (item.onMaturity !== 'cash') delete item.payoutAccountId;
         if (item.accountId === '__new') {
           const acct = { id: uid(), name: item.newAccountName, platform: item.newAccountPlatform, type: 'savings', balances: [], updatedAt: new Date().toISOString(), _mt: Date.now() };
@@ -351,7 +370,7 @@
         item.platform = (state.accounts.find((a) => a.id === item.accountId) || {}).platform || '';
       },
       columns: [
-        { label: 'Deposit', render: (d) => `<strong>${esc(d.platform || 'Fixed deposit')}</strong><div class="sub">${[accountName(d.accountId), d.name].filter(Boolean).map(esc).join(' · ')}</div>` },
+        { label: 'Deposit', render: (d) => `<strong>${esc(d.platform || 'Fixed deposit')}</strong><div class="sub">${[d.kind === 'regular' ? 'Regular saver' : '', accountName(d.accountId), d.name].filter(Boolean).map(esc).join(' · ')}</div>` },
         {
           label: 'Period',
           render: (d) => {
@@ -362,8 +381,15 @@
           },
           wide: true,
         },
-        { label: 'Deposited', num: true, render: (d) => money(d.principal, d.currency) },
-        { label: 'Rate', num: true, render: (d) => `${num(d.rate, 3)}%<div class="sub">${esc(labelOf(COMPOUNDING, d.compounding).replace('Compounded ', '').replace('Simple / paid at maturity', 'simple'))}</div>` },
+        {
+          label: 'Deposited', num: true,
+          render: (d) => {
+            if (d.kind !== 'regular') return money(d.principal, d.currency);
+            const v = Calc.depositValue(d, todayISO());
+            return `${money(v.paidIn, d.currency)}<div class="sub">${money(d.monthlyAmount, d.currency)}/mo${!v.matured && v.nextPayment ? ` · next ${fmtDate(v.nextPayment)}` : ''}</div>`;
+          },
+        },
+        { label: 'Rate', num: true, render: (d) => `${num(d.rate, 3)}%${d.kind === 'regular' ? ' AER' : ''}<div class="sub">${d.kind === 'regular' ? 'daily, paid monthly' : esc(labelOf(COMPOUNDING, d.compounding).replace('Compounded ', '').replace('Simple / paid at maturity', 'simple'))}</div>` },
         { label: 'Interest so far', num: true, render: (d) => { const v = Calc.depositValue(d, todayISO()); return `<span class="pos">${money(v.interest, d.currency)}</span><div class="sub">+${money(v.dailyInterest, d.currency)}/day</div>`; } },
         { label: 'Value today', num: true, primary: true, render: (d) => money(Calc.depositValue(d, todayISO()).value, d.currency) },
         {
@@ -372,7 +398,7 @@
           render: (d) => {
             const v = Calc.depositValue(d, todayISO());
             const what = { cash: '→ moves to cash', renew: '↻ renews', keep: '' }[d.onMaturity || 'keep'];
-            return `${money(v.maturityValue, d.currency)}<div class="sub">${v.matured && (d.onMaturity || 'keep') === 'keep' ? '<span class="badge warn">Matured</span>' : esc(what)}</div>`;
+            return `${d.kind === 'regular' && !v.matured ? '≈ ' : ''}${money(v.maturityValue, d.currency)}<div class="sub">${v.matured && (d.onMaturity || 'keep') === 'keep' ? '<span class="badge warn">Matured</span>' : esc(what)}</div>`;
           },
         },
       ],
@@ -633,6 +659,7 @@
   }
 
   function depositPreview(v) {
+    if (v.kind === 'regular') return regularSaverPreview(v);
     if (!(v.principal > 0) || !v.startDate) return '';
     const dep = { ...v, endDate: v.termMode === 'enddate' ? v.endDate : null };
     if (dep.endDate && dep.endDate <= dep.startDate) return '';
@@ -643,6 +670,23 @@
     const then = { cash: ' It will then move to your cash automatically.', renew: ' It will then renew automatically.', keep: '' }[v.onMaturity] || '';
     return `<strong>${fmtDate(r.startDate)} → ${fmtDate(r.maturityDate)}</strong> (${termText(r)}).<br>
       Interest ${money(r.maturityInterest, cur)} at ${rate.toFixed(3)}% p.a. — you’ll get <strong>${money(r.maturityValue, cur)}</strong>.${then}`;
+  }
+
+  function regularSaverPreview(v) {
+    if (!(v.monthlyAmount > 0) || !v.startDate || !(+v.rate >= 0)) return '';
+    const dep = { ...v, endDate: v.termMode === 'enddate' ? v.endDate : null, trackFrom: v.trackFrom || todayISO() };
+    if (dep.endDate && dep.endDate <= dep.startDate) return '';
+    if (!dep.endDate && !(dep.termMonths >= 1)) return '';
+    const t = todayISO();
+    const r = Calc.regularSaverValue(dep, t);
+    const cur = /^[A-Z]{3}$/.test(v.currency || '') ? v.currency : base();
+    const n = Math.round(r.plannedIn / v.monthlyAmount);
+    const past = v.trackFrom ? '' : r.paidIn > 0 ? `<br>Payments before today (${money(r.paidIn, cur)}) are assumed made on schedule; from today you confirm each one.` : '';
+    const hist = r.history.filter((h) => h.amount > 0).slice(-8).reverse().map((h) => `<li><span class="ev-date">${fmtDate(h.date)}</span><span class="ev-label">${h.kind === 'interest' ? 'Interest added' : 'Paid in'}</span><span class="${h.kind === 'interest' ? 'pos' : ''}">${money(h.amount, cur)}</span></li>`).join('');
+    return `<strong>${fmtDate(r.startDate)} → ${fmtDate(r.maturityDate)}</strong> (${termText(r)}).<br>
+      ${plural(n, 'payment')} of ${money(v.monthlyAmount, cur)} = ${money(r.plannedIn, cur)}, about ${money(r.maturityInterest, cur)} interest at ${num(+v.rate, 2)}% AER (${num(r.grossRate, 2)}% gross, paid monthly) — about <strong>${money(r.maturityValue, cur)}</strong> at the end.${past}
+      ${r.paidIn > 0 ? `<br>Now: ${money(r.paidIn, cur)} paid in + ${money(r.interest, cur)} interest = <strong>${money(r.value, cur)}</strong>${r.interestThisPeriod > 0.005 ? ` (incl. ${money(r.interestThisPeriod, cur)} building up this month)` : ''}.` : ''}
+      ${hist ? `<ul class="events">${hist}</ul>` : ''}`;
   }
 
   // ================================================================== views
@@ -759,7 +803,7 @@
 
   function activityText(e) {
     const ref = e.ref ? ` (${esc(e.ref)})` : '';
-    if (e.kind === 'deposit-cash') return `Fixed deposit at ${esc(e.platform)}${ref} matured — ${money(e.amount, e.currency)} incl. ${money(e.interest, e.currency)} interest moved to “${esc(e.accountName)}”.`;
+    if (e.kind === 'deposit-cash') return `${e.saver ? 'Regular saver' : 'Fixed deposit'} at ${esc(e.platform)}${ref} matured — ${money(e.amount, e.currency)} incl. ${money(e.interest, e.currency)} interest moved to “${esc(e.accountName)}”.`;
     if (e.kind === 'deposit-renew') return `Fixed deposit at ${esc(e.platform)}${ref} matured and renewed with ${money(e.amount, e.currency)} (incl. ${money(e.interest, e.currency)} interest).`;
     if (e.kind === 'payment') return `${esc(e.name)}: ${money(Math.abs(e.amount), e.currency)} ${e.amount < 0 ? 'paid from' : 'received into'} “${esc(e.accountName)}”.`;
     if (e.kind === 'transfer') return `Transferred ${money(e.amount, e.currency)} from “${esc(e.accountName)}” to “${esc(e.toAccountName)}”${e.toCurrency !== e.currency ? ` (received ${money(e.received, e.toCurrency)})` : ''}${e.note ? ` — ${esc(e.note)}` : ''}.`;
@@ -1075,8 +1119,8 @@
         ${bals.length ? `<ul class="acct-bals">${balRows}</ul>` : '<p class="sub">No cash in this account yet. Tap “Update balances” to add one line per currency.</p>'}
         <p class="sub">Balances updated ${ago(a.updatedAt)}</p>
       </div>
-      <div class="section-head"><h2>Fixed deposits</h2><button class="btn small primary" data-action="add" data-sec="deposits" data-account="${esc(a.id)}">+ Add fixed deposit</button></div>
-      ${deps.length ? renderItemsTable('deposits', deps) : '<div class="card"><p class="sub">No fixed deposits in this account.</p></div>'}
+      <div class="section-head"><h2>Fixed deposits &amp; savers</h2><span class="row-actions"><button class="btn small" data-action="add" data-sec="deposits" data-kind="regular" data-account="${esc(a.id)}">+ Regular saver</button><button class="btn small primary" data-action="add" data-sec="deposits" data-account="${esc(a.id)}">+ Fixed deposit</button></span></div>
+      ${deps.length ? renderItemsTable('deposits', deps) : '<div class="card"><p class="sub">No fixed deposits or regular savers in this account.</p></div>'}
       ${history.length ? `<div class="section-head"><h2>Activity</h2></div><div class="card"><ul class="events">${history.map((e) => `<li><span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${activityText(e)}</span><span></span></li>`).join('')}</ul></div>` : ''}`;
   }
 
@@ -1288,7 +1332,13 @@
       if (!cf || !prop) return '';
       return `<li><span class="grow">“${esc(cf.name)}” is the rent from “${esc(prop.name)}” — counted once, from the property.</span>${m.linked ? '' : `<button class="btn small ghost" data-action="rent-unmatch" data-id="${esc(cf.id)}">Not the same</button>`}</li>`;
     }).join('');
-    const matches = rentNotes + s.loanMatches.map((m) => {
+    const saverNotes = s.saverMatches.map((m) => {
+      const cf = state.cashflows.find((c) => c.id === m.cashflowId);
+      const dep = state.deposits.find((d) => d.id === m.depositId);
+      if (!cf || !dep) return '';
+      return `<li><span class="grow">“${esc(cf.name)}” is the payment into the regular saver at ${esc(dep.platform || 'your bank')} — counted once, and confirmed from the saver.</span>${m.linked ? '' : `<button class="btn small ghost" data-action="saver-unmatch" data-id="${esc(cf.id)}">Not the same</button>`}</li>`;
+    }).join('');
+    const matches = rentNotes + saverNotes + s.loanMatches.map((m) => {
       const cf = state.cashflows.find((c) => c.id === m.cashflowId);
       const loan = state.liabilities.find((l) => l.id === m.loanId);
       if (!cf || !loan) return '';
@@ -1706,11 +1756,12 @@
       delete preset.platform;
     }
     openForm({
-      title: `${prev ? 'Edit' : 'Add'} ${def.singular}`,
+      title: `${prev ? 'Edit' : 'Add'} ${sec === 'deposits' && (prev || preset).kind === 'regular' ? 'regular saver' : def.singular}`,
       fields: def.fields,
       values: prev ? (def.editValues ? def.editValues(prev) : { ...prev }) : preset,
       isNew: !prev,
-      preview: def.preview,
+      // A deposit's preview also needs what the form doesn't show (a regular saver's confirmed payments).
+      preview: def.preview && sec === 'deposits' && prev ? (v) => def.preview({ ...prev, ...v }) : def.preview,
       validate: def.validate,
       onDelete: prev ? () => {
         const deps = sec === 'accounts' ? accountDeposits(prev) : [];
@@ -1839,10 +1890,11 @@
       const out = [];
       for (const d of state.deposits) {
         const v = Calc.depositValue(d, t);
-        if (!(v.dailyInterest > 0)) continue;
-        const m = toBase(v.dailyInterest, d.currency) * 365 / 12;
+        if (!(v.monthlyInterest > 0)) continue;
+        const m = toBase(v.monthlyInterest, d.currency);
         const how = d.onMaturity === 'renew' ? 'kept in the deposit when it renews' : `paid ${fmtDate(v.maturityDate)}`;
-        out.push({ v: m, html: row(acctHref(d.accountId), `${esc(d.platform || 'Fixed deposit')}${d.name ? ` · ${esc(d.name)}` : ''}`, `Fixed deposit interest · ${num(d.rate, 2)}% · ${how}`, money(m, base(), 0)) });
+        const what = d.kind === 'regular' ? `Regular saver interest · ${num(d.rate, 2)}% AER · ${money(v.maturityInterest, d.currency, 0)} over the term, averaged` : `Fixed deposit interest · ${num(d.rate, 2)}% · ${how}`;
+        out.push({ v: m, html: row(acctHref(d.accountId), `${esc(d.platform || 'Fixed deposit')}${d.name ? ` · ${esc(d.name)}` : ''}`, what, money(m, base(), 0)) });
       }
       for (const a of state.accounts) {
         if (s.interest.skippedAccounts.includes(a.id)) continue;
@@ -1940,14 +1992,19 @@
         + (s.fixedPct != null ? `<p class="sub">${s.fixedPct <= 0.5 ? 'Under half your income goes on fixed costs — that leaves good room to adjust.' : s.fixedPct <= 0.7 ? 'Fixed costs take a large share of your income; there’s less room if income drops.' : 'Fixed costs take most of your income — worth reviewing the biggest ones.'}</p>` : '');
     } else if (what === 'saving') {
       title = 'Planned saving per month';
-      const rows = flowRows(active.filter((c) => c.kind === 'saving'));
+      const saverItems = new Set(s.saverMatches.map((m) => m.cashflowId));
+      const rows = flowRows(active.filter((c) => c.kind === 'saving' && !saverItems.has(c.id)));
+      const regular = state.deposits.filter((d) => d.kind === 'regular' && !Calc.depositValue(d, t).matured).map((d) => {
+        const cf = state.cashflows.find((c) => s.saverMatches.some((m) => m.depositId === d.id && m.cashflowId === c.id));
+        return row(acctHref(d.accountId), `${esc(d.platform || 'Regular saver')}${d.name ? ` · ${esc(d.name)}` : ''}`, `Regular saver · ${num(d.rate, 2)}% AER until ${fmtDate(Calc.depositValue(d, t).maturityDate)}${cf ? ` · same as “${esc(cf.name)}”` : ''}`, money(toBase(d.monthlyAmount, d.currency), base(), 0));
+      });
       const renew = state.deposits.filter((d) => d.onMaturity === 'renew').map((d) => {
         const v = Calc.depositValue(d, t);
         const m = toBase(v.dailyInterest, d.currency) * 365 / 12;
         return m > 0 ? row(acctHref(d.accountId), `${esc(d.platform || 'Fixed deposit')}${d.name ? ` · ${esc(d.name)}` : ''}`, 'Interest kept when the deposit renews', money(m, base(), 0)) : '';
       }).filter(Boolean);
       const drip = dividendRows(true);
-      body = (rows.length || renew.length || drip.length ? group('Saving & investing', rows) + group('Interest kept in renewing deposits', renew) + group('Dividends reinvested', drip) : '<p class="sub">Nothing planned yet. Add a regular transfer to savings or investments with the type “Saving / investing”.</p>')
+      body = (rows.length || regular.length || renew.length || drip.length ? group('Saving & investing', rows) + group('Regular savers', regular) + group('Interest kept in renewing deposits', renew) + group('Dividends reinvested', drip) : '<p class="sub">Nothing planned yet. Add a regular transfer to savings or investments with the type “Saving / investing”.</p>')
         + total('Per month', money(s.split.saving, base(), 0))
         + (s.netMonthly > 0 && s.split.saving ? `<p class="sub">That’s ${pct(s.split.saving / s.netMonthly, false)} of what’s left over each month.</p>` : '');
     } else if (what === 'category') {
@@ -1975,7 +2032,9 @@
       const unit = daily ? '/day' : '/mo';
       const fds = state.deposits.map((d) => {
         const v = Calc.depositValue(d, t);
-        return { v: toBase(v.dailyInterest, d.currency) || 0, html: row(acctHref(d.accountId), `${esc(d.platform || 'Fixed deposit')}${d.name ? ` · ${esc(d.name)}` : ''}`, `Fixed deposit · ${num(d.rate, 2)}% · ${money(d.principal, d.currency, 0)} until ${fmtDate(v.maturityDate)}`, `${money(v.dailyInterest * k, d.currency)}${unit}`) };
+        const amt = daily ? v.dailyInterest : v.monthlyInterest;
+        const what = d.kind === 'regular' ? `Regular saver · ${num(d.rate, 2)}% AER · ${money(v.paidIn, d.currency, 0)} paid in so far${daily ? '' : ', averaged over the term'}` : `Fixed deposit · ${num(d.rate, 2)}% · ${money(d.principal, d.currency, 0)} until ${fmtDate(v.maturityDate)}`;
+        return { v: toBase(amt, d.currency) || 0, html: row(acctHref(d.accountId), `${esc(d.platform || 'Fixed deposit')}${d.name ? ` · ${esc(d.name)}` : ''}`, what, `${money(amt, d.currency)}${unit}`) };
       }).filter((r) => r.v > 0);
       const savers = [];
       for (const a of state.accounts) for (const b of Calc.accountBalances(a)) {
@@ -1984,7 +2043,7 @@
       }
       const rents = daily ? [] : state.properties.filter((p) => +p.monthlyRent).map((p) => ({ v: toBase(p.monthlyRent, p.currency) || 0, html: row('#properties', esc(p.name), 'Rent', `${money(p.monthlyRent, p.currency)}/mo`) }));
       const divs = daily ? [] : dividendRows(false);
-      body = group('Fixed deposits', fds.sort(sortDesc).map((r) => r.html)) + group('Savers', savers.sort(sortDesc).map((r) => r.html)) + group('Dividends', divs) + group('Rent', rents.sort(sortDesc).map((r) => r.html));
+      body = group('Fixed deposits & regular savers', fds.sort(sortDesc).map((r) => r.html)) + group('Savers', savers.sort(sortDesc).map((r) => r.html)) + group('Dividends', divs) + group('Rent', rents.sort(sortDesc).map((r) => r.html));
       if (!body) body = '<p class="sub">No interest, dividends or rent yet. Add a fixed deposit, set a rate on a saver account, add dividends to a stock, or add rent to a property.</p>';
       else if (!daily) body = '<p class="sub">How fast your money earns, not cash in hand: fixed deposit interest is paid at maturity, saver interest when the bank credits it, dividends when the company pays. In Cash Flow it counts as average monthly income, the same way yearly bills are averaged.</p>' + body;
       body += total('Total', daily ? `${money(s.interestDaily)}/day` : `${money(s.passiveMonthly, base(), 0)}/mo`);
@@ -2023,12 +2082,14 @@
       const confirmedAfter = acct && acct.updatedAt && acct.updatedAt.slice(0, 10) >= p.date;
       return `<div class="pay-item" data-key="${esc(p.key)}">
         <div class="pay-head"><span class="badge ${p.sign > 0 ? 'kind-income' : 'kind-expense'}">${p.sign > 0 ? 'In' : 'Out'}</span><strong class="grow">${esc(p.name)}</strong><span class="sub">${fmtDate(p.date)}</span></div>
-        <div class="sub">${acct ? `${p.sign > 0 ? 'Into' : 'From'} <strong>${esc(acct.name)}</strong>${acct.platform ? ` · ${esc(acct.platform)}` : ''}` : p.accountId ? 'From <span class="neg">an account that was deleted</span>' : 'No paying account linked — this just marks it paid'} · ${esc(p.currency)}</div>
+        <div class="sub">${acct ? `${p.sign > 0 ? 'Into' : 'From'} <strong>${esc(acct.name)}</strong>${acct.platform ? ` · ${esc(acct.platform)}` : ''}${p.type === 'saver' ? ' into the saver' : ''}` : p.accountId ? 'From <span class="neg">an account that was deleted</span>' : p.type === 'saver' ? 'No paying account linked — this just records it in the saver' : 'No paying account linked — this just marks it paid'} · ${esc(p.currency)}</div>
         ${confirmedAfter ? `<div class="hint">You updated this balance on ${fmtDate(acct.updatedAt)}, so it may already include this.</div>` : ''}
         <div class="pay-row">
           <input class="pay-amt" type="number" step="any" inputmode="decimal" value="${p.amount}" aria-label="Amount">
-          ${acct ? `<button class="btn primary small" data-pay="apply">${p.sign > 0 ? 'Add' : 'Deduct'}</button>` : ''}
-          <button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already included' : p.type === 'card' ? 'Mark paid' : 'Dismiss'}</button>
+          ${p.type === 'saver'
+            ? `${acct ? '<button class="btn primary small" data-pay="apply">Pay in</button>' : ''}<button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already moved' : 'Paid in'}</button><button class="btn small ghost" data-pay="none">Not paid</button>`
+            : `${acct ? `<button class="btn primary small" data-pay="apply">${p.sign > 0 ? 'Add' : 'Deduct'}</button>` : ''}
+          <button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already included' : p.type === 'card' ? 'Mark paid' : 'Dismiss'}</button>`}
         </div>
       </div>`;
     }).join('');
@@ -2040,11 +2101,12 @@
       const p = Calc.pendingPayments(state, todayISO()).find((x) => x.key === box.dataset.key);
       if (p) {
         const apply = b.dataset.pay === 'apply';
+        const none = b.dataset.pay === 'none';
         const amt = +$('.pay-amt', box).value;
-        if (apply && !(amt >= 0)) return toast('Enter the amount first.', 'error');
-        Calc.resolvePayment(state, p, apply, amt, Date.now());
+        if (!none && (apply || p.type === 'saver') && !(amt >= 0)) return toast('Enter the amount first.', 'error');
+        Calc.resolvePayment(state, none ? { ...p, paidIn: false } : p, apply, amt, Date.now());
         commit();
-        toast(apply ? `${p.name}: balance updated` : `${p.name}: marked as already included`);
+        toast(none ? `${p.name}: not paid this month` : apply ? `${p.name}: balance updated` : p.type === 'saver' ? `${p.name}: ${money(amt, p.currency)} recorded` : `${p.name}: marked as already included`);
       }
       reviewPayments(opts);
     });
@@ -2541,6 +2603,7 @@
       { id: uid(), platform: 'HSBC HK', name: '12-month HKD', currency: 'HKD', principal: 200000, startDate: m(-5), termMonths: 12, compounding: 'simple', rate: 3.8, onMaturity: 'cash' },
       { id: uid(), platform: 'ZA Bank', name: '3-month promo', currency: 'HKD', principal: 100000, startDate: Calc.toISO(Calc.addDays(Calc.addMonths(t, -3), 9)), termMonths: 3, compounding: 'simple', rate: 4.2, onMaturity: 'renew' },
       { id: uid(), platform: 'Monzo', name: '1-year fixed saver', currency: 'GBP', principal: 5000, startDate: m(-2), endDate: m(10), termMonths: 12, compounding: 'annually', rate: 4.1, onMaturity: 'cash' },
+      { id: uid(), kind: 'regular', platform: 'Monzo', name: '12-month saver', currency: 'GBP', monthlyAmount: 300, startDate: m(-4), termMonths: 12, rate: 6.5, onMaturity: 'cash', trackFrom: m(0) },
     ];
     s.properties = [{
       id: uid(), name: 'Flat', address: 'Manchester', platform: 'UK property', currency: 'GBP', purchasePrice: 240000, purchaseDate: m(-40), updateFrequency: 'monthly', monthlyRent: 1150,
@@ -2568,6 +2631,7 @@
     const ym = (k) => Calc.toISO(Calc.addMonths(t, -k)).slice(0, 7);
     const hsbcId = s.accounts[0].id;
     const monzoId = s.accounts[2].id;
+    s.deposits[3].payFromAccountId = monzoId;
     s.cards = [
       { id: uid(), name: 'HSBC Red', platform: 'HSBC HK', currency: 'HKD', dueDay: Math.min(28, t.getDate() + 6), payFromAccountId: hsbcId },
       { id: uid(), name: 'Monzo Flex', platform: 'Monzo', currency: 'GBP', dueDay: 15, payFromAccountId: monzoId },
@@ -2603,6 +2667,7 @@
         if (b.dataset.platform != null) preset.platform = b.dataset.platform;
         if (b.dataset.account) preset.accountId = b.dataset.account;
         if (b.dataset.card) preset.cardId = b.dataset.card;
+        if (b.dataset.kind) preset.kind = b.dataset.kind;
         if (b.dataset.type) {
           preset.type = b.dataset.type;
           if (b.dataset.type === 'brokerage' && preset.platform) preset.name = `${preset.platform} cash`;
@@ -2617,6 +2682,11 @@
       case 'open-region': location.hash = `#region/${encodeURIComponent(b.dataset.name)}`; return;
       case 'open-card': location.hash = `#card/${encodeURIComponent(id)}`; return;
       case 'pay-card': return payCardBill(id);
+      case 'saver-unmatch': {
+        const cf = state.cashflows.find((c) => c.id === id);
+        if (cf) { cf.notSaver = true; cf._mt = Date.now(); commit(); toast(`“${cf.name}” now counts as separate saving`); }
+        return;
+      }
       case 'rent-unmatch': {
         const cf = state.cashflows.find((c) => c.id === id);
         if (cf) { cf.notRent = true; delete cf.propertyId; cf._mt = Date.now(); commit(); toast(`“${cf.name}” now counts as separate income`); }

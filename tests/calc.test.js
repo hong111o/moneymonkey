@@ -603,3 +603,58 @@ test('dividends: per share or yield; reinvested ones also count as saving', () =
   close(s.passiveMonthly, 120);
   close(s.split.saving, 60);
 });
+
+test('regular saver: £300 a month at 6.5% AER, interest daily and paid monthly', () => {
+  const dep = { id: 'rs', kind: 'regular', currency: 'GBP', monthlyAmount: 300, rate: 6.5, startDate: '2026-01-15', termMonths: 12, trackFrom: '2026-01-15' };
+  // Planned: 12 × £300 = £3,600 → about £3,725 (AER already includes the monthly compounding).
+  const plan = C.regularSaverValue(dep, '2026-01-15');
+  assert.equal(plan.plannedIn, 3600);
+  assert.ok(plan.maturityInterest > 120 && plan.maturityInterest < 128, `interest ${plan.maturityInterest}`);
+  close(plan.grossRate, 6.314, 0.001);
+  assert.equal(plan.maturityDate, '2027-01-15');
+  // Only confirmed payments count: two paid, the March one not yet confirmed.
+  const v = C.regularSaverValue({ ...dep, paid: { '2026-01-15': 300, '2026-02-15': 300 }, lastHandled: '2026-02-15' }, '2026-03-20');
+  assert.equal(v.paidIn, 600);
+  // Interest is credited on the 15th: Jan 15 → Feb 15 on £300, Feb 15 → Mar 15 on £600 + Feb credit.
+  const credits = v.history.filter((h) => h.kind === 'interest');
+  assert.deepEqual(credits.map((h) => h.date), ['2026-02-15', '2026-03-15']);
+  close(credits[0].amount, 300 * 0.06314 * 31 / 365, 0.01);
+  assert.ok(v.interestThisPeriod > 0 && v.value > 600 + credits[0].amount + credits[1].amount);
+  // A chosen interest day moves the credits.
+  const firsts = C.regularSaverValue({ ...dep, interestDay: 1, trackFrom: '2026-12-31' }, '2026-04-02').history.filter((h) => h.kind === 'interest').map((h) => h.date);
+  assert.deepEqual(firsts, ['2026-02-01', '2026-03-01', '2026-04-01']);
+  // Before trackFrom, past payments are assumed made on schedule.
+  assert.equal(C.regularSaverValue({ ...dep, trackFrom: '2026-04-01' }, '2026-04-01').paidIn, 900);
+});
+
+test('regular saver payments are confirmed, counted as saving once, and paid out at maturity', () => {
+  const state = {
+    settings: { baseCurrency: 'GBP' }, fx: { base: 'GBP', rates: { GBP: 1 } },
+    accounts: [{ id: 'cur', name: 'Current', balances: [{ currency: 'GBP', amount: 5000 }] }],
+    deposits: [{ id: 'rs', kind: 'regular', accountId: 'cur', currency: 'GBP', monthlyAmount: 300, rate: 6.5, startDate: '2026-09-10', termMonths: 12, trackFrom: '2026-09-10', payFromAccountId: 'cur', onMaturity: 'cash' }],
+    cashflows: [
+      { id: 'pay', name: 'Salary', kind: 'income', amount: 3000, currency: 'GBP', frequency: 'monthly', nextDate: '2026-11-01' },
+      { id: 'sv', name: 'To regular saver', kind: 'saving', amount: 300, currency: 'GBP', frequency: 'monthly', nextDate: '2026-11-10', accountId: 'cur' },
+    ],
+    activity: [],
+  };
+  const pend = C.pendingPayments(state, '2026-10-27');
+  assert.deepEqual(pend.map((p) => p.key), ['rs:rs:2026-09-10', 'rs:rs:2026-10-10']); // the matching saving item doesn't ask too
+  C.resolvePayment(state, pend[0], true, 300, 1);
+  C.resolvePayment(state, { ...pend[1], paidIn: false }, false, 300, 1); // not paid this month
+  assert.equal(state.accounts[0].balances[0].amount, 4700);
+  assert.deepEqual(state.deposits[0].paid, { '2026-09-10': 300 });
+  assert.equal(C.pendingPayments(state, '2026-10-27').length, 0);
+  const s = C.summarize(state, '2026-10-27');
+  assert.deepEqual(s.saverMatches.map((m) => m.cashflowId), ['sv']);
+  close(s.split.saving, 300); // once, not 600
+  const v = C.depositValue(state.deposits[0], '2026-10-27');
+  close(s.interest.fdCash, v.monthlyInterest);
+  assert.equal(v.plannedIn, 3300); // October was skipped
+  close(v.monthlyInterest, v.maturityInterest / 12);
+  // At maturity, what's actually in the saver moves to the account.
+  const done = C.settleDeposits(state, '2027-09-11', 2);
+  assert.equal(done.length, 1);
+  close(state.accounts[0].balances[0].amount, 4700 + done[0].amount);
+  assert.ok(done[0].amount > 300 && done[0].amount < 320);
+});
