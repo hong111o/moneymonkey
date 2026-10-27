@@ -101,12 +101,23 @@ If part of a broker or exchange account is uninvested cash, add it with **+ Cash
 
 ### Dashboard
 
-- Net worth, total assets and liabilities in your base currency. **Tap any summary box** (assets, liabilities, P&L, cash flow, savings rate, passive income, runway, subscriptions, interest today) to see what's inside it, with links to edit each item
+- Net worth, total assets and liabilities in your base currency. **Tap any summary box with a ›** (assets, liabilities, P&L, cash flow, savings rate, passive income, runway, subscriptions, interest today) to see what's inside it, with links to edit each item
 - **Interest earned today**, ticking every second
 - Investment P&L, today's market move, net cash flow, savings rate, passive income, emergency runway, subscriptions
 - Allocation donut, **by region & platform** breakdown, net-worth history chart (one snapshot per day)
 - The next 30 days: bills, pay days, deposit maturities, property updates due
 - Alerts: matured deposits that were moved to cash, stale property values, spending to record
+
+### Tappable boxes on other pages
+
+Boxes with a › open what's behind them:
+
+- **Stocks / Crypto:** profit/loss (biggest gains first), today's moves (biggest first), uninvested cash per broker, and dividends per year (paid out vs reinvested).
+- **Fixed deposits:** interest so far per deposit, and every maturity date in order.
+- **Card page:** "Owed now" lists the unpaid bills, each with a Pay button.
+- **Platform and region pages:** cash, fixed deposits, investments, property and debts, item by item.
+
+Boxes that would only repeat the list underneath (like "Total") stay as they are.
 
 ## Use it on your phone (and every other device)
 

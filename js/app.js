@@ -800,6 +800,8 @@
     return `<div class="tile ${extra}${tap}"><div class="tile-label">${label}</div><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ''}</div>`;
   }
   const explainAttr = (what) => `data-action="explain" data-what="${what}"`;
+  // A platform's or region's total of one kind (cash, deposits, invest, property, debt).
+  const partAttr = (scope, name, kind) => `${explainAttr('part')} data-cat="${esc([scope, kind, name || ''].map(encodeURIComponent).join('|'))}"`;
 
   function activityText(e) {
     const ref = e.ref ? ` (${esc(e.ref)})` : '';
@@ -970,9 +972,10 @@
       }
       const cash = brokerCashAccounts(key).reduce((t, a) => t + (accountTotal(a) || 0), 0);
       const divYear = key === 'stocks' ? items.reduce((t, h) => t + (toBase(Calc.dividendPerYear(h), h.currency) || 0), 0) : 0;
-      extra = tile('Profit / loss', signed(mv - cost), cost ? `${pct((mv - cost) / cost)} on ${money(cost, base(), 0)}` : '') + tile(key === 'crypto' ? 'Last 24h' : 'Today', signed(day))
-        + (cash ? tile('Uninvested cash', money(cash), 'in your investment accounts') : '')
-        + (divYear ? tile('Dividends / yr', `<span class="pos">${money(divYear, base(), 0)}</span>`, `${money(divYear / 12, base(), 0)} a month on average`) : '');
+      const tap = (what) => `${explainAttr(what)} data-cat="${key}"`;
+      extra = tile('Profit / loss', signed(mv - cost), cost ? `${pct((mv - cost) / cost)} on ${money(cost, base(), 0)}` : '', '', items.length ? tap('pnl') : '') + tile(key === 'crypto' ? 'Last 24h' : 'Today', signed(day), '', '', items.length ? tap('today') : '')
+        + (cash ? tile('Uninvested cash', money(cash), 'in your investment accounts', '', tap('brokercash')) : '')
+        + (divYear ? tile('Dividends / yr', `<span class="pos">${money(divYear, base(), 0)}</span>`, `${money(divYear / 12, base(), 0)} a month on average`, '', explainAttr('dividends')) : '');
     } else if (key === 'deposits') {
       let interest = 0, daily = 0;
       for (const d of items) {
@@ -981,7 +984,7 @@
         daily += toBase(v.dailyInterest, d.currency) || 0;
       }
       const next = items.map((d) => Calc.depositValue(d, t)).filter((v) => !v.matured).sort((a, b) => (a.maturityDate < b.maturityDate ? -1 : 1))[0];
-      extra = tile('Interest so far', `<span class="pos">${money(interest)}</span>`, `${money(daily)} per day`) + tile('Next maturity', next ? fmtDate(next.maturityDate) : '—', next ? `in ${plural(next.daysLeft, 'day')}` : '');
+      extra = tile('Interest so far', `<span class="pos">${money(interest)}</span>`, `${money(daily)} per day`, '', items.length ? explainAttr('fd-interest') : '') + tile('Next maturity', next ? fmtDate(next.maturityDate) : '—', next ? `in ${plural(next.daysLeft, 'day')}` : '', '', items.length ? explainAttr('maturities') : '');
     } else if (key === 'liabilities') {
       extra = tile('Repayments / mo', money(items.reduce((s, l) => s + (Calc.loanBalance(l, t).balance > 0 ? toBase(l.payment, l.currency) || 0 : 0), 0)));
     } else if (key === 'properties') {
@@ -1194,11 +1197,11 @@
     const guessed = list.some((p) => p.regionGuessed);
     const tiles = [
       tile('Net', money(regionNet), net > 0 ? `${((regionNet / net) * 100).toFixed(1)}% of net worth` : ''),
-      sum('cash') ? tile('Cash', money(sum('cash'))) : '',
-      sum('deposits') ? tile('Fixed deposits', money(sum('deposits'))) : '',
-      sum('invest') ? tile('Investments', money(sum('invest'))) : '',
-      sum('property') + sum('other') ? tile('Property & other', money(sum('property') + sum('other'))) : '',
-      sum('debt') ? tile('Debts', `<span class="neg">${money(sum('debt'))}</span>`) : '',
+      sum('cash') ? tile('Cash', money(sum('cash')), '', '', partAttr('region', name, 'cash')) : '',
+      sum('deposits') ? tile('Fixed deposits', money(sum('deposits')), '', '', partAttr('region', name, 'deposits')) : '',
+      sum('invest') ? tile('Investments', money(sum('invest')), '', '', partAttr('region', name, 'invest')) : '',
+      sum('property') + sum('other') ? tile('Property & other', money(sum('property') + sum('other')), '', '', partAttr('region', name, 'property')) : '',
+      sum('debt') ? tile('Debts', `<span class="neg">${money(sum('debt'))}</span>`, '', '', partAttr('region', name, 'debt')) : '',
     ].join('');
     return `${back}
       <div class="page-head"><div><h1>${title}</h1><p class="sub">${plural(list.length, 'platform')} · ${esc(currencies.join(', '))}</p></div></div>
@@ -1223,11 +1226,11 @@
     const net = summary.netWorth || 0;
     const tiles = [
       tile('Net', money(p.net), net > 0 ? `${((p.net / net) * 100).toFixed(1)}% of net worth` : ''),
-      p.cash ? tile('Cash', money(p.cash)) : '',
-      p.deposits ? tile('Fixed deposits', money(p.deposits)) : '',
-      p.invest ? tile('Investments', money(p.invest)) : '',
-      p.property + p.other ? tile('Property & other', money(p.property + p.other)) : '',
-      p.debt ? tile('Debts', `<span class="neg">${money(p.debt)}</span>`) : '',
+      p.cash ? tile('Cash', money(p.cash), '', '', partAttr('platform', name, 'cash')) : '',
+      p.deposits ? tile('Fixed deposits', money(p.deposits), '', '', partAttr('platform', name, 'deposits')) : '',
+      p.invest ? tile('Investments', money(p.invest), '', '', partAttr('platform', name, 'invest')) : '',
+      p.property + p.other ? tile('Property & other', money(p.property + p.other), '', '', partAttr('platform', name, 'property')) : '',
+      p.debt ? tile('Debts', `<span class="neg">${money(p.debt)}</span>`, '', '', partAttr('platform', name, 'debt')) : '',
     ].join('');
     const groups = PLATFORM_GROUP_TITLES.map(([k, label]) => {
       const items = state[k].filter((x) => (x.platform || '') === name);
@@ -1434,7 +1437,7 @@
         <div class="row-actions"><button class="btn" data-action="edit" data-sec="cards" data-id="${esc(c.id)}">Edit card</button><button class="btn primary" data-action="add" data-sec="spending" data-card="${esc(c.id)}">+ Statement</button></div>
       </div>
       <section class="tiles">
-        ${tile('Owed now', owed ? `<span class="neg">${money(owed)}</span>` : money(0), unpaid.length ? plural(unpaid.length, 'unpaid bill') : 'all paid')}
+        ${tile('Owed now', owed ? `<span class="neg">${money(owed)}</span>` : money(0), unpaid.length ? plural(unpaid.length, 'unpaid bill') : 'all paid', '', unpaid.length ? `${explainAttr('card-owed')} data-cat="${esc(c.id)}"` : '')}
         ${tile('Next due', next ? fmtDate(next.dueDate) : '—', next ? money(next.amount, next.currency) : '')}
         ${tile('Average / month', money(avg), recent.length ? `last ${plural(recent.length, 'statement')}` : '')}
       </section>
@@ -1934,12 +1937,93 @@
         ? group('Loans & debts', rows.sort(sortDesc).map((r) => r.html)) + group('Unpaid card bills', bills.sort(sortDesc).map((r) => r.html))
         : '<p class="sub">No loans, debts or unpaid card bills.</p>') + total('Total owed', `<span class="neg">${money(s.liabilities, base(), 0)}</span>`);
     } else if (what === 'pnl') {
-      title = 'Investment profit / loss';
-      const rows = [...state.stocks.map((h) => ['stocks', h, h.symbol]), ...state.crypto.map((h) => ['crypto', h, h.symbol || h.coinId])].map(([k, h, label]) => {
+      title = param === 'stocks' ? 'Stocks profit / loss' : param === 'crypto' ? 'Crypto profit / loss' : 'Investment profit / loss';
+      const holdings = [...state.stocks.map((h) => ['stocks', h, h.symbol]), ...state.crypto.map((h) => ['crypto', h, h.symbol || h.coinId])].filter(([k]) => !param || k === param);
+      const rows = holdings.map(([k, h, label]) => {
         const v = Calc.holdingValue(h);
-        return { v: toBase(v.pnl, h.currency) || 0, html: row(`#${k}`, esc(label), `${esc(h.platform || '')}${h.platform ? ' · ' : ''}${money(v.marketValue, h.currency)} now · ${money(v.cost, h.currency)} cost`, `${signed(v.pnl, h.currency)}<div class="sub">${pct(v.pnlPct)}</div>`) };
+        return { v: toBase(v.pnl, h.currency) || 0, html: row(`#" data-action="edit" data-sec="${k}" data-id="${esc(h.id)}`, esc(label), `${esc(h.platform || '')}${h.platform ? ' · ' : ''}${money(v.marketValue, h.currency)} now · ${money(v.cost, h.currency)} cost`, `${signed(v.pnl, h.currency)}<div class="sub">${pct(v.pnlPct)}</div>`) };
       });
-      body = (rows.length ? group('Biggest gains first', rows.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No stocks or crypto yet.</p>') + total('Total', signed(s.investPnl, base(), 0));
+      const pnlTotal = param ? rows.reduce((a, r) => a + r.v, 0) : s.investPnl;
+      body = (rows.length ? group('Biggest gains first', rows.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No stocks or crypto yet.</p>') + total('Total', signed(pnlTotal, base(), 0));
+    } else if (what === 'today') {
+      title = param === 'crypto' ? 'Crypto: last 24 hours' : 'Stocks: today';
+      const rows = (state[param] || []).map((h) => {
+        const v = Calc.holdingValue(h);
+        const b = toBase(v.dayChange, h.currency) || 0;
+        const pctDay = v.marketValue - v.dayChange ? v.dayChange / (v.marketValue - v.dayChange) : 0;
+        return { v: Math.abs(b), b, html: row(`#" data-action="edit" data-sec="${param}" data-id="${esc(h.id)}`, esc(h.symbol || h.coinId), `${esc(h.platform || '')}${h.platform ? ' · ' : ''}${h.lastPrice ? `price ${money(h.lastPrice, h.currency)}` : h.source === 'manual' ? 'manual price — no daily change' : 'no live price yet'}`, `${signed(v.dayChange, h.currency)}<div class="sub">${pct(pctDay)}</div>`) };
+      });
+      const moved = rows.filter((r) => r.b);
+      body = (moved.length ? group('Biggest moves first', moved.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No price moves yet. Daily changes come with live prices; holdings with a manual price don’t have one.</p>')
+        + (rows.length > moved.length ? `<p class="sub">${plural(rows.length - moved.length, 'holding')} didn’t move or ${rows.length - moved.length === 1 ? 'has' : 'have'} no live price.</p>` : '')
+        + total('Total', signed(rows.reduce((a, r) => a + r.b, 0), base(), 0));
+    } else if (what === 'dividends') {
+      title = 'Dividends per year';
+      const list = state.stocks.filter((h) => Calc.dividendPerYear(h) > 0).map((h) => {
+        const y = Calc.dividendPerYear(h);
+        const mv = Calc.holdingValue(h).marketValue;
+        return { v: toBase(y, h.currency) || 0, re: !!h.dividendReinvest, html: row(`#" data-action="edit" data-sec="stocks" data-id="${esc(h.id)}`, esc(h.symbol), `${h.divMode === 'yield' ? `${num(h.dividendYield, 2)}% yield` : `${money(h.dividendPerShare, h.currency)} per share × ${num(h.quantity, 4)}`}${mv && h.divMode !== 'yield' ? ` · ${((y / mv) * 100).toFixed(2)}% of value` : ''}`, `${money(y, h.currency)}<div class="sub">${money(toBase(y, h.currency) / 12, base(), 0)}/mo</div>`) };
+      });
+      const yearly = list.reduce((a, r) => a + r.v, 0);
+      body = group('Paid out', list.filter((r) => !r.re).sort(sortDesc).map((r) => r.html)) + group('Reinvested', list.filter((r) => r.re).sort(sortDesc).map((r) => r.html))
+        + total('Per year', money(yearly, base(), 0)) + total('Per month (average)', money(yearly / 12, base(), 0))
+        + '<p class="sub">Counted in Cash Flow income and passive income; reinvested dividends also count as saving.</p>';
+    } else if (what === 'brokercash') {
+      title = 'Uninvested cash';
+      const rows = [];
+      for (const a of brokerCashAccounts(param)) for (const b of Calc.accountBalances(a)) {
+        const v = Calc.balanceValue(b, t).value;
+        rows.push({ v: toBase(v, b.currency) || 0, html: row(acctHref(a.id), `${esc(a.name)} · ${esc(b.currency)}`, esc(a.platform || ''), `${money(v, b.currency)}${b.currency !== base() ? `<div class="sub">≈ ${money(toBase(v, b.currency), base(), 0)}</div>` : ''}`) });
+      }
+      body = group('By account', rows.sort(sortDesc).map((r) => r.html)) + total('Total', money(rows.reduce((a, r) => a + r.v, 0), base(), 0));
+    } else if (what === 'fd-interest') {
+      title = 'Interest so far';
+      const rows = state.deposits.map((d) => {
+        const v = Calc.depositValue(d, t);
+        return { v: toBase(v.interest, d.currency) || 0, html: row(acctHref(d.accountId), `${esc(d.platform || 'Fixed deposit')}${d.name ? ` · ${esc(d.name)}` : ''}`, `${d.kind === 'regular' ? 'Regular saver' : 'Fixed deposit'} · ${num(d.rate, 2)}%${d.kind === 'regular' ? ' AER' : ''} · +${money(v.dailyInterest, d.currency)}/day · ${money(v.maturityInterest, d.currency, 0)} by ${fmtDate(v.maturityDate)}`, `<span class="pos">${money(v.interest, d.currency)}</span>`) };
+      });
+      body = group('Most interest first', rows.sort(sortDesc).map((r) => r.html)) + total('Total', `<span class="pos">${money(rows.reduce((a, r) => a + r.v, 0), base(), 0)}</span>`) + total('Per day now', money(s.depositDaily));
+    } else if (what === 'maturities') {
+      title = 'Maturity dates';
+      const deps = state.deposits.map((d) => ({ d, v: Calc.depositValue(d, t) })).sort((a, b) => (a.v.maturityDate < b.v.maturityDate ? -1 : 1));
+      const then = (d) => ({ cash: d.payoutAccountId ? `moves to ${esc(accountName(d.payoutAccountId) || 'cash')}` : 'moves back to the account', renew: 'renews', keep: 'you update it yourself' }[d.onMaturity || 'keep']);
+      const rows = deps.map(({ d, v }) => row(acctHref(d.accountId), `${fmtDate(v.maturityDate)} · ${esc(d.platform || 'Fixed deposit')}${d.name ? ` · ${esc(d.name)}` : ''}`, `${v.matured ? 'matured' : `in ${plural(v.daysLeft, 'day')}`} · ${then(d)}`, `${d.kind === 'regular' && !v.matured ? '≈ ' : ''}${money(v.maturityValue, d.currency)}`));
+      body = group('Soonest first', rows);
+    } else if (what === 'card-owed') {
+      const card = cardById(param);
+      title = `${card ? card.name : 'Card'}: owed now`;
+      const unpaid = state.spending.filter((e) => e.cardId === param && e.dueDate && !e.paidOn).sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+      const items = unpaid.map((e) => `<div class="ex-row"><span class="grow"><strong>${fmtMonth(e.month)} statement</strong><div class="sub">${billStatus(e)}</div></span><span class="num">${money(e.amount, e.currency)}</span><button class="btn small primary" data-action="pay-card" data-id="${esc(e.id)}">Pay</button></div>`);
+      body = (items.length ? group('Unpaid bills', items) : '<p class="sub">Nothing owed — all bills are paid.</p>')
+        + total('Total', `<span class="neg">${money(unpaid.reduce((a, e) => a + (toBase(e.amount, e.currency) || 0), 0), base(), 0)}</span>`)
+        + '<p class="sub">Each bill counts as debt from when it’s recorded until you confirm it’s paid.</p>';
+    } else if (what === 'part') {
+      const [scope, kind, name] = String(param || '').split('|').map(decodeURIComponent);
+      const KINDS = { cash: ['Cash', ['accounts']], deposits: ['Fixed deposits', ['deposits']], invest: ['Investments', ['stocks', 'crypto']], property: ['Property & other', ['properties', 'others']], debt: ['Debts', ['liabilities']] };
+      const [label, secs] = KINDS[kind] || KINDS.cash;
+      const plats = Calc.platformBreakdown(state, t).platforms.filter((p) => (scope === 'region' ? (p.region || '') === name : p.name === name));
+      const names = new Set(plats.map((p) => p.name));
+      title = `${scope === 'region' ? name || 'No region' : name || 'No platform'}: ${label.toLowerCase()}`;
+      const rows = [];
+      for (const k of secs) {
+        for (const item of state[k].filter((x) => names.has(String(x.platform || '').trim()))) {
+          const v = Calc.itemParts(k, item, t).reduce((a, part) => a + (toBase(part.value, part.currency) || 0), 0);
+          const href = k === 'accounts' ? acctHref(item.id) : `#" data-action="edit" data-sec="${k}" data-id="${esc(item.id)}`;
+          const itemName = item.name || item.symbol || item.coinId || item.platform || '';
+          const sub = [scope === 'region' ? esc(item.platform || '') : '', k === 'deposits' ? `matures ${fmtDate(Calc.depositValue(item, t).maturityDate)}` : '', k === 'accounts' ? esc(Calc.accountBalances(item).map((b) => b.currency).join(', ')) : '', k === 'stocks' || k === 'crypto' ? `${num(item.quantity, 6)} units` : ''].filter(Boolean).join(' · ');
+          rows.push({ v, html: row(href, esc(itemName), sub, money(v, base(), 0)) });
+        }
+      }
+      if (kind === 'debt') {
+        for (const e of Calc.unpaidCardBills(state)) {
+          const card = cardById(e.cardId);
+          if (!card || !names.has(String(card.platform || '').trim())) continue;
+          const v = toBase(e.amount, e.currency) || 0;
+          rows.push({ v, html: row(`#card/${encodeURIComponent(card.id)}`, `${esc(card.name)} · ${fmtMonth(e.month)} bill`, billStatus(e), money(v, base(), 0)) });
+        }
+      }
+      const sum = plats.reduce((a, p) => a + (kind === 'property' ? p.property + p.other : p[kind] || 0), 0);
+      body = group('Biggest first', rows.sort(sortDesc).map((r) => r.html)) + total('Total', kind === 'debt' ? `<span class="neg">${money(sum, base(), 0)}</span>` : money(sum, base(), 0));
     } else if (what === 'income') {
       title = 'Income per month';
       const rentItems = new Set(s.rentMatches.map((m) => m.cashflowId));
