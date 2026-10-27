@@ -20,3 +20,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 5 | 2026-10-27 | `374b437` | Planned saving box shows the same total as its breakdown |
 | 6 | 2026-10-27 | `cca9781` | Paying a bill from an account without that currency takes it from a balance the account holds |
 | 7 | 2026-10-27 | `a6f0491` | Demo data covers every feature |
+| 8 | 2026-10-27 | `2d95c21` | Tappable boxes on Stocks, Crypto, Fixed deposits, card, platform and region pages |
