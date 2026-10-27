@@ -140,9 +140,9 @@ test('summarize totals across currencies and categories', () => {
   assert.equal(s.netWorth, 1650);
   assert.equal(s.investPnl, 50);
   assert.equal(s.dayChange, 10);
-  assert.equal(s.netMonthly, 2000);
-  close(s.savingsRate, 2 / 3);
-  close(s.runwayMonths, 1);
+  assert.equal(s.netMonthly, 1950); // 3000 income − 1000 bills − 50 loan repayment
+  close(s.savingsRate, 1950 / 3000);
+  close(s.runwayMonths, 1000 / 1050);
   assert.equal(s.flow.subscription, 0);
   assert.equal(s.events.length, 2);
   assert.ok(s.alerts.some((a) => a.text.includes('XYZ')));
@@ -477,4 +477,48 @@ test('next 30 days: overdue card bills first, then everything by date', () => {
   };
   const ev = C.summarize(state, '2026-10-27').events.map((e) => `${e.date} ${e.label}`);
   assert.deepEqual(ev, ['2026-10-15 Monzo bill', '2026-10-28 HSBC Red bill', '2026-10-29 Groceries', '2026-11-05 Rent']);
+});
+
+test('loan repayments count in spending once, even when also entered as a bill', () => {
+  const base = {
+    settings: { baseCurrency: 'GBP' }, fx: { base: 'GBP', rates: { GBP: 1 } },
+    accounts: [{ id: 'a', balances: [{ currency: 'GBP', amount: 10000 }] }],
+    liabilities: [
+      { id: 'mort', name: 'Mortgage', type: 'mortgage', mode: 'manual', balance: 100000, payment: 990, currency: 'GBP' },
+      { id: 'car', name: 'Car loan', type: 'car', mode: 'manual', balance: 5000, payment: 200, currency: 'GBP' },
+      { id: 'cc', name: 'Card', type: 'credit', mode: 'manual', balance: 300, payment: 300, currency: 'GBP' }, // card debt: not a repayment plan
+      { id: 'done', name: 'Paid off', type: 'personal', mode: 'manual', balance: 0, payment: 100, currency: 'GBP' },
+    ],
+    cashflows: [
+      { id: 'inc', name: 'Salary', kind: 'income', amount: 4000, currency: 'GBP', frequency: 'monthly', nextDate: '2026-11-01' },
+      { id: 'mbill', name: 'Mortgage payment', kind: 'expense', amount: 990, currency: 'GBP', frequency: 'monthly', nextDate: '2026-11-01' }, // auto-matched
+      { id: 'rent', name: 'Storage', kind: 'expense', amount: 200, currency: 'GBP', frequency: 'monthly', nextDate: '2026-11-01', notLoan: true }, // same as car loan, but marked "not a loan"
+      { id: 'nf', name: 'Netflix', kind: 'subscription', amount: 10, currency: 'GBP', frequency: 'monthly', nextDate: '2026-11-01', onCard: true },
+      { id: 'sav', name: 'ISA', kind: 'saving', amount: 500, currency: 'GBP', frequency: 'monthly', nextDate: '2026-11-01' },
+    ],
+  };
+  const s = C.summarize(base, '2026-10-27');
+  assert.deepEqual(s.loanMatches, [{ cashflowId: 'mbill', loanId: 'mort', linked: false }]);
+  assert.equal(s.loanRepayments, 1190); // mortgage + car; card debt and paid-off loan excluded
+  assert.equal(s.billsMonthly, 210); // storage + Netflix; the matched mortgage bill isn't counted again
+  assert.equal(s.spending, 210 + 1190);
+  assert.deepEqual(s.split, { bills: 200, card: 10, loans: 1190, saving: 500, unallocated: 4000 - 200 - 10 - 1190 - 500 });
+  assert.equal(s.fixedCosts, 1400);
+  close(s.fixedPct, 1400 / 4000);
+  assert.equal(s.flexibleCosts, null); // unknown until card statements are recorded
+
+  // With card statements: card spending is actual, flexible = card spending minus card-paid bills.
+  const withCards = { ...base, spending: [
+    { month: '2026-09', amount: 1010, currency: 'GBP' },
+    { month: '2026-08', amount: 810, currency: 'GBP' },
+  ] };
+  const t = C.summarize(withCards, '2026-10-27');
+  assert.equal(t.split.card, 910);
+  assert.equal(t.flexibleCosts, 900);
+  assert.equal(t.spending, 910 + 200 + 1190);
+  assert.deepEqual(t.history.map((h) => [h.month, h.card, h.spending, h.net]), [['2026-08', 810, 2200, 1800], ['2026-09', 1010, 2400, 1600]]);
+
+  // An explicit link works even when the amounts differ.
+  const linked = { ...base, cashflows: base.cashflows.map((c) => (c.id === 'mbill' ? { ...c, amount: 1000, loanId: 'mort' } : c)) };
+  assert.deepEqual(C.summarize(linked, '2026-10-27').loanMatches, [{ cashflowId: 'mbill', loanId: 'mort', linked: true }]);
 });

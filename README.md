@@ -46,6 +46,15 @@ Add one line per currency inside an account (**+ Add currency** in the form). Th
 
 Every asset and loan has a **Platform** (HSBC HK, ZA Bank, Futu, Monzo, Trading 212, Nationwide…). The **Platforms** page shows cash, investments, deposits and debts per platform. Tap a platform to open its own page, with totals and every account, deposit, holding and loan on it, each tappable to edit. Add new items to that platform from there, or rename it and set its region. You can give each platform a **region** (e.g. Hong Kong, United Kingdom) to see totals by country. Tap a region to see its totals and every platform in it. Regions are guessed from currency until you set them. You can also filter any list by platform, or rename a platform everywhere at once.
 
+### Analysing your cash flow
+
+The Cash Flow page starts with:
+
+- **Where your income goes:** one bar splitting a typical month's income into bank bills, card spending, loan repayments and planned saving, and what's **free** (or how much you're over). Tap any part for the items behind it.
+- **Month by month:** income vs spending for each month you've recorded card statements, with what was left over.
+- **Fixed costs:** regular commitments (bills, subscriptions, loan repayments, however they're paid) as a share of income. Tap it to compare with your flexible card spending.
+- **Loan repayments** from Loans & Debts are counted in spending automatically. If a bill is the same payment (same currency and amount), it's counted once. Tap "Not the same" if that's wrong, or link a bill to a loan in its form.
+
 ### Credit cards
 
 On the Cash Flow page, **Credit cards & monthly spending** keeps your cards and their statements together:

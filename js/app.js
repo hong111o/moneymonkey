@@ -473,6 +473,11 @@
         { key: 'nextDate', label: 'Next payment date', type: 'date', default: todayISO },
         { key: 'onCard', label: 'Paid by credit card (already included in the card spending I record)', type: 'checkbox', span: true, showIf: (v) => v.kind === 'expense' || v.kind === 'subscription' },
         {
+          key: 'loanLink', label: 'Is this a loan repayment?', type: 'select', span: true, transient: true, showIf: (v) => v.kind === 'expense' && state.liabilities.some((l) => l.type !== 'credit'),
+          options: () => [{ value: '', label: 'Detect automatically (same amount as a loan)' }, { value: '__none', label: 'No — not a loan repayment' }, ...state.liabilities.filter((l) => l.type !== 'credit').map((l) => ({ value: l.id, label: `Yes — repayment for “${l.name}”` }))],
+          help: 'Loan repayments are counted in your spending from Loans & Debts; linking a bill here makes sure it’s only counted once.',
+        },
+        {
           key: 'accountId', label: 'Paid from / into account (optional)', type: 'select', span: true,
           showIf: (v) => !(v.onCard && (v.kind === 'expense' || v.kind === 'subscription')),
           options: () => [{ value: '', label: 'Not linked — just for my budget' }, ...state.accounts.map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }))],
@@ -480,7 +485,14 @@
         },
         { key: 'active', label: 'Active', type: 'checkbox', default: () => true },
       ],
+      editValues: (item) => ({ ...item, loanLink: item.notLoan ? '__none' : item.loanId || '' }),
       beforeSave: (item, prev) => {
+        if (item.loanLink !== undefined) {
+          item.loanId = item.loanLink && item.loanLink !== '__none' ? item.loanLink : '';
+          item.notLoan = item.loanLink === '__none';
+          if (!item.loanId) delete item.loanId;
+          if (!item.notLoan) delete item.notLoan;
+        }
         if (item.onCard && (item.kind === 'expense' || item.kind === 'subscription')) item.accountId = '';
         if (!item.accountId) {
           delete item.trackFrom;
@@ -1197,8 +1209,9 @@
   function renderCashflows() {
     const s = summary;
     const byCat = {};
+    const matchedLoanBills = new Set(s.loanMatches.map((m) => m.cashflowId));
     for (const c of state.cashflows) {
-      if (c.active === false || c.kind === 'income' || c.kind === 'saving') continue;
+      if (c.active === false || c.kind === 'income' || c.kind === 'saving' || matchedLoanBills.has(c.id)) continue;
       const k = c.category || (c.kind === 'subscription' ? 'Subscriptions' : 'Uncategorised');
       byCat[k] = (byCat[k] || 0) + (toBase(Calc.monthlyAmount(c), c.currency) || 0);
     }
@@ -1207,16 +1220,80 @@
     const catBars = cats.map(([k, v]) => `<div class="hbar link clickable" data-action="explain" data-what="category" data-cat="${esc(k)}" tabindex="0" role="button"><span class="hbar-label">${esc(k)}</span><span class="hbar-track"><span style="width:${max ? (v / max) * 100 : 0}%"></span></span><span class="num">${money(v, base(), 0)}</span></div>`).join('');
     const tiles = `<section class="tiles">
         ${tile('Income / mo', `<span class="pos">${money(s.flow.income)}</span>`, '', '', explainAttr('income'))}
-        ${tile('Spending / mo', money(s.spending), s.spendingSource === 'actual' ? `actual · avg of last ${plural(s.spendAvgMonths, 'month')}` : 'estimated from your bills below', '', explainAttr('spending'))}
+        ${tile('Spending / mo', money(s.spending), `${s.spendingSource === 'actual' ? `actual · avg of last ${plural(s.spendAvgMonths, 'month')}` : 'estimated from your bills'}${s.loanRepayments ? ' · incl. loans' : ''}`, '', explainAttr('spending'))}
         ${tile('Left over / mo', signed(s.netMonthly), s.flow.income ? `Savings rate ${pct(s.savingsRate, false)}` : '', '', explainAttr('cashflow'))}
-        ${tile('Fixed bills / mo', money(s.estimatedSpending), s.spendingSource === 'actual' ? `${money(s.notOnCard, base(), 0)} not paid by card` : '', '', explainAttr('bills'))}
+        ${tile('Fixed costs / mo', money(s.fixedCosts), s.fixedPct != null ? `${pct(s.fixedPct, false)} of income` : 'bills, subscriptions & loans', '', explainAttr('fixed'))}
         ${tile('Subscriptions / mo', money(s.flow.subscription), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
         ${tile('Planned saving / mo', money(s.flow.saving), '', '', explainAttr('saving'))}
       </section>`;
     const before = (state.cashflows.length ? '<p class="jump"><a href="#" data-action="jump" data-target="all-items">All income, bills &amp; subscriptions ↓</a></p>' : '')
+      + renderIncomeSplit()
+      + renderHistory()
       + renderCardsCard()
       + (cats.length ? `<div class="card"><h2>Fixed bills by category</h2><div class="hbars" style="${barValueWidth(cats.map(([, v]) => money(v, base(), 0)))}">${catBars}</div></div>` : '');
     return renderSection('cashflows', { tiles, before, listTitle: 'All income, bills &amp; subscriptions' });
+  }
+
+  const SPLIT_PARTS = [
+    ['bills', 'Bank bills', 'var(--series-1)', 'bills'],
+    ['card', 'Card spending', 'var(--series-2)', 'card'],
+    ['loans', 'Loans', 'var(--series-4)', 'loans'],
+    ['saving', 'Planned saving', 'var(--series-3)', 'saving'],
+  ];
+
+  // One bar showing where a typical month's income goes, ending with what's genuinely free.
+  function renderIncomeSplit() {
+    const s = summary;
+    if (!s.flow.income && !s.spending) return '';
+    const sp = s.split;
+    const over = sp.unallocated < 0;
+    const scale = Math.max(s.flow.income, s.flow.income - sp.unallocated);
+    const parts = SPLIT_PARTS.filter(([k]) => sp[k] > 0.5);
+    const bar = parts.map(([k, label, color]) => `<span style="flex-grow:${sp[k]};background:${color}" data-tip="${esc(label)}: ${esc(money(sp[k], base(), 0))}"></span>`).join('')
+      + (!over && sp.unallocated > 0.5 ? `<span class="free" style="flex-grow:${sp.unallocated}" data-tip="Free: ${esc(money(sp.unallocated, base(), 0))}"></span>` : '');
+    const pctOf = (v) => (s.flow.income ? `${((v / s.flow.income) * 100).toFixed(0)}%` : '');
+    const rows = parts.map(([k, label, color, what]) => `<div class="split-row clickable" data-action="explain" data-what="${what}" tabindex="0" role="button">
+        <span class="swatch" style="background:${color}"></span><span class="grow">${label}</span><span class="sub">${pctOf(sp[k])}</span><span class="num">${money(sp[k], base(), 0)}</span><span class="chev" aria-hidden="true">›</span></div>`).join('');
+    const freeRow = `<div class="split-row free-row clickable" data-action="explain" data-what="cashflow" tabindex="0" role="button">
+        <span class="swatch free"></span><span class="grow"><strong>${over ? 'Over budget' : 'Free'}</strong> <span class="sub">${over ? '' : 'to spend or save'}</span></span><span class="sub">${over ? '' : pctOf(sp.unallocated)}</span><span class="num"><strong class="${over ? 'neg' : 'pos'}">${money(Math.abs(sp.unallocated), base(), 0)}</strong></span><span class="chev" aria-hidden="true">›</span></div>`;
+    const matches = s.loanMatches.map((m) => {
+      const cf = state.cashflows.find((c) => c.id === m.cashflowId);
+      const loan = state.liabilities.find((l) => l.id === m.loanId);
+      if (!cf || !loan) return '';
+      return `<li><span class="grow">“${esc(cf.name)}” is the repayment for loan “${esc(loan.name)}” — counted once, under loan repayments.</span>${m.linked ? '' : `<button class="btn small ghost" data-action="loan-unmatch" data-id="${esc(cf.id)}">Not the same</button>`}</li>`;
+    }).join('');
+    return `<div class="card">
+      <div class="card-head"><h2>Where your income goes</h2><span class="sub">a typical month</span></div>
+      <div class="stack split-bar" aria-hidden="true" style="width:${scale ? (Math.max(s.flow.income, 0) / scale) * 100 : 100}%">${bar}</div>
+      ${over ? `<p class="sub neg">Your regular spending is ${money(-sp.unallocated, base(), 0)} more than your income each month.</p>` : ''}
+      <div class="split-rows">${rows}${freeRow}</div>
+      ${matches ? `<ul class="loan-notes">${matches}</ul>` : ''}
+    </div>`;
+  }
+
+  // Month by month: recorded card spending + regular bills and loans, against regular income.
+  function renderHistory() {
+    const h = summary.history;
+    if (!h.length) {
+      return `<div class="card"><h2>Month by month</h2><p class="sub">Record your monthly card statements (Credit cards &amp; monthly spending, below) to see how each month compares with your income.</p></div>`;
+    }
+    const max = Math.max(1, ...h.map((m) => Math.max(m.income, m.spending)));
+    const rows = h.map((m) => `<div class="hist-row">
+        <span class="hist-month">${fmtMonth(m.month)}</span>
+        <span class="hist-bars">
+          <span class="hist-bar in" style="width:${(m.income / max) * 100}%" data-tip="Income: ${esc(money(m.income, base(), 0))}"></span>
+          <span class="hist-bar out" style="width:${(m.spending / max) * 100}%" data-tip="Spent: ${esc(money(m.spending, base(), 0))} (cards ${esc(money(m.card, base(), 0))})"></span>
+        </span>
+        <span class="num ${m.net >= 0 ? 'pos' : 'neg'}">${m.net >= 0 ? '+' : '−'}${money(Math.abs(m.net), base(), 0)}</span>
+      </div>`).join('');
+    const avgNet = h.reduce((t, m) => t + m.net, 0) / h.length;
+    const best = h.reduce((a, b) => (b.net > a.net ? b : a));
+    const worst = h.reduce((a, b) => (b.net < a.net ? b : a));
+    return `<div class="card" style="${barValueWidth(h.map((m) => `+${money(Math.abs(m.net), base(), 0)}`))}">
+      <div class="card-head"><h2>Month by month</h2><span class="sub legend-inline"><span class="swatch" style="background:var(--series-1)"></span>income <span class="swatch" style="background:var(--series-2)"></span>spent</span></div>
+      ${rows}
+      <p class="sub">Left over ${money(avgNet, base(), 0)} a month on average (before planned saving)${h.length > 1 ? ` · best ${fmtMonth(best.month)}, highest spending ${fmtMonth(worst.month)}` : ''}. Card spending is what you recorded; income, bills and loan repayments are your regular amounts.</p>
+    </div>`;
   }
 
   // Credit cards and the monthly spending recorded from their statements, in one place.
@@ -1717,6 +1794,13 @@
     const flowRow = (c) => ({ v: monthly(c), html: `<a class="ex-row" href="#" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}"><span class="grow"><strong>${esc(c.name)}</strong><div class="sub">${flowSub(c)}</div></span><span class="num">${money(monthly(c), base(), 0)}</span><span class="chev" aria-hidden="true">›</span></a>` });
     const flowRows = (list) => list.map(flowRow).sort(sortDesc).map((r) => r.html);
     const isBill = (c) => c.kind === 'expense' || c.kind === 'subscription';
+    const matched = new Set(s.loanMatches.map((m) => m.cashflowId));
+    const bills = (pred = () => true) => active.filter((c) => isBill(c) && !matched.has(c.id) && pred(c));
+    const loanRows = () => state.liabilities.filter((l) => l.type !== 'credit' && +l.payment > 0 && Calc.loanBalance(l, t).balance > 0).map((l) => {
+      const m = s.loanMatches.find((x) => x.loanId === l.id);
+      const cf = m && state.cashflows.find((c) => c.id === m.cashflowId);
+      return { v: toBase(l.payment, l.currency) || 0, html: `<a class="ex-row" href="#" data-action="edit" data-sec="liabilities" data-id="${esc(l.id)}"><span class="grow"><strong>${esc(l.name)}</strong><div class="sub">${[esc(l.platform || ''), `${money(Calc.loanBalance(l, t).balance, l.currency, 0)} left`, cf ? `same as bill “${esc(cf.name)}”` : ''].filter(Boolean).join(' · ')}</div></span><span class="num">${money(toBase(l.payment, l.currency), base(), 0)}</span><span class="chev" aria-hidden="true">›</span></a>` };
+    }).sort(sortDesc).map((r) => r.html);
     const cardMonths = () => s.spendMonths.slice(0, s.spendAvgMonths).map((m) => row('#cashflows', `Card spending · ${fmtMonth(m.month)}`, plural(m.entries, 'card'), money(m.total, base(), 0)));
     let title = '', body = '';
 
@@ -1748,22 +1832,42 @@
     } else if (what === 'spending') {
       title = 'Spending per month';
       if (s.spendingSource === 'actual') {
-        body = `<p class="sub">Uses what you actually spent: the average of your last ${plural(s.spendAvgMonths, 'recorded month')} of card spending, plus bills not paid by card.</p>`
+        body = `<p class="sub">Uses what you actually spent: the average of your last ${plural(s.spendAvgMonths, 'recorded month')} of card spending, plus bills not paid by card and loan repayments.</p>`
           + group(`Card spending · average ${money(s.cardSpendAvg, base(), 0)}`, cardMonths())
-          + group(`Bills not paid by card · ${money(s.notOnCard, base(), 0)}`, flowRows(active.filter((c) => isBill(c) && !c.onCard)));
+          + group(`Bills not paid by card · ${money(s.notOnCard, base(), 0)}`, flowRows(bills((c) => !c.onCard)));
       } else {
-        body = '<p class="sub">Estimated from your bills and subscriptions. Record your monthly card spending (Actual monthly spending, below) to use real numbers instead.</p>'
-          + group('Bills & subscriptions', flowRows(active.filter(isBill)));
+        body = '<p class="sub">Estimated from your bills and subscriptions. Record your monthly card statements to use real numbers instead.</p>'
+          + group('Bills & subscriptions', flowRows(bills()));
       }
-      body += total('Per month', money(s.spending, base(), 0));
+      body += group(`Loan repayments · ${money(s.loanRepayments, base(), 0)}`, loanRows()) + total('Per month', money(s.spending, base(), 0));
     } else if (what === 'bills') {
-      title = 'Fixed bills per month';
-      const onCard = active.filter((c) => isBill(c) && c.onCard);
-      const notCard = active.filter((c) => isBill(c) && !c.onCard);
-      body = group(`Paid from your bank accounts · ${money(notCard.reduce((t2, c) => t2 + monthly(c), 0), base(), 0)}`, flowRows(notCard))
-        + group(`Paid by credit card · ${money(onCard.reduce((t2, c) => t2 + monthly(c), 0), base(), 0)}`, flowRows(onCard));
-      if (!body) body = '<p class="sub">No bills yet. Add rent, utilities, insurance… with “+ Add”.</p>';
-      body += total('Per month', money(s.estimatedSpending, base(), 0)) + (s.spendingSource === 'actual' && onCard.length ? '<p class="sub">Card-paid bills are already inside your recorded card spending, so they aren’t counted twice in your cash flow.</p>' : '');
+      title = 'Bills from your bank accounts';
+      body = group('Paid by transfer or direct debit', flowRows(bills((c) => !c.onCard)));
+      if (!body) body = '<p class="sub">No bills paid from your bank yet. Add rent, utilities, insurance… with “+ Add”.</p>';
+      body += total('Per month', money(s.notOnCard, base(), 0)) + '<p class="sub">Bills paid by credit card are inside your card spending; loan repayments are shown separately.</p>';
+    } else if (what === 'card') {
+      title = 'Card spending per month';
+      if (s.spendingSource === 'actual') {
+        body = `<p class="sub">The average of your last ${plural(s.spendAvgMonths, 'recorded month')}. It already includes subscriptions and bills charged to your cards.</p>` + group('Recorded months', cardMonths());
+      } else {
+        body = '<p class="sub">You haven’t recorded card statements yet, so this is just the bills marked “Paid by credit card”. Record each month’s statement to see what you really spend.</p>' + group('Bills paid by card', flowRows(bills((c) => c.onCard)));
+      }
+      body += total('Per month', money(s.split.card, base(), 0));
+    } else if (what === 'loans') {
+      title = 'Loan repayments per month';
+      const rows = loanRows();
+      body = (rows.length ? group('From Loans & Debts', rows) : '<p class="sub">No loans with a monthly repayment. Add them in Loans &amp; Debts.</p>')
+        + total('Per month', money(s.loanRepayments, base(), 0))
+        + '<p class="sub">Credit card balances aren’t included here: card statements already count as spending.</p>';
+    } else if (what === 'fixed') {
+      title = 'Fixed vs flexible costs';
+      body = `<p class="sub">Fixed costs are regular commitments that are hard to cut quickly — however you pay them. Flexible spending is the rest of your card spending.</p>`
+        + group(`Fixed · ${money(s.fixedCosts, base(), 0)}${s.fixedPct != null ? ` · ${pct(s.fixedPct, false)} of income` : ''}`, [...flowRows(bills()), ...loanRows()])
+        + (s.flexibleCosts != null
+          ? total('Flexible card spending', money(s.flexibleCosts, base(), 0)) + `<p class="sub">Your average card spending (${money(s.cardSpendAvg, base(), 0)}) minus the bills charged to cards (${money(s.cardPaidBills, base(), 0)}).</p>`
+          : '<p class="sub">Record your card statements to see your flexible spending too.</p>')
+        + total('Fixed costs', money(s.fixedCosts, base(), 0))
+        + (s.fixedPct != null ? `<p class="sub">${s.fixedPct <= 0.5 ? 'Under half your income goes on fixed costs — that leaves good room to adjust.' : s.fixedPct <= 0.7 ? 'Fixed costs take a large share of your income; there’s less room if income drops.' : 'Fixed costs take most of your income — worth reviewing the biggest ones.'}</p>` : '');
     } else if (what === 'saving') {
       title = 'Planned saving per month';
       const rows = flowRows(active.filter((c) => c.kind === 'saving'));
@@ -1773,20 +1877,21 @@
     } else if (what === 'category') {
       const cat = param || '';
       title = cat;
-      const items = active.filter((c) => isBill(c) && (c.category || (c.kind === 'subscription' ? 'Subscriptions' : 'Uncategorised')) === cat);
+      const items = bills((c) => (c.category || (c.kind === 'subscription' ? 'Subscriptions' : 'Uncategorised')) === cat);
       body = group('Bills in this category', flowRows(items)) + total('Per month', money(items.reduce((t2, c) => t2 + monthly(c), 0), base(), 0));
     } else if (what === 'cashflow') {
       title = 'Monthly cash flow';
       const income = active.filter((c) => c.kind === 'income').map(flowRow).sort(sortDesc).map((r) => r.html);
       let spend;
       if (s.spendingSource === 'actual') {
-        spend = [row('#cashflows', 'Card spending', `average of the last ${plural(s.spendAvgMonths, 'month')} you recorded`, money(s.cardSpendAvg, base(), 0)), ...flowRows(active.filter((c) => isBill(c) && !c.onCard))];
-      } else spend = flowRows(active.filter(isBill));
+        spend = [row('#cashflows', 'Card spending', `average of the last ${plural(s.spendAvgMonths, 'month')} you recorded`, money(s.cardSpendAvg, base(), 0)), ...flowRows(bills((c) => !c.onCard))];
+      } else spend = flowRows(bills());
+      spend = [...spend, ...loanRows()];
       body = group(`Income · ${money(s.flow.income, base(), 0)}`, income)
         + group(`Spending · ${money(s.spending, base(), 0)}${s.spendingSource === 'actual' ? ' (actual)' : ' (estimated from bills)'}`, spend)
         + total('Left over each month', signed(s.netMonthly, base(), 0))
         + (s.flow.income ? total('Savings rate', pct(s.savingsRate, false)) : '')
-        + (s.flow.saving ? `<p class="sub">You also plan to set aside ${money(s.flow.saving, base(), 0)}/mo for saving or investing.</p>` : '');
+        + (s.flow.saving ? total('Planned saving', money(s.flow.saving, base(), 0)) + total(s.split.unallocated < 0 ? 'Over budget' : 'Free to spend or save', `<span class="${s.split.unallocated < 0 ? 'neg' : 'pos'}">${money(Math.abs(s.split.unallocated), base(), 0)}</span>`) : '');
     } else if (what === 'passive' || what === 'interest') {
       const daily = what === 'interest';
       title = daily ? 'Interest earned per day' : 'Passive income per month';
@@ -2435,6 +2540,11 @@
       case 'open-region': location.hash = `#region/${encodeURIComponent(b.dataset.name)}`; return;
       case 'open-card': location.hash = `#card/${encodeURIComponent(id)}`; return;
       case 'pay-card': return payCardBill(id);
+      case 'loan-unmatch': {
+        const cf = state.cashflows.find((c) => c.id === id);
+        if (cf) { cf.notLoan = true; delete cf.loanId; cf._mt = Date.now(); commit(); toast(`“${cf.name}” now counts as a normal bill`); }
+        return;
+      }
       case 'jump': { const el = document.getElementById(b.dataset.target); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
       case 'explain': return explain(b.dataset.what, b.dataset.cat);
       case 'edit': return editItem(sec, id);
@@ -2481,7 +2591,7 @@
   });
 
   document.addEventListener('keydown', (e) => {
-    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr.clickable, .card.clickable, li.clickable, .tile.clickable, .live-interest.clickable, .hbar.clickable')) {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr.clickable, .card.clickable, li.clickable, .tile.clickable, .live-interest.clickable, .hbar.clickable, .split-row.clickable')) {
       e.preventDefault();
       e.target.click();
     }

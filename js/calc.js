@@ -412,13 +412,33 @@
     }
     liabilities += cardOwed;
 
+    // Loan repayments are part of monthly spending. A bill that is the same payment (linked, or
+    // auto-matched by currency + amount) is counted once, as the loan repayment.
+    const loans = (state.liabilities || [])
+      .filter((l) => l.type !== 'credit' && +l.payment > 0 && loanBalance(l, today).balance > 0);
+    const loanMatches = [];
+    for (const cf of state.cashflows || []) {
+      if (cf.active === false || cf.kind !== 'expense' || cf.notLoan) continue;
+      const taken = new Set(loanMatches.map((m) => m.loanId));
+      const hit = cf.loanId
+        ? loans.find((l) => l.id === cf.loanId)
+        : loans.find((l) => !taken.has(l.id) && l.currency === cf.currency && cf.frequency === 'monthly' && Math.abs(+cf.amount - +l.payment) <= Math.max(1, 0.01 * +l.payment));
+      if (hit) loanMatches.push({ cashflowId: cf.id, loanId: hit.id, linked: !!cf.loanId });
+    }
+    const matchedIds = new Set(loanMatches.map((m) => m.cashflowId));
+    const loanRepayments = loans.reduce((t, l) => t + toBase(l.payment, l.currency), 0);
+
     const flow = { income: 0, expense: 0, subscription: 0, saving: 0 };
-    let notOnCard = 0;
+    let notOnCard = 0, cardPaidBills = 0;
     for (const cf of state.cashflows || []) {
       if (cf.active === false) continue;
       const monthly = toBase(monthlyAmount(cf), cf.currency);
-      flow[cf.kind] = (flow[cf.kind] || 0) + monthly;
-      if ((cf.kind === 'expense' || cf.kind === 'subscription') && !cf.onCard) notOnCard += monthly;
+      const isBill = cf.kind === 'expense' || cf.kind === 'subscription';
+      if (!matchedIds.has(cf.id)) {
+        flow[cf.kind] = (flow[cf.kind] || 0) + monthly;
+        if (isBill && !cf.onCard) notOnCard += monthly;
+        if (isBill && cf.onCard) cardPaidBills += monthly;
+      }
       for (const date of occurrences(cf, today, horizon)) {
         events.push({ date, label: cf.name, amount: toBase(cf.amount, cf.currency), kind: cf.kind });
       }
@@ -433,10 +453,31 @@
     const spendMonths = spendingByMonth(state.spending, toBase);
     const recentSpend = spendMonths.slice(0, SPENDING_AVG_MONTHS);
     const cardSpendAvg = recentSpend.length ? recentSpend.reduce((a, m) => a + m.total, 0) / recentSpend.length : null;
-    const estimatedSpending = flow.expense + flow.subscription;
-    const actualSpending = cardSpendAvg == null ? null : cardSpendAvg + notOnCard;
+    const billsMonthly = flow.expense + flow.subscription;
+    const estimatedSpending = billsMonthly + loanRepayments;
+    const actualSpending = cardSpendAvg == null ? null : cardSpendAvg + notOnCard + loanRepayments;
     const spending = actualSpending ?? estimatedSpending;
     const netMonthly = flow.income - spending;
+
+    // Where a typical month's income goes.
+    const cardSpending = cardSpendAvg == null ? cardPaidBills : cardSpendAvg;
+    const split = {
+      bills: notOnCard,
+      card: cardSpending,
+      loans: loanRepayments,
+      saving: flow.saving,
+    };
+    split.unallocated = flow.income - (split.bills + split.card + split.loans + split.saving);
+    // Fixed = regular commitments however they're paid; flexible = the rest of card spending.
+    const fixedCosts = notOnCard + cardPaidBills + loanRepayments;
+    const flexibleCosts = cardSpendAvg == null ? null : Math.max(0, cardSpendAvg - cardPaidBills);
+
+    // Month by month: recorded card statements plus the regular bills and loan repayments,
+    // against regular income (only card spending is recorded per month, so that's what varies).
+    const history = spendMonths.slice(0, 12).map((m) => {
+      const spent = m.total + notOnCard + loanRepayments;
+      return { month: m.month, income: flow.income, card: m.total, fixed: notOnCard + loanRepayments, spending: spent, net: flow.income - spent };
+    }).reverse();
     const passiveMonthly = (depositDaily + saverDaily) * 365 / 12 + rentMonthly;
     const liquid = totals.cash;
 
@@ -460,6 +501,15 @@
       depositInterest,
       flow,
       spending,
+      billsMonthly,
+      loanRepayments,
+      loanMatches,
+      cardPaidBills,
+      split,
+      fixedCosts,
+      fixedPct: flow.income ? fixedCosts / flow.income : null,
+      flexibleCosts,
+      history,
       spendingSource: actualSpending == null ? 'estimate' : 'actual',
       estimatedSpending,
       actualSpending,
