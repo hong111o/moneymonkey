@@ -16,3 +16,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 1 | 2026-10-27 | `2ffbbb7` | Cash Flow analysis: income split bar, month-by-month history, fixed vs flexible costs, loan repayments in cash flow |
 | 2 | 2026-10-27 | `e22f471` | Interest from fixed deposits & savers counted as monthly income in Cash Flow |
 | 3 | 2026-10-27 | `280b74e` | Property rent counted once as Cash Flow income; stock dividends in passive income and Cash Flow |
+| 4 | 2026-10-27 | `cbdc03c` | Regular saver accounts (monthly payments, fixed AER, interest calculated daily and paid monthly) |
