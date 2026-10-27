@@ -262,9 +262,14 @@
         { ...currencyField, label: 'Trading currency', help: 'Currency the stock is quoted in.' },
         { key: 'source', label: 'Price source', type: 'select', options: opt([['live', 'Live (Finnhub)'], ['manual', 'Manual price']]) },
         { key: 'manualPrice', label: 'Current price', type: 'number', showIf: (v) => v.source === 'manual' },
+        { key: 'divMode', label: 'Dividends', type: 'select', options: opt([['', 'None / not tracked'], ['perShare', 'Dividend per share (per year)'], ['yield', 'Dividend yield (%)']]) },
+        { key: 'dividendPerShare', label: 'Dividend per share, per year', type: 'number', required: true, showIf: (v) => v.divMode === 'perShare', help: 'In the trading currency — the yearly total, e.g. “TTM dividend” in your broker app.' },
+        { key: 'dividendYield', label: 'Dividend yield (% per year)', type: 'number', required: true, showIf: (v) => v.divMode === 'yield', help: 'Applied to the current value of your shares.' },
+        { key: 'dividendReinvest', label: 'Reinvested automatically (DRIP / accumulating fund)', type: 'checkbox', span: true, showIf: (v) => !!v.divMode },
       ],
       beforeSave: (item, prev) => {
         if (!prev || prev.symbol !== item.symbol || item.source === 'manual') { item.lastPrice = null; item.prevClose = null; }
+        if (!item.divMode) { delete item.dividendPerShare; delete item.dividendYield; delete item.dividendReinvest; }
       },
       columns: holdingColumns('symbol'),
       total: (items) => items.reduce((s, h) => s + (toBase(Calc.holdingValue(h).marketValue, h.currency) || 0), 0),
@@ -387,7 +392,7 @@
         { key: 'purchaseDate', label: 'Purchase date', type: 'date' },
         { key: 'currentValue', label: 'Current estimated value', type: 'number', required: true, onlyNew: true, transient: true },
         { key: 'updateFrequency', label: 'Remind me to update the value', type: 'select', options: opt([['weekly', 'Weekly'], ['monthly', 'Monthly'], ['quarterly', 'Quarterly'], ['yearly', 'Yearly']]), default: () => 'monthly' },
-        { key: 'monthlyRent', label: 'Monthly rental income (if let)', type: 'number', help: 'Counted as passive income. Add it in Cash flow too if you want it in your budget.' },
+        { key: 'monthlyRent', label: 'Monthly rental income (if let)', type: 'number', help: 'Counted as income in Cash Flow and in passive income automatically — no need to add it in Cash Flow too.' },
       ],
       beforeSave: (item, prev) => {
         item.valuations = prev ? prev.valuations || [] : [];
@@ -473,6 +478,11 @@
         { key: 'nextDate', label: 'Next payment date', type: 'date', default: todayISO },
         { key: 'onCard', label: 'Paid by credit card (already included in the card spending I record)', type: 'checkbox', span: true, showIf: (v) => v.kind === 'expense' || v.kind === 'subscription' },
         {
+          key: 'rentLink', label: 'Is this rent from one of your properties?', type: 'select', span: true, transient: true, showIf: (v) => v.kind === 'income' && state.properties.some((p) => +p.monthlyRent > 0),
+          options: () => [{ value: '', label: 'Detect automatically (same amount as a property’s rent)' }, { value: '__none', label: 'No — separate income' }, ...state.properties.filter((p) => +p.monthlyRent > 0).map((p) => ({ value: p.id, label: `Yes — rent from “${p.name}”` }))],
+          help: 'Property rent already counts as income from the property itself; linking makes sure it’s only counted once.',
+        },
+        {
           key: 'loanLink', label: 'Is this a loan repayment?', type: 'select', span: true, transient: true, showIf: (v) => v.kind === 'expense' && state.liabilities.some((l) => l.type !== 'credit'),
           options: () => [{ value: '', label: 'Detect automatically (same amount as a loan)' }, { value: '__none', label: 'No — not a loan repayment' }, ...state.liabilities.filter((l) => l.type !== 'credit').map((l) => ({ value: l.id, label: `Yes — repayment for “${l.name}”` }))],
           help: 'Loan repayments are counted in your spending from Loans & Debts; linking a bill here makes sure it’s only counted once.',
@@ -485,8 +495,14 @@
         },
         { key: 'active', label: 'Active', type: 'checkbox', default: () => true },
       ],
-      editValues: (item) => ({ ...item, loanLink: item.notLoan ? '__none' : item.loanId || '' }),
+      editValues: (item) => ({ ...item, loanLink: item.notLoan ? '__none' : item.loanId || '', rentLink: item.notRent ? '__none' : item.propertyId || '' }),
       beforeSave: (item, prev) => {
+        if (item.rentLink !== undefined) {
+          item.propertyId = item.rentLink && item.rentLink !== '__none' ? item.rentLink : '';
+          item.notRent = item.rentLink === '__none';
+          if (!item.propertyId) delete item.propertyId;
+          if (!item.notRent) delete item.notRent;
+        }
         if (item.loanLink !== undefined) {
           item.loanId = item.loanLink && item.loanLink !== '__none' ? item.loanLink : '';
           item.notLoan = item.loanLink === '__none';
@@ -604,6 +620,14 @@
       { label: 'Price', num: true, render: (h) => { const v = Calc.holdingValue(h); return `${money(v.price, h.currency)}<div class="sub">${v.live ? '<span class="live-dot"></span>live' : h.source === 'manual' ? 'manual' : 'waiting…'}</div>`; } },
       { label: kind === 'coin' ? '24h' : 'Today', num: true, render: (h) => { const v = Calc.holdingValue(h); return v.live && h.prevClose ? `${signed(v.dayChange, h.currency)}<div class="sub">${pct(v.dayChangePct)}</div>` : '—'; } },
       { label: 'Market value', num: true, primary: true, render: (h) => money(Calc.holdingValue(h).marketValue, h.currency) },
+      ...(kind === 'coin' ? [] : [{
+        label: 'Dividends / yr', num: true,
+        render: (h) => {
+          const y = Calc.dividendPerYear(h);
+          const mv = Calc.holdingValue(h).marketValue;
+          return y > 0 ? `${money(y, h.currency)}<div class="sub">${mv ? `${((y / mv) * 100).toFixed(2)}% · ` : ''}${h.dividendReinvest ? 'reinvested' : 'paid out'}</div>` : '<span class="sub">—</span>';
+        },
+      }]),
       { label: 'Profit / loss', num: true, render: (h) => { const v = Calc.holdingValue(h); return `${signed(v.pnl, h.currency)}<div class="sub">${pct(v.pnlPct)}</div>`; } },
     ];
   }
@@ -805,7 +829,7 @@
         ${tile('Investment P&L', signed(s.investPnl, base(), 0), s.investCost ? `${pct(s.investPnlPct)} on ${money(s.investCost, base(), 0)}` : 'No holdings yet', '', explainAttr('pnl'))}
         ${tile('Net cash flow / mo', signed(s.netMonthly, base(), 0), `${money(s.incomeTotal, base(), 0)} in · ${money(s.spending, base(), 0)} out${s.spendingSource === 'actual' ? ' (actual)' : ''}`, '', explainAttr('cashflow'))}
         ${tile('Savings rate', s.incomeTotal ? pct(s.savingsRate, false) : '—', 'of monthly income', '', explainAttr('cashflow'))}
-        ${tile('Passive income / mo', money(s.passiveMonthly, base(), 0), 'earning rate · FD interest paid at maturity', '', explainAttr('passive'))}
+        ${tile('Passive income / mo', money(s.passiveMonthly, base(), 0), 'interest, rent & dividends · FD interest paid at maturity', '', explainAttr('passive'))}
         ${tile('Emergency runway', isFinite(s.runwayMonths) ? `${s.runwayMonths.toFixed(1)} mo` : '—', 'cash ÷ monthly spending', '', explainAttr('runway'))}
         ${tile('Subscriptions / mo', money(s.flow.subscription, base(), 0), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
       </section>
@@ -901,8 +925,10 @@
         day += toBase(v.dayChange, h.currency) || 0;
       }
       const cash = brokerCashAccounts(key).reduce((t, a) => t + (accountTotal(a) || 0), 0);
+      const divYear = key === 'stocks' ? items.reduce((t, h) => t + (toBase(Calc.dividendPerYear(h), h.currency) || 0), 0) : 0;
       extra = tile('Profit / loss', signed(mv - cost), cost ? `${pct((mv - cost) / cost)} on ${money(cost, base(), 0)}` : '') + tile(key === 'crypto' ? 'Last 24h' : 'Today', signed(day))
-        + (cash ? tile('Uninvested cash', money(cash), 'in your investment accounts') : '');
+        + (cash ? tile('Uninvested cash', money(cash), 'in your investment accounts') : '')
+        + (divYear ? tile('Dividends / yr', `<span class="pos">${money(divYear, base(), 0)}</span>`, `${money(divYear / 12, base(), 0)} a month on average`) : '');
     } else if (key === 'deposits') {
       let interest = 0, daily = 0;
       for (const d of items) {
@@ -1219,7 +1245,7 @@
     const max = cats.length ? cats[0][1] : 0;
     const catBars = cats.map(([k, v]) => `<div class="hbar link clickable" data-action="explain" data-what="category" data-cat="${esc(k)}" tabindex="0" role="button"><span class="hbar-label">${esc(k)}</span><span class="hbar-track"><span style="width:${max ? (v / max) * 100 : 0}%"></span></span><span class="num">${money(v, base(), 0)}</span></div>`).join('');
     const tiles = `<section class="tiles">
-        ${tile('Income / mo', `<span class="pos">${money(s.incomeTotal)}</span>`, s.interest.total > 0.5 ? `incl. ${money(s.interest.total, base(), 0)} interest` : '', '', explainAttr('income'))}
+        ${tile('Income / mo', `<span class="pos">${money(s.incomeTotal)}</span>`, s.incomeTotal - s.flow.income > 0.5 ? `incl. ${money(s.incomeTotal - s.flow.income, base(), 0)} interest, rent & dividends` : '', '', explainAttr('income'))}
         ${tile('Spending / mo', money(s.spending), `${s.spendingSource === 'actual' ? `actual · avg of last ${plural(s.spendAvgMonths, 'month')}` : 'estimated from your bills'}${s.loanRepayments ? ' · incl. loans' : ''}`, '', explainAttr('spending'))}
         ${tile('Left over / mo', signed(s.netMonthly), s.incomeTotal ? `Savings rate ${pct(s.savingsRate, false)}` : '', '', explainAttr('cashflow'))}
         ${tile('Fixed costs / mo', money(s.fixedCosts), s.fixedPct != null ? `${pct(s.fixedPct, false)} of income` : 'bills, subscriptions & loans', '', explainAttr('fixed'))}
@@ -1256,7 +1282,13 @@
         <span class="swatch" style="background:${color}"></span><span class="grow">${label}</span><span class="sub">${pctOf(sp[k])}</span><span class="num">${money(sp[k], base(), 0)}</span><span class="chev" aria-hidden="true">›</span></div>`).join('');
     const freeRow = `<div class="split-row free-row clickable" data-action="explain" data-what="cashflow" tabindex="0" role="button">
         <span class="swatch free"></span><span class="grow"><strong>${over ? 'Over budget' : 'Free'}</strong> <span class="sub">${over ? '' : 'to spend or save'}</span></span><span class="sub">${over ? '' : pctOf(sp.unallocated)}</span><span class="num"><strong class="${over ? 'neg' : 'pos'}">${money(Math.abs(sp.unallocated), base(), 0)}</strong></span><span class="chev" aria-hidden="true">›</span></div>`;
-    const matches = s.loanMatches.map((m) => {
+    const rentNotes = s.rentMatches.map((m) => {
+      const cf = state.cashflows.find((c) => c.id === m.cashflowId);
+      const prop = state.properties.find((p) => p.id === m.propertyId);
+      if (!cf || !prop) return '';
+      return `<li><span class="grow">“${esc(cf.name)}” is the rent from “${esc(prop.name)}” — counted once, from the property.</span>${m.linked ? '' : `<button class="btn small ghost" data-action="rent-unmatch" data-id="${esc(cf.id)}">Not the same</button>`}</li>`;
+    }).join('');
+    const matches = rentNotes + s.loanMatches.map((m) => {
       const cf = state.cashflows.find((c) => c.id === m.cashflowId);
       const loan = state.liabilities.find((l) => l.id === m.loanId);
       if (!cf || !loan) return '';
@@ -1821,6 +1853,15 @@
       }
       return out.sort(sortDesc).map((r) => r.html);
     };
+    const rentRows = () => state.properties.filter((p) => +p.monthlyRent > 0).map((p) => {
+      const m = s.rentMatches.find((x) => x.propertyId === p.id);
+      const cf = m && state.cashflows.find((c) => c.id === m.cashflowId);
+      return { v: toBase(p.monthlyRent, p.currency) || 0, html: `<a class="ex-row" href="#" data-action="edit" data-sec="properties" data-id="${esc(p.id)}"><span class="grow"><strong>${esc(p.name)}</strong><div class="sub">Rent · ${money(p.monthlyRent, p.currency)}/mo${cf ? ` · same as income item “${esc(cf.name)}”` : ''}</div></span><span class="num">${money(toBase(p.monthlyRent, p.currency), base(), 0)}</span><span class="chev" aria-hidden="true">›</span></a>` };
+    }).sort(sortDesc).map((r) => r.html);
+    const dividendRows = (onlyReinvested) => state.stocks.filter((h) => Calc.dividendPerYear(h) > 0 && (!onlyReinvested || h.dividendReinvest)).map((h) => {
+      const m = toBase(Calc.dividendPerYear(h) / 12, h.currency) || 0;
+      return { v: m, html: `<a class="ex-row" href="#" data-action="edit" data-sec="stocks" data-id="${esc(h.id)}"><span class="grow"><strong>${esc(h.symbol)}</strong><div class="sub">Dividends · ${money(Calc.dividendPerYear(h), h.currency)}/yr${h.dividendReinvest ? ' · reinvested' : ''}</div></span><span class="num">${money(m, base(), 0)}</span><span class="chev" aria-hidden="true">›</span></a>` };
+    }).sort(sortDesc).map((r) => r.html);
     const skippedNote = () => (s.interest.skippedAccounts.length ? `<p class="sub">Interest from ${s.interest.skippedAccounts.map((id) => `“${esc(accountName(id))}”`).join(', ')} is already in your income items, so it isn’t added again.</p>` : '');
     const cardMonths = () => s.spendMonths.slice(0, s.spendAvgMonths).map((m) => row('#cashflows', `Card spending · ${fmtMonth(m.month)}`, plural(m.entries, 'card'), money(m.total, base(), 0)));
     let title = '', body = '';
@@ -1848,9 +1889,12 @@
       body = (rows.length ? group('Biggest gains first', rows.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No stocks or crypto yet.</p>') + total('Total', signed(s.investPnl, base(), 0));
     } else if (what === 'income') {
       title = 'Income per month';
-      const rows = flowRows(active.filter((c) => c.kind === 'income'));
+      const rentItems = new Set(s.rentMatches.map((m) => m.cashflowId));
+      const rows = flowRows(active.filter((c) => c.kind === 'income' && !rentItems.has(c.id)));
       const irows = interestRows();
       body = (rows.length ? group(`Regular income · ${money(s.flow.income, base(), 0)}`, rows) : '<p class="sub">No regular income yet. Add your salary and other income with “+ Add”.</p>')
+        + group(`Rent · ${money(s.rentMonthly, base(), 0)}`, rentRows())
+        + group(`Dividends · ${money(s.dividends.total, base(), 0)}`, dividendRows(false))
         + group(`Interest · ${money(s.interest.total, base(), 0)}`, irows)
         + (irows.length ? '<p class="sub">Interest is averaged per month, the same way yearly bills are. Fixed deposit interest arrives at maturity; a renewing deposit keeps it, so that part also counts as saving.</p>' : '')
         + skippedNote()
@@ -1902,7 +1946,8 @@
         const m = toBase(v.dailyInterest, d.currency) * 365 / 12;
         return m > 0 ? row(acctHref(d.accountId), `${esc(d.platform || 'Fixed deposit')}${d.name ? ` · ${esc(d.name)}` : ''}`, 'Interest kept when the deposit renews', money(m, base(), 0)) : '';
       }).filter(Boolean);
-      body = (rows.length || renew.length ? group('Saving & investing', rows) + group('Interest kept in renewing deposits', renew) : '<p class="sub">Nothing planned yet. Add a regular transfer to savings or investments with the type “Saving / investing”.</p>')
+      const drip = dividendRows(true);
+      body = (rows.length || renew.length || drip.length ? group('Saving & investing', rows) + group('Interest kept in renewing deposits', renew) + group('Dividends reinvested', drip) : '<p class="sub">Nothing planned yet. Add a regular transfer to savings or investments with the type “Saving / investing”.</p>')
         + total('Per month', money(s.split.saving, base(), 0))
         + (s.netMonthly > 0 && s.split.saving ? `<p class="sub">That’s ${pct(s.split.saving / s.netMonthly, false)} of what’s left over each month.</p>` : '');
     } else if (what === 'category') {
@@ -1912,13 +1957,13 @@
       body = group('Bills in this category', flowRows(items)) + total('Per month', money(items.reduce((t2, c) => t2 + monthly(c), 0), base(), 0));
     } else if (what === 'cashflow') {
       title = 'Monthly cash flow';
-      const income = active.filter((c) => c.kind === 'income').map(flowRow).sort(sortDesc).map((r) => r.html);
+      const income = active.filter((c) => c.kind === 'income' && !s.rentMatches.some((m) => m.cashflowId === c.id)).map(flowRow).sort(sortDesc).map((r) => r.html);
       let spend;
       if (s.spendingSource === 'actual') {
         spend = [row('#cashflows', 'Card spending', `average of the last ${plural(s.spendAvgMonths, 'month')} you recorded`, money(s.cardSpendAvg, base(), 0)), ...flowRows(bills((c) => !c.onCard))];
       } else spend = flowRows(bills());
       spend = [...spend, ...loanRows()];
-      body = group(`Income · ${money(s.incomeTotal, base(), 0)}`, [...income, ...interestRows()])
+      body = group(`Income · ${money(s.incomeTotal, base(), 0)}`, [...income, ...rentRows(), ...dividendRows(false), ...interestRows()])
         + group(`Spending · ${money(s.spending, base(), 0)}${s.spendingSource === 'actual' ? ' (actual)' : ' (estimated from bills)'}`, spend)
         + total('Left over each month', signed(s.netMonthly, base(), 0))
         + (s.incomeTotal ? total('Savings rate', pct(s.savingsRate, false)) : '')
@@ -1938,9 +1983,10 @@
         if (bv.daily > 0) savers.push({ v: toBase(bv.daily, b.currency) || 0, html: row(acctHref(a.id), `${esc(a.name)} · ${esc(b.currency)}`, `Saver · ${num(b.rate, 2)}% on ${money(bv.amount, b.currency, 0)}`, `${money(bv.daily * k, b.currency)}${unit}`) });
       }
       const rents = daily ? [] : state.properties.filter((p) => +p.monthlyRent).map((p) => ({ v: toBase(p.monthlyRent, p.currency) || 0, html: row('#properties', esc(p.name), 'Rent', `${money(p.monthlyRent, p.currency)}/mo`) }));
-      body = group('Fixed deposits', fds.sort(sortDesc).map((r) => r.html)) + group('Savers', savers.sort(sortDesc).map((r) => r.html)) + group('Rent', rents.sort(sortDesc).map((r) => r.html));
-      if (!body) body = '<p class="sub">No interest or rent yet. Add a fixed deposit, set a rate on a saver account, or add rent to a property.</p>';
-      else if (!daily) body = '<p class="sub">How fast your money earns, not cash in hand: fixed deposit interest is paid at maturity, saver interest when the bank credits it. In Cash Flow it counts as average monthly income, the same way yearly bills are averaged.</p>' + body;
+      const divs = daily ? [] : dividendRows(false);
+      body = group('Fixed deposits', fds.sort(sortDesc).map((r) => r.html)) + group('Savers', savers.sort(sortDesc).map((r) => r.html)) + group('Dividends', divs) + group('Rent', rents.sort(sortDesc).map((r) => r.html));
+      if (!body) body = '<p class="sub">No interest, dividends or rent yet. Add a fixed deposit, set a rate on a saver account, add dividends to a stock, or add rent to a property.</p>';
+      else if (!daily) body = '<p class="sub">How fast your money earns, not cash in hand: fixed deposit interest is paid at maturity, saver interest when the bank credits it, dividends when the company pays. In Cash Flow it counts as average monthly income, the same way yearly bills are averaged.</p>' + body;
       body += total('Total', daily ? `${money(s.interestDaily)}/day` : `${money(s.passiveMonthly, base(), 0)}/mo`);
     } else if (what === 'runway') {
       title = 'Emergency runway';
@@ -2486,9 +2532,9 @@
       { id: uid(), name: 'Multi-currency', platform: 'Wise', type: 'ewallet', balances: [{ currency: 'USD', amount: 850 }, { currency: 'EUR', amount: 400 }, { currency: 'GBP', amount: 120 }], updatedAt: now },
     ];
     s.stocks = [
-      { id: uid(), symbol: '0700.HK', name: 'Tencent', platform: 'Futu', quantity: 200, avgCost: 310, manualPrice: 455, currency: 'HKD', source: 'manual' },
+      { id: uid(), symbol: '0700.HK', name: 'Tencent', platform: 'Futu', quantity: 200, avgCost: 310, manualPrice: 455, currency: 'HKD', source: 'manual', divMode: 'perShare', dividendPerShare: 3.4 },
       { id: uid(), symbol: 'AAPL', name: 'Apple', platform: 'Futu', quantity: 25, avgCost: 165, currency: 'USD', source: 'live' },
-      { id: uid(), symbol: 'VUSA.L', name: 'Vanguard S&P 500 UCITS ETF', platform: 'Trading 212', quantity: 60, avgCost: 68, manualPrice: 88.4, currency: 'GBP', source: 'manual' },
+      { id: uid(), symbol: 'VUSA.L', name: 'Vanguard S&P 500 UCITS ETF', platform: 'Trading 212', quantity: 60, avgCost: 68, manualPrice: 88.4, currency: 'GBP', source: 'manual', divMode: 'yield', dividendYield: 1.1, dividendReinvest: true },
     ];
     s.crypto = [{ id: uid(), coinId: 'bitcoin', symbol: 'BTC', platform: 'Revolut', quantity: 0.05, avgCost: 42000, currency: 'USD', source: 'live' }];
     s.deposits = [
@@ -2571,6 +2617,11 @@
       case 'open-region': location.hash = `#region/${encodeURIComponent(b.dataset.name)}`; return;
       case 'open-card': location.hash = `#card/${encodeURIComponent(id)}`; return;
       case 'pay-card': return payCardBill(id);
+      case 'rent-unmatch': {
+        const cf = state.cashflows.find((c) => c.id === id);
+        if (cf) { cf.notRent = true; delete cf.propertyId; cf._mt = Date.now(); commit(); toast(`“${cf.name}” now counts as separate income`); }
+        return;
+      }
       case 'loan-unmatch': {
         const cf = state.cashflows.find((c) => c.id === id);
         if (cf) { cf.notLoan = true; delete cf.loanId; cf._mt = Date.now(); commit(); toast(`“${cf.name}” now counts as a normal bill`); }

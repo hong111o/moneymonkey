@@ -256,6 +256,14 @@
     };
   }
 
+  // Annual dividend of a holding in its own currency: per share × shares, or yield × value.
+  function dividendPerYear(h) {
+    const qty = +h.quantity || 0;
+    if (h.divMode === 'perShare') return qty * (+h.dividendPerShare || 0);
+    if (h.divMode === 'yield') return holdingValue(h).marketValue * (+h.dividendYield || 0) / 100;
+    return 0;
+  }
+
   // ---------- recurring cash flow ----------
 
   const PER_MONTH = { weekly: 52 / 12, biweekly: 26 / 12, monthly: 1, quarterly: 1 / 3, semiannually: 1 / 6, yearly: 1 / 12, once: 0 };
@@ -433,7 +441,31 @@
         : loans.find((l) => !taken.has(l.id) && l.currency === cf.currency && cf.frequency === 'monthly' && Math.abs(+cf.amount - +l.payment) <= Math.max(1, 0.01 * +l.payment));
       if (hit) loanMatches.push({ cashflowId: cf.id, loanId: hit.id, linked: !!cf.loanId });
     }
-    const matchedIds = new Set(loanMatches.map((m) => m.cashflowId));
+    // Property rent (the property's "monthly rent") is the single source of rent income. An income
+    // item for the same rent (linked, or same currency + amount) is counted once, as that rent.
+    const rented = (state.properties || []).filter((p) => +p.monthlyRent > 0);
+    const rentMatches = [];
+    for (const cf of state.cashflows || []) {
+      if (cf.active === false || cf.kind !== 'income' || cf.notRent) continue;
+      const taken = new Set(rentMatches.map((m) => m.propertyId));
+      const hit = cf.propertyId
+        ? rented.find((p) => p.id === cf.propertyId)
+        : rented.find((p) => !taken.has(p.id) && p.currency === cf.currency && cf.frequency === 'monthly' && Math.abs(+cf.amount - +p.monthlyRent) <= Math.max(1, 0.01 * +p.monthlyRent));
+      if (hit) rentMatches.push({ cashflowId: cf.id, propertyId: hit.id, linked: !!cf.propertyId });
+    }
+
+    // Dividends: per share per year, or a yield on the current value. Reinvested ones also count as saving.
+    let dividendCash = 0, dividendReinvested = 0;
+    for (const h of state.stocks || []) {
+      const yearly = dividendPerYear(h);
+      if (!(yearly > 0)) continue;
+      const m = toBase(yearly / 12, h.currency);
+      if (h.dividendReinvest) dividendReinvested += m;
+      else dividendCash += m;
+    }
+    const dividends = { cash: dividendCash, reinvested: dividendReinvested, total: dividendCash + dividendReinvested };
+
+    const matchedIds = new Set([...loanMatches.map((m) => m.cashflowId), ...rentMatches.map((m) => m.cashflowId)]);
     const loanRepayments = loans.reduce((t, l) => t + toBase(l.payment, l.currency), 0);
 
     const flow = { income: 0, expense: 0, subscription: 0, saving: 0 };
@@ -479,7 +511,7 @@
       total: fdInterestCash + fdInterestRenew + saverInterest,
       skippedAccounts: Object.keys(saverMonthlyByAccount).filter((id) => enteredInterest.has(id)),
     };
-    const incomeTotal = flow.income + interest.total;
+    const incomeTotal = flow.income + interest.total + rentMonthly + dividends.total;
     const netMonthly = incomeTotal - spending;
 
     // Where a typical month's income goes.
@@ -488,7 +520,7 @@
       bills: notOnCard,
       card: cardSpending,
       loans: loanRepayments,
-      saving: flow.saving + fdInterestRenew,
+      saving: flow.saving + fdInterestRenew + dividends.reinvested,
     };
     split.unallocated = incomeTotal - (split.bills + split.card + split.loans + split.saving);
     // Fixed = regular commitments however they're paid; flexible = the rest of card spending.
@@ -501,7 +533,7 @@
       const spent = m.total + notOnCard + loanRepayments;
       return { month: m.month, income: incomeTotal, card: m.total, fixed: notOnCard + loanRepayments, spending: spent, net: incomeTotal - spent };
     }).reverse();
-    const passiveMonthly = (depositDaily + saverDaily) * 365 / 12 + rentMonthly;
+    const passiveMonthly = (depositDaily + saverDaily) * 365 / 12 + rentMonthly + dividends.total;
     const liquid = totals.cash;
 
     if (missingFx.size) alerts.push({ level: 'warn', text: `No exchange rate for ${[...missingFx].join(', ')} — those items are excluded from totals. Refresh rates in Settings.` });
@@ -532,6 +564,8 @@
       fixedCosts,
       fixedPct: incomeTotal ? fixedCosts / incomeTotal : null,
       interest,
+      dividends,
+      rentMatches,
       incomeTotal,
       flexibleCosts,
       history,
@@ -867,7 +901,7 @@
     loanBalance,
     otherAssetValue,
     latestValuation, propertyValue,
-    holdingValue,
+    holdingValue, dividendPerYear,
     monthlyAmount, occurrences, nextOccurrence,
     upsertHistory, monthsToGoal, spendingByMonth,
     summarize,

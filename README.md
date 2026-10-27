@@ -9,10 +9,10 @@ No server and no dependencies. Your data is stored on your devices and, if you t
 | Section | What you enter | What updates automatically |
 |---|---|---|
 | **Cash & Bank** | Accounts, e-wallets, cash. **Each account can hold several currencies** (e.g. HKD + USD + GBP in one HSBC One account) | Each balance converted with live FX rates; **Cash by currency** chart shows each currency's total and which accounts hold it |
-| **Stocks & ETFs** | Ticker, shares, average cost | Live price, today's change, profit/loss (Finnhub) |
+| **Stocks & ETFs** | Ticker, shares, average cost, optional dividends | Live price, today's change, profit/loss (Finnhub) |
 | **Crypto** | CoinGecko coin id, quantity, average cost | Live price, 24h change, profit/loss (CoinGecko) |
 | **Fixed Deposits** | Bank, amount, start date, term in **months or an end date**, and either the **rate** or the **total interest** quoted | Interest accrued daily, "from → to · N months · X days left", maturity value. **On maturity, capital + interest move into a cash account automatically** (or the deposit renews, your choice) |
-| **Property** | Purchase price and date, then a new valuation weekly or monthly | Gain since purchase, valuation history, reminder when an update is due |
+| **Property** | Purchase price and date, then a new valuation weekly or monthly, optional monthly rent | Gain since purchase, valuation history, reminder when an update is due |
 | **Other Assets** | Car, gold, MPF / pension, insurance cash value… plus an optional yearly % change | Value drifts automatically (e.g. −15%/yr for a car) |
 | **Loans & Debts** | Mortgage, car loan, credit card. Enter the balance yourself, or the loan terms | Balance falls each month on its repayment schedule, with a debt-free date |
 | **Cash Flow** | Income, bills, subscriptions and regular saving, weekly to yearly | Monthly/yearly totals, savings rate, upcoming payments |
@@ -54,6 +54,8 @@ The Cash Flow page starts with:
 - **Month by month:** income vs spending for each month you've recorded card statements, with what was left over.
 - **Fixed costs:** regular commitments (bills, subscriptions, loan repayments, however they're paid) as a share of income. Tap it to compare with your flexible card spending.
 - **Interest counts as income,** averaged per month the same way yearly and quarterly bills are (a HK$1,200 yearly bill counts as HK$100/mo). Fixed deposit and saver interest is shown on its own line, separate from regular income. A deposit set to renew keeps its interest, so that part also counts as saving. If you've entered a saver's interest yourself as an income item (linked to that account, with "interest" in its name), it isn't added twice.
+- **Rent counts once.** A property's monthly rent is income automatically, both in Cash Flow and in passive income, so you don't need to add it in Cash Flow too. If you already have it there (same currency and amount, monthly), it's counted only once. Tap "Not the same" if that's wrong, or choose in the income item's form whether it's a property's rent.
+- **Dividends:** give a stock or ETF its dividend per share or its yield. The yearly amount is averaged per month into income and passive income, and shows on the Stocks page. If it's reinvested (DRIP or an accumulating fund), it also counts as saving.
 - **Loan repayments** from Loans & Debts are counted in spending automatically. If a bill is the same payment (same currency and amount), it's counted once. Tap "Not the same" if that's wrong, or link a bill to a loan in its form.
 
 ### Credit cards

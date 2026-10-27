@@ -560,3 +560,46 @@ test('interest counts as average monthly income; renewing deposits also count as
   assert.deepEqual(t.interest.skippedAccounts, ['sav']);
   close(t.incomeTotal, 11000, 1.5);
 });
+
+test('property rent is the single source of rent income; a matching income item counts once', () => {
+  const base = {
+    settings: { baseCurrency: 'GBP' }, fx: { base: 'GBP', rates: { GBP: 1 } },
+    properties: [
+      { id: 'flat', name: 'Flat', currency: 'GBP', purchasePrice: 1, monthlyRent: 1150, valuations: [{ date: '2026-10-01', value: 1 }] },
+      { id: 'garage', name: 'Garage', currency: 'GBP', purchasePrice: 1, monthlyRent: 100, valuations: [{ date: '2026-10-01', value: 1 }] },
+    ],
+    cashflows: [
+      { id: 'pay', name: 'Salary', kind: 'income', amount: 3000, currency: 'GBP', frequency: 'monthly', nextDate: '2026-11-01' },
+      { id: 'rf', name: 'Rent from flat', kind: 'income', amount: 1150, currency: 'GBP', frequency: 'monthly', nextDate: '2026-11-01' }, // same as the flat's rent
+    ],
+  };
+  const s = C.summarize(base, '2026-10-27');
+  assert.deepEqual(s.rentMatches, [{ cashflowId: 'rf', propertyId: 'flat', linked: false }]);
+  assert.equal(s.flow.income, 3000);
+  assert.equal(s.rentMonthly, 1250);
+  assert.equal(s.incomeTotal, 4250); // salary + both rents, the flat's rent once
+  assert.equal(s.passiveMonthly, 1250);
+  // "Not the same": the item counts as separate income.
+  const unmatched = { ...base, cashflows: base.cashflows.map((c) => (c.id === 'rf' ? { ...c, notRent: true } : c)) };
+  assert.equal(C.summarize(unmatched, '2026-10-27').incomeTotal, 5400);
+});
+
+test('dividends: per share or yield; reinvested ones also count as saving', () => {
+  assert.equal(C.dividendPerYear({ quantity: 200, divMode: 'perShare', dividendPerShare: 3.4 }), 680);
+  assert.equal(C.dividendPerYear({ quantity: 10, lastPrice: 100, divMode: 'yield', dividendYield: 4 }), 40);
+  assert.equal(C.dividendPerYear({ quantity: 10, lastPrice: 100 }), 0);
+  const state = {
+    settings: { baseCurrency: 'HKD' }, fx: { base: 'HKD', rates: { HKD: 1, USD: 0.125 } },
+    stocks: [
+      { id: 'tc', quantity: 200, avgCost: 300, manualPrice: 450, currency: 'HKD', source: 'manual', divMode: 'perShare', dividendPerShare: 3.6 }, // 720/yr = 60/mo
+      { id: 'voo', quantity: 10, avgCost: 400, lastPrice: 600, currency: 'USD', divMode: 'yield', dividendYield: 1.5, dividendReinvest: true }, // US$90/yr = HK$720/yr = 60/mo
+    ],
+    cashflows: [{ id: 'pay', name: 'Salary', kind: 'income', amount: 10000, currency: 'HKD', frequency: 'monthly', nextDate: '2026-11-01' }],
+  };
+  const s = C.summarize(state, '2026-10-27');
+  close(s.dividends.cash, 60);
+  close(s.dividends.reinvested, 60);
+  close(s.incomeTotal, 10120);
+  close(s.passiveMonthly, 120);
+  close(s.split.saving, 60);
+});
