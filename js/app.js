@@ -1019,7 +1019,7 @@
           ${showFilter ? `<select class="filter" data-filter="${key}" aria-label="Filter by platform"><option value="__all">All platforms</option>${platformNames.map((p) => `<option value="${esc(p)}" ${filter === p ? 'selected' : ''}>${esc(p || 'No platform')}</option>`).join('')}</select>` : ''}
           ${currencies.length > 1 ? `<select class="filter" data-filter="accountsCurrency" aria-label="Filter by currency"><option value="__all">All currencies</option>${currencies.map((c) => `<option value="${esc(c)}" ${curFilter === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : ''}
           ${key === 'stocks' || key === 'crypto' ? `<button class="btn" data-action="refresh">↻ Prices</button><button class="btn" data-action="trade-buy" data-sec="${key}">Buy / sell</button>` : ''}
-          ${key === 'accounts' && state.accounts.length ? '<button class="btn" data-action="checkin">Check-in</button><button class="btn" data-action="transfer">Transfer</button>' : ''}
+          ${key === 'accounts' && state.accounts.length ? '<button class="btn" data-action="checkin">Check-in</button><button class="btn" data-action="transfer">Transfer / exchange</button>' : ''}
           <button class="btn primary" data-action="add" data-sec="${key}">+ Add</button>
         </div>
       </div>
@@ -1118,7 +1118,7 @@
     return `<a class="back" href="#accounts">‹ Cash &amp; Bank</a>
       <div class="page-head">
         <div><h1>${esc(a.name)}</h1><p class="sub">${meta}</p></div>
-        <div class="row-actions"><button class="btn" data-action="transfer" data-account="${esc(a.id)}">Transfer</button><button class="btn" data-action="edit" data-sec="accounts" data-id="${esc(a.id)}">Edit account</button></div>
+        <div class="row-actions"><button class="btn" data-action="transfer" data-account="${esc(a.id)}">Transfer / exchange</button><button class="btn" data-action="edit" data-sec="accounts" data-id="${esc(a.id)}">Edit account</button></div>
       </div>
       <section class="tiles">
         ${tile(`Total (${esc(base())})`, money(cash + fd))}
@@ -1490,14 +1490,33 @@
       return isFinite(c) ? round2(c) : null;
     };
     const short = (v) => (v.side === 'buy' && acctOf(v) && cashAmt(v) != null ? Calc.shortfall(acctOf(v), cashCur(v), cashAmt(v), v.date || todayISO()) : 0);
+    // The top-up is a transfer: from one of the other account's balances, with the amount sent
+    // and the amount received (the broker's rate). Either can be left blank: the received amount
+    // defaults to what's missing, and the other side to today's rate.
+    const topUpAcct = (v) => state.accounts.find((a) => a.id === v.topUpFrom);
+    const topUpCurOpts = (v) => {
+      const from = topUpAcct(v);
+      if (!from) return [{ value: '', label: '—' }];
+      const lines = Calc.accountBalances(from).map((b) => ({ c: b.currency, base: toBase(Calc.balanceValue(b, todayISO()).value, b.currency) || 0 }));
+      if (!lines.length) return [{ value: cashCur(v), label: `${cashCur(v)} balance` }];
+      // Same currency first if it covers what's missing, else the biggest balance.
+      const same = from && Calc.shortfall(from, cashCur(v), short(v), todayISO()) === 0 && lines.find((l) => l.c === cashCur(v));
+      lines.sort((x, y) => y.base - x.base);
+      const first = same ? same.c : lines[0].c;
+      return [first, ...lines.map((l) => l.c).filter((c) => c !== first)].map((c) => ({ value: c, label: `${c} balance` }));
+    };
     const topUpOf = (v) => {
-      const from = state.accounts.find((a) => a.id === v.topUpFrom);
+      const from = topUpAcct(v);
       if (!from || v.side !== 'buy' || !acctOf(v)) return null;
-      const received = v.topUpAmount != null ? v.topUpAmount : short(v);
-      if (!(received > 0)) return null;
-      const fromCurrency = Calc.paymentCurrency(from, cashCur(v));
-      const amount = fromCurrency === cashCur(v) ? received : round2(Calc.convert(received, cashCur(v), fromCurrency, state.fx));
-      return { fromId: from.id, from, fromCurrency, amount, received };
+      const cc = cashCur(v);
+      const fromCurrency = v.topUpCurrency || topUpCurOpts(v)[0].value;
+      const rate = (amt, a, b) => (a === b ? amt : round2(Calc.convert(amt, a, b, state.fx)));
+      let received = v.topUpReceived, amount = v.topUpSent;
+      if (received == null && amount == null) received = short(v);
+      if (received == null) received = rate(amount, fromCurrency, cc);
+      if (amount == null) amount = rate(received, cc, fromCurrency);
+      if (!(received > 0) || !isFinite(amount)) return null;
+      return { fromId: from.id, from, fromCurrency, amount, received, guessed: fromCurrency !== cc && (v.topUpSent == null || v.topUpReceived == null) };
     };
     const newFields = SECTIONS[section].fields
       .filter((f) => ['symbol', 'name', 'coinId', 'currency', 'platform', 'source'].includes(f.key))
@@ -1524,7 +1543,9 @@
         { key: 'cashCurrency', label: 'From / into', type: 'select', options: cashCurOpts, showIf: (v) => !!acctOf(v) },
         { key: 'cashAmount', label: 'Amount in that currency', type: 'number', showIf: (v) => !!acctOf(v) && cashCur(v) !== curOf(v), help: 'What the broker actually charged or paid — leave blank to use today’s rate.' },
         { key: 'topUpFrom', label: 'Not enough cash? Top up first from', type: 'select', span: true, showIf: (v) => v.side === 'buy' && !!acctOf(v), options: (v) => [{ value: '', label: 'No top-up' }, ...state.accounts.filter((a) => a.id !== v.accountId).map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }))] },
-        { key: 'topUpAmount', label: 'Top-up amount (received)', type: 'number', showIf: (v) => v.side === 'buy' && !!v.topUpFrom && !!acctOf(v), help: 'In the cash account’s currency — leave blank to top up exactly what’s missing.' },
+        { key: 'topUpCurrency', label: 'From its', type: 'select', options: topUpCurOpts, showIf: (v) => v.side === 'buy' && !!v.topUpFrom && !!acctOf(v) },
+        { key: 'topUpSent', label: 'Amount sent', type: 'number', showIf: (v) => v.side === 'buy' && !!v.topUpFrom && !!acctOf(v), help: 'In that balance’s currency.' },
+        { key: 'topUpReceived', label: 'Amount received at the broker', type: 'number', showIf: (v) => v.side === 'buy' && !!v.topUpFrom && !!acctOf(v), help: 'In the cash account’s currency, at the broker’s rate. Leave both blank to top up exactly what’s missing at today’s rate.' },
         { key: 'removeIfEmpty', label: 'Remove the holding if this sells all of it', type: 'checkbox', span: true, default: () => true, showIf: (v) => v.side === 'sell' },
       ],
       values: start,
@@ -1540,7 +1561,8 @@
         if (v.side === 'buy') {
           const cost = qty * price + fee;
           const nq = held + qty;
-          out.push(`Cost <strong>${money(cost, cur)}</strong>${fee ? ` incl. ${money(fee, cur)} fee` : ''}.`);
+          const cc0 = cashCur(v), amt0 = cashAmt(v);
+          out.push(`Cost <strong>${money(cost, cur)}</strong>${fee ? ` incl. ${money(fee, cur)} fee` : ''}${cc0 && cc0 !== cur && amt0 != null ? ` (≈ ${money(amt0, cc0)})` : ''}.`);
           out.push(`After: ${num(nq, 8)} at an average of <strong>${money((held * avg + cost) / nq, cur)}</strong>${held ? ` (was ${money(avg, cur)})` : ''}.`);
         } else {
           if (h && qty > held + 1e-9) return `<span class="neg">You only hold ${num(held, 8)}.</span>`;
@@ -1559,7 +1581,11 @@
             const sf = short(v);
             const tu = topUpOf(v);
             if (sf > 0) {
-              if (tu) out.push(`Top-up: ${money(tu.amount, tu.fromCurrency)} from “${esc(tu.from.name)}” → +${money(tu.received, cc)} first${tu.received + 0.005 < sf ? ` — still <span class="neg">${money(sf - tu.received, cc)} short</span>` : ''}.`);
+              if (tu) {
+                out.push(`Top-up first: ${money(tu.amount, tu.fromCurrency)} from “${esc(tu.from.name)}” → +${money(tu.received, cc)}${tu.guessed ? ' (today’s rate — enter what the broker gave you if different)' : ''}${tu.received + 0.005 < sf ? ` — still <span class="neg">${money(sf - tu.received, cc)} short</span>` : ''}.`);
+                const tuLeft = Calc.shortfall(tu.from, tu.fromCurrency, tu.amount, v.date || todayISO());
+                if (tuLeft > 0.005) out.push(`<span class="neg">“${esc(tu.from.name)}” only has ${money(tu.amount - tuLeft, tu.fromCurrency)} in ${esc(tu.fromCurrency)} — ${money(tuLeft, tu.fromCurrency)} short.</span> Pick another balance or account, or update its balance.`);
+              }
               else out.push(`<span class="neg">“${esc(a.name)}” only has ${money(Calc.balanceValue(Calc.accountBalances(a).find((b) => b.currency === cc) || { amount: 0 }, todayISO()).value, cc)} in ${esc(cc)} — ${money(sf, cc)} short.</span> Pick an account to top up from, or update its balance.`);
             }
           }
@@ -2522,8 +2548,8 @@
     };
     const received = (v) => (v.toCurrency === v.fromCurrency ? v.amount : v.received ?? round2(Calc.convert(v.amount, v.fromCurrency, v.toCurrency, state.fx)));
     openForm({
-      title: 'Transfer between your accounts',
-      intro: 'Moves money between your own accounts (or currencies in one account). Your net worth stays the same.',
+      title: 'Transfer or exchange',
+      intro: 'Moves money between your own accounts, or exchanges currency within one account (e.g. HKD → GBP at your broker): pick the same account and a different currency, and enter what you actually received. Your net worth stays the same.',
       fields: [
         { key: 'fromId', label: 'From account', type: 'select', options: acctOpts, span: true },
         { key: 'fromCurrency', label: 'From currency', type: 'select', options: (v) => curOpts(v.fromId) },

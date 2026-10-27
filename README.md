@@ -51,7 +51,7 @@ MoneyMonkey never changes a bank balance on its own; you always confirm:
 - **Card bills:** when you record a month's card spending, optionally pick the account that pays it and the due date. You'll be asked to confirm the payment on that day.
 - **Monthly check-in:** at the start of each month, one box lists every account and currency, pre-filled, so you only correct what changed. It also asks for last month's card spending. You can choose "Remind me tomorrow" or "Skip this month". It's also on the Cash & Bank page any time.
 - **Paying in another currency:** if the paying account has no balance in the bill's currency (e.g. a £ card bill paid from an HKD-only account), the box asks which of the account's balances it came from and fills in the converted amount at today's rate. Change it to what the bank actually took. No negative balance is created in a currency the account doesn't hold.
-- **Transfers** between your own accounts or currencies (Transfer button on Cash & Bank or an account page) move the money and keep your net worth unchanged.
+- **Transfer / exchange** (on Cash & Bank or an account page) moves money between your own accounts and keeps your net worth unchanged. To record a currency exchange at your bank or broker, pick the same account, a different currency, and the amount you actually received (e.g. HK$10,000 → £975 at Trading 212).
 
 The boxes pop up at most once a day per device, and alerts on the dashboard stay until you deal with them.
 
@@ -102,7 +102,8 @@ Tap **Buy** or **Sell** on a holding, or **Buy / sell** at the top of the Stocks
 - **Buying:** the cost comes out of the cash account and is added to the average cost, fee included. 10 shares at $100 plus 10 more at $150 gives 20 at an average of $125.
 - **Selling:** the money goes into the cash account. The average cost of what's left stays the same. The profit is recorded: 5 sold at $700 with an average cost of $100 makes $3,000. Selling everything can remove the holding.
 - **Different currency:** if the cash account holds another currency (e.g. GBP cash buying a USD stock), the amount is filled in at today's rate. Change it to what the broker actually charged.
-- **Not enough cash:** pick an account to **top up from**. The shortfall (or an amount you enter) is recorded as a transfer into the broker's cash first, then the buy.
+- **Not enough cash:** pick an account to **top up from** and which of its balances (e.g. HSBC One's HKD). Enter the **amount sent** and the **amount received** at the broker's rate. Leave either blank to use today's rate, or both to top up exactly what's missing. It's recorded as a transfer into the broker's cash first, then the buy.
+- **Mistakes show early:** the summary shows the cost in your cash account's currency too, and warns in red as soon as any account would go below zero.
 - **Realised profit** this year shows as a box on the Stocks and Crypto pages. Tap it to see each sale. Trades also appear in the cash account's activity.
 
 Net worth only changes by the fee, because the money just moves between the holding and the cash.
