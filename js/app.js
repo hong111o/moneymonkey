@@ -1294,7 +1294,7 @@
         ${tile('Left over / mo', signed(s.netMonthly), s.incomeTotal ? `Savings rate ${pct(s.savingsRate, false)}` : '', '', explainAttr('cashflow'))}
         ${tile('Fixed costs / mo', money(s.fixedCosts), s.fixedPct != null ? `${pct(s.fixedPct, false)} of income` : 'bills, subscriptions & loans', '', explainAttr('fixed'))}
         ${tile('Subscriptions / mo', money(s.flow.subscription), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
-        ${tile('Planned saving / mo', money(s.flow.saving), '', '', explainAttr('saving'))}
+        ${tile('Planned saving / mo', money(s.split.saving), '', '', explainAttr('saving'))}
       </section>`;
     const before = (state.cashflows.length ? '<p class="jump"><a href="#" data-action="jump" data-target="all-items">All income, bills &amp; subscriptions ↓</a></p>' : '')
       + renderIncomeSplit()
