@@ -4,6 +4,18 @@
 
 // ================================================================== events
 
+// ± next to a number: flip its sign (works in forms, balance lines and the check-in).
+document.addEventListener('click', (e) => {
+  const pm = e.target.closest('[data-pm]');
+  if (!pm) return;
+  e.preventDefault();
+  const input = pm.parentElement.querySelector('input');
+  if (input.value === '' || !isFinite(+input.value)) { input.focus(); return toast('Type the number first, then tap ± to make it negative.'); }
+  input.value = String(-+input.value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+});
+
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-action]');
   if (!b) return;
@@ -148,7 +160,7 @@ document.addEventListener('submit', (e) => {
   const newBase = f.baseCurrency.value.trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(newBase)) return toast('Base currency must be a 3-letter code like HKD or GBP.', 'error');
   const baseChanged = newBase !== state.settings.baseCurrency;
-  state.settings = { ...state.settings, baseCurrency: newBase, finnhubKey: f.finnhubKey.value.trim(), refreshSec: Math.max(15, +f.refreshSec.value || 60), theme: f.theme.value, checkinDay: Math.min(31, Math.max(1, Math.round(+f.checkinDay.value) || 1)) };
+  state.settings = { ...state.settings, baseCurrency: newBase, finnhubKey: f.finnhubKey.value.trim(), refreshSec: Math.max(15, +f.refreshSec.value || 60), theme: f.theme.value, costMethod: f.costMethod.value, checkinDay: Math.min(31, Math.max(1, Math.round(+f.checkinDay.value) || 1)) };
   state.settingsMt = Date.now();
   save();
   schedule();

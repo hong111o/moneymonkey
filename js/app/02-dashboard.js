@@ -200,7 +200,7 @@ function renderDashboard() {
     <section class="tiles">
       ${tile('Total assets', money(s.assets, base(), 0), '', '', explainAttr('assets'))}
       ${tile('Liabilities', `<span class="${s.liabilities ? 'owed' : ''}">${money(s.liabilities, base(), 0)}</span>`, s.assets ? `Debt-to-asset ${(s.debtToAsset * 100).toFixed(1)}%` : '', '', explainAttr('liabilities'))}
-      ${tile('Investment P&L', signed(s.investPnl, base(), 0), s.investCost ? `${pct(s.investPnlPct)} on ${money(s.investCost, base(), 0)}` : 'No holdings yet', '', explainAttr('pnl'))}
+      ${tile('Investment P&L', signed(s.investPnl, base(), 0), s.investCost || s.noCostPnl ? (s.investCostPos ? `${pct(s.investPnlPct)} on ${money(s.investCostPos, base(), 0)}${s.noCostPnl ? ` · incl. ${money(s.noCostPnl, base(), 0)} with no cost` : ''}` : 'no cost to compare') : 'No holdings yet', '', explainAttr('pnl'))}
       ${tile('Net cash flow / mo', signed(s.netMonthly, base(), 0), `${money(s.incomeTotal, base(), 0)} in · ${money(s.spending, base(), 0)} out${s.spendingSource === 'actual' ? ' (actual)' : ''}`, '', explainAttr('cashflow'))}
       ${tile('Savings rate', s.incomeTotal ? pct(s.savingsRate, false) : '—', 'of monthly income', '', explainAttr('cashflow'))}
       ${tile('Passive income / mo', money(s.passiveMonthly, base(), 0), 'interest, rent & dividends · FD interest paid at maturity', '', explainAttr('passive'))}

@@ -37,6 +37,7 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
         f.autocomplete ? `autocomplete="${f.autocomplete}"` : '',
       ].join(' ');
       input = `<input name="${f.key}" type="${type}" ${attrs} value="${esc(v ?? '')}" placeholder="${esc(f.placeholder || '')}" ${f.type === 'currency' ? 'style="text-transform:uppercase"' : ''}>`;
+      if (f.signed) input = pmWrap(input);
     }
     return `<label class="${cls}" data-field="${f.key}"><span>${f.label}${f.required ? ' <span class="req">*</span>' : ''}</span>${input}${f.help ? `<small>${f.help}</small>` : ''}</label>`;
   };
@@ -148,7 +149,7 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
 function balanceRow(b) {
   return `<div class="bal-row">
     <input class="bal-cur" list="currency-list" maxlength="3" autocapitalize="characters" aria-label="Currency" placeholder="HKD" value="${esc(b.currency || '')}">
-    <input class="bal-amt" type="number" step="any" inputmode="decimal" aria-label="Amount" placeholder="0.00" value="${esc(b.amount ?? '')}">
+    ${pmWrap(`<input class="bal-amt" type="number" step="any" inputmode="decimal" aria-label="Amount" placeholder="0.00" value="${esc(b.amount ?? '')}">`)}
     <input class="bal-rate" type="number" step="any" inputmode="decimal" aria-label="Interest rate, % per year" placeholder="% p.a." value="${esc(b.rate ?? '')}">
     <button type="button" class="icon-btn" data-remove-balance aria-label="Remove this currency">✕</button>
   </div>`;
@@ -391,7 +392,7 @@ function explain(what, param) {
     title = param === 'stocks' ? 'Stocks profit / loss' : param === 'crypto' ? 'Crypto profit / loss' : 'Investment profit / loss';
     const holdings = [...state.stocks.map((h) => ['stocks', h, h.symbol]), ...state.crypto.map((h) => ['crypto', h, h.symbol || h.coinId])].filter(([k]) => !param || k === param);
     const rows = holdings.map(([k, h, label]) => {
-      const v = Calc.holdingValue(h);
+      const v = hv(h);
       return { v: toBase(v.pnl, h.currency) || 0, html: row(`#" data-action="edit" data-sec="${k}" data-id="${esc(h.id)}`, esc(label), `${esc(h.platform || '')}${h.platform ? ' · ' : ''}${money(v.marketValue, h.currency)} now · ${money(v.cost, h.currency)} cost`, `${signed(v.pnl, h.currency)}<div class="sub">${pct(v.pnlPct)}</div>`) };
     });
     const pnlTotal = param ? rows.reduce((a, r) => a + r.v, 0) : s.investPnl;
@@ -399,7 +400,7 @@ function explain(what, param) {
   } else if (what === 'today') {
     title = param === 'crypto' ? 'Crypto: last 24 hours' : 'Stocks: today';
     const rows = (state[param] || []).map((h) => {
-      const v = Calc.holdingValue(h);
+      const v = hv(h);
       const b = toBase(v.dayChange, h.currency) || 0;
       const pctDay = v.marketValue - v.dayChange ? v.dayChange / (v.marketValue - v.dayChange) : 0;
       return { v: Math.abs(b), b, html: row(`#" data-action="edit" data-sec="${param}" data-id="${esc(h.id)}`, esc(h.symbol || h.coinId), `${esc(h.platform || '')}${h.platform ? ' · ' : ''}${h.lastPrice ? `price ${money(h.lastPrice, h.currency)}` : h.source === 'manual' ? 'manual price — no daily change' : 'no live price yet'}`, `${signed(v.dayChange, h.currency)}<div class="sub">${pct(pctDay)}</div>`) };
@@ -422,7 +423,7 @@ function explain(what, param) {
     title = 'Dividends per year';
     const list = state.stocks.filter((h) => Calc.dividendPerYear(h) > 0).map((h) => {
       const y = Calc.dividendPerYear(h);
-      const mv = Calc.holdingValue(h).marketValue;
+      const mv = hv(h).marketValue;
       return { v: toBase(y, h.currency) || 0, re: !!h.dividendReinvest, html: row(`#" data-action="edit" data-sec="stocks" data-id="${esc(h.id)}`, esc(h.symbol), `${h.divMode === 'yield' ? `${num(h.dividendYield, 2)}% yield` : `${money(h.dividendPerShare, h.currency)} per share × ${num(h.quantity, 4)}`}${mv && h.divMode !== 'yield' ? ` · ${((y / mv) * 100).toFixed(2)}% of value` : ''}`, `${money(y, h.currency)}<div class="sub">${money(toBase(y, h.currency) / 12, base(), 0)}/mo</div>`) };
     });
     const yearly = list.reduce((a, r) => a + r.v, 0);

@@ -132,6 +132,16 @@ Net worth only changes by the fee, because the money just moves between the hold
 
 **Low-balance warning:** a transfer, buy or confirmed payment that would leave an account below zero in the app asks first. You can update the balance, or go ahead if the real balance is higher than the app shows.
 
+### Cost method: average or diluted
+
+**Settings → Stock cost method** chooses how a holding's cost is shown:
+- **Average cost** (the default): a sale keeps the average cost of what's left, and its profit shows as **realised profit**.
+- **Diluted**, like Futu and moomoo: the profit from sales lowers the cost of what's left. It can go below zero, e.g. 10 bought at $10 and 5 sold at $22 leaves 5 at **−$2** each.
+
+The total profit is the same either way. Only how it's shown changes, so you can switch any time, and each holding can override the setting in its form.
+
+A profit % needs a positive cost. When the cost is zero or negative, it shows **—**, and the total % on Stocks and Home is worked out from holdings that have a cost. On a phone, the **±** button next to an amount makes it negative, since phone number pads have no minus key.
+
 ### Dividends and splits
 
 Tap **Dividend / split** on a stock:

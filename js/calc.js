@@ -339,23 +339,44 @@
 
   // ---------- stocks / crypto holdings ----------
 
-  function holdingValue(h) {
+  // `realisedIn`: profit from earlier sales taken off the cost (diluted cost, as some brokers show).
+  // The profit % is only meaningful on a positive cost; otherwise it's null ("—").
+  function holdingValue(h, { realisedIn = 0 } = {}) {
     const qty = +h.quantity || 0;
     const live = isFinite(h.lastPrice) && h.lastPrice > 0;
-    const price = live ? +h.lastPrice : +h.manualPrice || +h.avgCost || 0;
+    const price = live ? +h.lastPrice : +h.manualPrice || Math.max(0, +h.avgCost || 0);
     const marketValue = qty * price;
-    const cost = qty * (+h.avgCost || 0);
+    const cost = qty * (+h.avgCost || 0) - realisedIn;
     const prev = isFinite(h.prevClose) && h.prevClose > 0 ? +h.prevClose : null;
     return {
       price,
       live,
       marketValue,
       cost,
+      avgCost: qty ? cost / qty : +h.avgCost || 0,
+      realisedIn,
       pnl: marketValue - cost,
-      pnlPct: cost ? (marketValue - cost) / cost : 0,
+      pnlPct: cost > 0 ? (marketValue - cost) / cost : null,
       dayChange: prev ? qty * (price - prev) : 0,
       dayChangePct: prev ? (price - prev) / prev : 0,
     };
+  }
+
+  // Cost method: 'average' (default — sales keep the average cost; their profit is realised) or
+  // 'diluted' (like Futu/moomoo — profit from sales since the position was last empty lowers the cost).
+  // Set in settings, or per holding (`costMethod`). Only how it's shown changes, never the data.
+  function costMethod(state, h) {
+    return h.costMethod || ((state && state.settings) || {}).costMethod || 'average';
+  }
+  function dilutedRealised(trades, holdingId) {
+    let sum = 0;
+    const sells = (trades || []).filter((e) => e.holdingId === holdingId && e.side === 'sell' && e.realised != null)
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a._mt || 0) - (b._mt || 0)));
+    for (const e of sells) sum = e.before && e.before.quantity - e.quantity <= 1e-9 ? 0 : sum + e.realised;
+    return sum;
+  }
+  function holdingView(state, h) {
+    return holdingValue(h, { realisedIn: costMethod(state, h) === 'diluted' ? dilutedRealised(state.trades, h.id) : 0 });
   }
 
   // Annual dividend of a holding in its own currency: per share × shares, or yield × value.
@@ -458,6 +479,7 @@
 
     let fdInterestCash = 0, fdInterestRenew = 0;
     const totals = { cash: 0, stocks: 0, crypto: 0, deposits: 0, property: 0, other: 0 };
+    let investCostPos = 0, investPnlPos = 0, noCostPnl = 0, realisedInHoldings = 0;
     let investCost = 0, investPnl = 0, dayChange = 0, depositDaily = 0, depositMonthly = 0, depositInterest = 0;
     const events = [];
     const alerts = [];
@@ -477,10 +499,13 @@
 
     for (const [list, key] of [[state.stocks, 'stocks'], [state.crypto, 'crypto']]) {
       for (const h of list || []) {
-        const v = holdingValue(h);
+        const v = holdingView(state, h);
         totals[key] += toBase(v.marketValue, h.currency);
         investCost += toBase(v.cost, h.currency);
         investPnl += toBase(v.pnl, h.currency);
+        // The % is worked out on holdings with a positive cost; others' profit is noted apart.
+        if (v.cost > 0) { investCostPos += toBase(v.cost, h.currency); investPnlPos += toBase(v.pnl, h.currency); } else noCostPnl += toBase(v.pnl, h.currency);
+        realisedInHoldings += toBase(v.realisedIn, h.currency);
         dayChange += toBase(v.dayChange, h.currency);
       }
     }
@@ -666,7 +691,10 @@
       netWorth,
       investCost,
       investPnl,
-      investPnlPct: investCost ? investPnl / investCost : 0,
+      investPnlPct: investCostPos > 0 ? investPnlPos / investCostPos : null,
+      investCostPos,
+      noCostPnl,
+      realisedInHoldings,
       dayChange,
       depositDaily,
       saverDaily,
@@ -1278,7 +1306,7 @@
     loanBalance,
     otherAssetValue,
     latestValuation, propertyValue,
-    holdingValue, dividendPerYear,
+    holdingValue, holdingView, costMethod, dilutedRealised, dividendPerYear,
     monthlyAmount, occurrences, nextOccurrence,
     upsertHistory, monthsToGoal, spendingByMonth,
     summarize,

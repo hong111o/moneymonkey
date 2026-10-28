@@ -167,7 +167,7 @@ function openCheckin(prefill) {
       <div class="ci-name"><strong>${esc(a.name)}</strong>${a.platform ? ` <span class="sub">· ${esc(a.platform)}</span>` : ''}</div>
       ${lines.map((b) => {
         const v = round2(Calc.balanceValue(b, t).value);
-        return `<label class="ci-line"><span class="cur-tag">${esc(b.currency)}</span><input type="number" step="any" inputmode="decimal" data-cur="${esc(b.currency)}" data-orig="${v}" value="${v}" aria-label="${esc(a.name)} ${esc(b.currency)} balance">${+b.rate ? `<span class="sub">incl. est. interest</span>` : ''}</label>`;
+        return `<label class="ci-line"><span class="cur-tag">${esc(b.currency)}</span>${pmWrap(`<input type="number" step="any" inputmode="decimal" data-cur="${esc(b.currency)}" data-orig="${v}" value="${v}" aria-label="${esc(a.name)} ${esc(b.currency)} balance">`)}${+b.rate ? `<span class="sub">incl. est. interest</span>` : ''}</label>`;
       }).join('') || '<p class="sub">No balances yet — tap the account later to add some.</p>'}
     </div>`;
   }).join('');

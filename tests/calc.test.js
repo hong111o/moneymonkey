@@ -800,3 +800,28 @@ test('stock split and dividends received', () => {
   assert.equal(r.total, 1130);
   assert.equal(C.realisedProfit(state.trades, (v) => v).sells.length, 0);
 });
+
+test('diluted cost (like Futu): profit from sales lowers the cost; the profit % needs a positive cost', () => {
+  const state = { settings: { baseCurrency: 'USD' }, fx: { base: 'USD', rates: { USD: 1 } }, accounts: [], stocks: [{ id: 'a', symbol: 'A', currency: 'USD', quantity: 10, avgCost: 10, source: 'manual', manualPrice: 22 }] };
+  C.applyTrade(state, { id: 's', side: 'sell', section: 'stocks', holdingId: 'a', quantity: 5, price: 22, date: '2026-10-01' }, 1);
+  const avg = C.holdingView(state, state.stocks[0]);
+  assert.deepEqual([avg.avgCost, avg.pnl], [10, 60]); // + $60 realised, shown apart
+  state.settings.costMethod = 'diluted';
+  const dil = C.holdingView(state, state.stocks[0]);
+  assert.deepEqual([dil.avgCost, dil.cost, dil.pnl, dil.pnlPct], [-2, -10, 120, null]); // same $120 in total
+  assert.equal(C.summarize(state, '2026-10-28').investPnlPct, null);
+  // Per-holding choice wins over the setting.
+  state.stocks[0].costMethod = 'average';
+  assert.equal(C.holdingView(state, state.stocks[0]).avgCost, 10);
+  // A position sold to zero starts afresh.
+  delete state.stocks[0].costMethod;
+  C.applyTrade(state, { id: 's2', side: 'sell', section: 'stocks', holdingId: 'a', quantity: 5, price: 22, date: '2026-10-02' }, 2);
+  C.applyTrade(state, { id: 'b', side: 'buy', section: 'stocks', holdingId: 'a', quantity: 2, price: 30, date: '2026-10-03' }, 3);
+  assert.equal(C.holdingView(state, state.stocks[0]).avgCost, 30);
+  // A zero-cost holding: profit counted, % left out of the total.
+  const z = { settings: { baseCurrency: 'USD' }, fx: { base: 'USD', rates: { USD: 1 } }, stocks: [{ id: 'n', quantity: 20, avgCost: 0, lastPrice: 217.5, currency: 'USD' }, { id: 'm', quantity: 1, avgCost: 100, lastPrice: 110, currency: 'USD' }] };
+  const s = C.summarize(z, '2026-10-28');
+  assert.equal(s.investPnl, 4350 + 10);
+  close(s.investPnlPct, 0.1);
+  assert.equal(s.noCostPnl, 4350);
+});

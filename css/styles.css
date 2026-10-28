@@ -615,3 +615,6 @@ h3 .ic { color: var(--text-2); margin-right: 4px; }
 .flow-lines .grow { min-width: 0; }
 .flow-lines .num { text-align: right; }
 .flow-lines .chev { color: var(--muted); }
+.pm-wrap { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.pm-wrap input { flex: 1; min-width: 0; width: auto; }
+.btn.pm { flex: none; min-width: 40px; padding: 0 10px; font-size: 1rem; }

@@ -110,13 +110,20 @@ function signed(v, cur = base(), dp = 2) {
 }
 
 function pct(v, withSign = true) {
-  if (!isFinite(v)) return '—';
+  if (v == null || !isFinite(v)) return '—';
   const s = (v * 100).toFixed(2) + '%';
   if (!withSign) return s;
   const cls = v > 0.00005 ? 'pos' : v < -0.00005 ? 'neg' : '';
   return `<span class="${cls}">${v > 0 ? '+' : ''}${s}</span>`;
 }
 
+// Phone number pads have no minus key: a ± button next to fields that can be negative flips the sign.
+const pmWrap = (input) => `<span class="pm-wrap">${input}<button type="button" class="btn pm" data-pm aria-label="Switch between positive and negative" title="Positive / negative">±</button></span>`;
+const COST_METHODS = [['average', 'Average cost'], ['diluted', 'Diluted — like Futu / moomoo']];
+// A holding's own choice, or "use the setting" (shows which one that is).
+const COST_METHODS_FIELD = () => [{ value: '', label: `Use the setting (${labelOf(opt(COST_METHODS), state.settings.costMethod || 'average')})` }, ...opt(COST_METHODS)];
+// A holding's value and profit, with its cost shown by the chosen cost method (average / diluted).
+const hv = (h) => Calc.holdingView(state, h);
 const num = (v, dp = 4) => (v == null || !isFinite(v) ? '—' : (+v).toLocaleString(undefined, { maximumFractionDigits: dp }));
 const toBase = (amt, cur) => {
   const v = Calc.convert(+amt || 0, cur || base(), base(), state.fx);

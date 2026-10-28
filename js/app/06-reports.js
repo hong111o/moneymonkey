@@ -109,7 +109,7 @@ function exportReportCsv(what) {
     name = `moneymonkey-accounts-${t}.csv`;
   } else if (what === 'holdings') {
     rows = [['Symbol', 'Name', 'Platform', 'Quantity', 'Average cost', 'Price', 'Currency', 'Market value', `Value (${base()})`, 'Profit / loss']];
-    for (const k of ['stocks', 'crypto']) for (const h of state[k]) { const v = Calc.holdingValue(h); rows.push([h.symbol || h.coinId, h.name || h.coinId || '', h.platform || '', h.quantity, r2(h.avgCost), r2(v.price), h.currency, r2(v.marketValue), r2(toBase(v.marketValue, h.currency)), r2(v.pnl)]); }
+    for (const k of ['stocks', 'crypto']) for (const h of state[k]) { const v = hv(h); rows.push([h.symbol || h.coinId, h.name || h.coinId || '', h.platform || '', h.quantity, r2(h.avgCost), r2(v.price), h.currency, r2(v.marketValue), r2(toBase(v.marketValue, h.currency)), r2(v.pnl)]); }
     name = `moneymonkey-holdings-${t}.csv`;
   } else if (what === 'cashflows') {
     rows = [['Name', 'Type', 'Category', 'Amount', 'Currency', 'How often', `Per month (${base()})`, 'Next date', 'Active', 'Account', 'Paid by card']];
@@ -136,7 +136,7 @@ function searchIndex() {
   const out = [];
   const add = (title, sub, open, extra = '') => out.push({ text: `${title} ${sub} ${extra}`.toLowerCase(), title, sub, open });
   for (const a of state.accounts) add(a.name, `Account · ${a.platform || ''} · ${Calc.accountBalances(a).map((b) => money(b.amount, b.currency)).join(', ')}`, go(`#account/${encodeURIComponent(a.id)}`), a.note);
-  for (const k of ['stocks', 'crypto']) for (const h of state[k]) add(h.symbol || h.coinId, `${k === 'stocks' ? 'Stock' : 'Crypto'} · ${h.platform || ''} · ${num(h.quantity, 8)} · ${money(Calc.holdingValue(h).marketValue, h.currency)}`, edit(k, h.id), `${h.name || ''} ${h.coinId || ''}`);
+  for (const k of ['stocks', 'crypto']) for (const h of state[k]) add(h.symbol || h.coinId, `${k === 'stocks' ? 'Stock' : 'Crypto'} · ${h.platform || ''} · ${num(h.quantity, 8)} · ${money(hv(h).marketValue, h.currency)}`, edit(k, h.id), `${h.name || ''} ${h.coinId || ''}`);
   for (const d of state.deposits) add(`${d.platform || ''} ${d.name || ''}`.trim() || 'Deposit', `${d.kind === 'regular' ? 'Regular saver' : 'Fixed deposit'} · ${money(Calc.depositValue(d, t).value, d.currency)} · matures ${fmtDate(Calc.depositValue(d, t).maturityDate)}`, edit('deposits', d.id));
   for (const p of state.properties) add(p.name, `Property · ${p.address || ''}`, edit('properties', p.id), p.platform);
   for (const o of state.others) add(o.name, `Other asset · ${money(o.value, o.currency)}`, edit('others', o.id), `${o.category || ''} ${o.platform || ''}`);
@@ -276,6 +276,8 @@ function renderSettings() {
         <small>Free key at <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a>. Crypto prices and exchange rates don’t need one. Synced to your other devices.</small></label>
       <label>Monthly check-in day<input name="checkinDay" type="number" inputmode="numeric" min="1" max="31" step="1" value="${esc(st.checkinDay || 1)}">
         <small>1–31. In shorter months it falls on the last day (e.g. 31 → 30 April, 28 February).</small></label>
+      <label>Stock cost method<select name="costMethod">${COST_METHODS.map(([v, l]) => `<option value="${v}" ${(st.costMethod || 'average') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <small>Average: sales keep the cost and their profit is “realised”. Diluted: profit from sales lowers the cost of what’s left, as Futu and moomoo show it (it can go below zero). Only how it’s shown changes — switch any time. Each holding can override it.</small></label>
       <label>Theme (this device)<select name="theme">${[['auto', 'Match system'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<option value="${v}" ${st.theme === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <div class="span-2 row-actions"><button class="btn primary" type="submit">Save settings</button></div>
     </form>

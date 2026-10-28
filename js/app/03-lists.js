@@ -24,22 +24,25 @@ function sectionTiles(key, items) {
       ${tile('Currencies', String(rows.length), rows[0] && allRated ? `Largest: ${esc(rows[0].currency)} (${pct(rows[0].share, false)})` : rows.length ? 'waiting for exchange rates' : '')}
     </section>`;
   } else if (key === 'stocks' || key === 'crypto') {
-    let mv = 0, cost = 0, day = 0;
+    let mv = 0, cost = 0, day = 0, costPos = 0, pnlPos = 0, inHoldings = 0;
     for (const h of items) {
-      const v = Calc.holdingValue(h);
+      const v = hv(h);
       mv += toBase(v.marketValue, h.currency) || 0;
       cost += toBase(v.cost, h.currency) || 0;
       day += toBase(v.dayChange, h.currency) || 0;
+      inHoldings += toBase(v.realisedIn, h.currency) || 0;
+      if (v.cost > 0) { costPos += toBase(v.cost, h.currency) || 0; pnlPos += toBase(v.pnl, h.currency) || 0; }
     }
     const cash = brokerCashAccounts(key).reduce((t, a) => t + (accountTotal(a) || 0), 0);
     const divYear = key === 'stocks' ? items.reduce((t, h) => t + (toBase(Calc.dividendPerYear(h), h.currency) || 0), 0) : 0;
     const tap = (what) => `${explainAttr(what)} data-cat="${key}"`;
-    extra = tile('Profit / loss', signed(mv - cost), cost ? `${pct((mv - cost) / cost)} on ${money(cost, base(), 0)}` : '', '', items.length ? tap('pnl') : '') + tile(key === 'crypto' ? 'Last 24h' : 'Today', signed(day), '', '', items.length ? tap('today') : '')
+    // The % only counts holdings with a positive cost (a zero or diluted-negative cost has no %).
+    extra = tile('Profit / loss', signed(mv - cost), costPos ? `${pct(pnlPos / costPos)} on ${money(costPos, base(), 0)}${costPos !== cost ? ' (holdings with a cost)' : ''}` : 'no cost to compare', '', items.length ? tap('pnl') : '') + tile(key === 'crypto' ? 'Last 24h' : 'Today', signed(day), '', '', items.length ? tap('today') : '')
       + (cash ? tile('Uninvested cash', money(cash), 'in your investment accounts', '', tap('brokercash')) : '')
       + (state.trades.some((e) => e.section === key && e.side === 'sell') ? (() => {
         const year = todayISO().slice(0, 4);
         const r = Calc.realisedProfit(state.trades, (v, c) => toBase(v, c) || 0, key, `${year}-01-01`);
-        return tile(`Realised profit ${year}`, signed(r.total), `${plural(r.sells.length, 'sale')} this year`, '', tap('realised'));
+        return tile(`Realised profit ${year}`, signed(r.total), `${plural(r.sells.length, 'sale')} this year${inHoldings ? ' · diluted holdings already include their part' : ''}`, '', tap('realised'));
       })() : '')
       + (divYear ? tile('Dividends / yr', `<span class="pos">${money(divYear, base(), 0)}</span>`, `${money(divYear / 12, base(), 0)} a month on average`, '', explainAttr('dividends')) : '');
   } else if (key === 'deposits') {
@@ -120,7 +123,7 @@ function renderBrokerCard(key) {
   if (!names.length) return '';
   const rows = names.map((name) => {
     const holdings = state[key].filter((h) => (h.platform || '') === name);
-    const hv = holdings.reduce((t, h) => t + (toBase(Calc.holdingValue(h).marketValue, h.currency) || 0), 0);
+    const held = holdings.reduce((t, h) => t + (toBase(hv(h).marketValue, h.currency) || 0), 0);
     const accts = cashAccts.filter((a) => (a.platform || '') === name);
     const cash = accts.reduce((t, a) => t + (accountTotal(a) || 0), 0);
     const cashLines = accts.flatMap((a) => Calc.accountBalances(a).filter((b) => +b.amount).map((b) => `<a href="#account/${encodeURIComponent(a.id)}" class="cur-pill"><span class="cur-tag">${esc(b.currency)}</span> ${money(Calc.balanceValue(b, todayISO()).value, b.currency)}</a>`));
@@ -128,12 +131,12 @@ function renderBrokerCard(key) {
       ? `<button class="btn small" data-action="${accts.length ? 'open-account' : 'add'}" ${accts.length ? `data-id="${esc(accts[0].id)}"` : `data-sec="accounts" data-type="brokerage" data-platform="${esc(name)}"`}>${accts.length ? 'Update cash' : '+ Cash'}</button>`
       : '';
     return `<div class="broker">
-      <div class="broker-head"><a href="#platform/${encodeURIComponent(name)}"><strong>${esc(name || 'No platform set')}</strong></a><strong class="num">${money(hv + cash)}</strong></div>
+      <div class="broker-head"><a href="#platform/${encodeURIComponent(name)}"><strong>${esc(name || 'No platform set')}</strong></a><strong class="num">${money(held + cash)}</strong></div>
       <div class="broker-split">
-        <span>Invested <strong>${money(hv)}</strong>${holdings.length ? ` <span class="sub">· ${plural(holdings.length, key === 'crypto' ? 'coin' : 'holding')}</span>` : ''}</span>
+        <span>Invested <strong>${money(held)}</strong>${holdings.length ? ` <span class="sub">· ${plural(holdings.length, key === 'crypto' ? 'coin' : 'holding')}</span>` : ''}</span>
         <span>Cash <strong>${money(cash)}</strong></span>
       </div>
-      ${hv + cash > 0 ? `<div class="stack" aria-hidden="true"><span style="flex-grow:${Math.max(hv, 0)};background:var(--series-2)"></span><span style="flex-grow:${Math.max(cash, 0)};background:var(--series-1)"></span></div>` : ''}
+      ${held + cash > 0 ? `<div class="stack" aria-hidden="true"><span style="flex-grow:${Math.max(held, 0)};background:var(--series-2)"></span><span style="flex-grow:${Math.max(cash, 0)};background:var(--series-1)"></span></div>` : ''}
       <div class="broker-cash">${cashLines.join('')}${addBtn}</div>
     </div>`;
   }).join('');

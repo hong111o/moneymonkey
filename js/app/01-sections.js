@@ -69,8 +69,9 @@ const SECTIONS = {
       { key: 'name', label: 'Name', placeholder: 'Apple Inc.' },
       platformField('Broker / platform', 'e.g. Futu, Trading 212'),
       { key: 'quantity', label: 'Shares / units', type: 'number', required: true },
-      { key: 'avgCost', label: 'Average cost per share', type: 'number', required: true, help: 'Used to calculate your profit and loss.' },
+      { key: 'avgCost', label: 'Average cost per share', type: 'number', required: true, signed: true, help: 'Used to calculate your profit and loss. If you copy a diluted cost from your broker (it can be negative), don’t also record those sales with Sell — choose the cost method instead.' },
       { ...currencyField, label: 'Trading currency', help: 'Currency the stock is quoted in.' },
+      { key: 'costMethod', label: 'Cost method', type: 'select', options: () => COST_METHODS_FIELD(), help: 'Diluted (like Futu/moomoo): profit from sales lowers the cost of what’s left. Only how it’s shown changes.' },
       { key: 'source', label: 'Price source', type: 'select', options: opt([['live', 'Live (Finnhub)'], ['manual', 'Manual price']]) },
       { key: 'manualPrice', label: 'Current price', type: 'number', showIf: (v) => v.source === 'manual' },
       { key: 'divMode', label: 'Dividends', type: 'select', options: opt([['', 'None / not tracked'], ['perShare', 'Dividend per share (per year)'], ['yield', 'Dividend yield (%)']]) },
@@ -84,7 +85,7 @@ const SECTIONS = {
       if (!item.divMode) { delete item.dividendPerShare; delete item.dividendYield; delete item.dividendReinvest; }
     },
     columns: holdingColumns('symbol'),
-    total: (items) => items.reduce((s, h) => s + (toBase(Calc.holdingValue(h).marketValue, h.currency) || 0), 0),
+    total: (items) => items.reduce((s, h) => s + (toBase(hv(h).marketValue, h.currency) || 0), 0),
   },
 
   crypto: {
@@ -96,7 +97,8 @@ const SECTIONS = {
       { key: 'symbol', label: 'Symbol', upper: true, placeholder: 'BTC' },
       platformField('Exchange / wallet', 'e.g. Coinbase, Ledger'),
       { key: 'quantity', label: 'Quantity', type: 'number', required: true },
-      { key: 'avgCost', label: 'Average cost per coin', type: 'number', required: true },
+      { key: 'avgCost', label: 'Average cost per coin', type: 'number', required: true, signed: true },
+      { key: 'costMethod', label: 'Cost method', type: 'select', options: () => COST_METHODS_FIELD() },
       { ...currencyField, label: 'Cost currency' },
       { key: 'source', label: 'Price source', type: 'select', options: opt([['live', 'Live (CoinGecko)'], ['manual', 'Manual price']]) },
       { key: 'manualPrice', label: 'Current price', type: 'number', showIf: (v) => v.source === 'manual' },
@@ -106,7 +108,7 @@ const SECTIONS = {
     },
     columns: holdingColumns('coin'),
     actions: [{ id: 'trade-buy', label: 'Buy' }, { id: 'trade-sell', label: 'Sell' }],
-    total: (items) => items.reduce((s, h) => s + (toBase(Calc.holdingValue(h).marketValue, h.currency) || 0), 0),
+    total: (items) => items.reduce((s, h) => s + (toBase(hv(h).marketValue, h.currency) || 0), 0),
   },
 
   deposits: {
@@ -475,19 +477,19 @@ function holdingColumns(kind) {
   return [
     { label: kind === 'coin' ? 'Coin' : 'Holding', render: (h) => `<strong>${esc(kind === 'coin' ? h.symbol || h.coinId : h.symbol)}</strong><div class="sub">${platformLine(h, kind === 'coin' ? h.coinId : h.name)}</div>` },
     { label: 'Qty', num: true, render: (h) => num(h.quantity, 8) },
-    { label: 'Avg cost', num: true, render: (h) => money(h.avgCost, h.currency) },
-    { label: 'Price', num: true, render: (h) => { const v = Calc.holdingValue(h); return `${money(v.price, h.currency)}<div class="sub">${v.live ? '<span class="live-dot"></span>live' : h.source === 'manual' ? 'manual' : 'waiting…'}</div>`; } },
-    { label: kind === 'coin' ? '24h' : 'Today', num: true, render: (h) => { const v = Calc.holdingValue(h); return v.live && h.prevClose ? `${signed(v.dayChange, h.currency)}<div class="sub">${pct(v.dayChangePct)}</div>` : '—'; } },
-    { label: 'Market value', num: true, primary: true, render: (h) => money(Calc.holdingValue(h).marketValue, h.currency) },
+    { label: 'Avg cost', num: true, render: (h) => { const v = hv(h); return `${money(v.avgCost, h.currency)}${Calc.costMethod(state, h) === 'diluted' ? '<div class="sub">diluted</div>' : ''}`; } },
+    { label: 'Price', num: true, render: (h) => { const v = hv(h); return `${money(v.price, h.currency)}<div class="sub">${v.live ? '<span class="live-dot"></span>live' : h.source === 'manual' ? 'manual' : 'waiting…'}</div>`; } },
+    { label: kind === 'coin' ? '24h' : 'Today', num: true, render: (h) => { const v = hv(h); return v.live && h.prevClose ? `${signed(v.dayChange, h.currency)}<div class="sub">${pct(v.dayChangePct)}</div>` : '—'; } },
+    { label: 'Market value', num: true, primary: true, render: (h) => money(hv(h).marketValue, h.currency) },
     ...(kind === 'coin' ? [] : [{
       label: 'Dividends / yr', num: true,
       render: (h) => {
         const y = Calc.dividendPerYear(h);
-        const mv = Calc.holdingValue(h).marketValue;
+        const mv = hv(h).marketValue;
         return y > 0 ? `${money(y, h.currency)}<div class="sub">${mv ? `${((y / mv) * 100).toFixed(2)}% · ` : ''}${h.dividendReinvest ? 'reinvested' : 'paid out'}</div>` : '<span class="sub">—</span>';
       },
     }]),
-    { label: 'Profit / loss', num: true, render: (h) => { const v = Calc.holdingValue(h); return `${signed(v.pnl, h.currency)}<div class="sub">${pct(v.pnlPct)}</div>`; } },
+    { label: 'Profit / loss', num: true, render: (h) => { const v = hv(h); return `${signed(v.pnl, h.currency)}<div class="sub">${pct(v.pnlPct)}</div>`; } },
   ];
 }
 
