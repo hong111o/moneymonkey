@@ -157,12 +157,12 @@
 
   const FREQ = opt([['weekly', 'Weekly'], ['biweekly', 'Every 2 weeks'], ['monthly', 'Monthly'], ['quarterly', 'Quarterly'], ['semiannually', 'Every 6 months'], ['yearly', 'Yearly'], ['once', 'One-off']]);
   const COMPOUNDING = opt([['simple', 'Simple / paid at maturity'], ['monthly', 'Compounded monthly'], ['quarterly', 'Compounded quarterly'], ['semiannually', 'Compounded semi-annually'], ['annually', 'Compounded annually']]);
-  const FLOW_KINDS = opt([['income', 'Income'], ['expense', 'Expense'], ['subscription', 'Subscription'], ['saving', 'Saving / investing']]);
+  const FLOW_KINDS = opt([['income', 'Income'], ['expense', 'Expense'], ['subscription', 'Subscription'], ['saving', 'Saving / investing'], ['transfer', 'Transfer between my accounts']]);
   const ACCOUNT_TYPES = opt([['savings', 'Savings'], ['saver', 'Saver (earns interest)'], ['current', 'Current / checking'], ['brokerage', 'Brokerage cash (uninvested)'], ['ewallet', 'E-wallet'], ['cash', 'Cash on hand'], ['moneymarket', 'Money market'], ['other', 'Other']]);
   const OTHER_CATS = opt([['vehicle', 'Vehicle'], ['gold', 'Gold / precious metals'], ['retirement', 'Retirement / pension (MPF, SIPP…)'], ['insurance', 'Insurance cash value'], ['business', 'Business stake'], ['receivable', 'Money owed to me'], ['collectible', 'Collectibles'], ['other', 'Other']]);
   const LOAN_TYPES = opt([['mortgage', 'Mortgage'], ['car', 'Car loan'], ['personal', 'Personal loan'], ['credit', 'Credit card'], ['student', 'Student loan'], ['other', 'Other']]);
   const ON_MATURITY = opt([['cash', 'Move capital + interest to cash'], ['renew', 'Renew automatically (same term & rate)'], ['keep', 'Do nothing — I’ll update it myself']]);
-  const EVENT_LABELS = { income: 'Income', expense: 'Expense', subscription: 'Subscription', saving: 'Saving', deposit: 'Deposit', property: 'Property', card: 'Card bill', saver: 'Saver' };
+  const EVENT_LABELS = { transfer: 'Transfer', income: 'Income', expense: 'Expense', subscription: 'Subscription', saving: 'Saving', deposit: 'Deposit', property: 'Property', card: 'Card bill', saver: 'Saver' };
   const CATEGORY_COLORS = { cash: 'var(--series-1)', stocks: 'var(--series-2)', crypto: 'var(--series-3)', deposits: 'var(--series-4)', property: 'var(--series-5)', other: 'var(--series-6)' };
   const CATEGORY_LABELS = { cash: 'Cash & bank', stocks: 'Stocks & ETFs', crypto: 'Crypto', deposits: 'Fixed deposits', property: 'Property', other: 'Other assets' };
   const CATEGORY_VIEW = { cash: 'accounts', stocks: 'stocks', crypto: 'crypto', deposits: 'deposits', property: 'properties', other: 'others' };
@@ -505,7 +505,7 @@
         { key: 'amount', label: 'Amount', type: 'number', required: true },
         currencyField,
         { key: 'frequency', label: 'How often', type: 'select', options: FREQ, default: () => 'monthly' },
-        { key: 'nextDate', label: 'Next payment date', type: 'date', default: todayISO },
+        { key: 'nextDate', label: 'Next payment date', type: 'date', default: todayISO, help: 'For a one-off: the date it happened (or will). It counts in that month only.' },
         { key: 'onCard', label: 'Paid by credit card (already included in the card spending I record)', type: 'checkbox', span: true, showIf: (v) => v.kind === 'expense' || v.kind === 'subscription' },
         {
           key: 'rentLink', label: 'Is this rent from one of your properties?', type: 'select', span: true, transient: true, showIf: (v) => v.kind === 'income' && state.properties.some((p) => +p.monthlyRent > 0),
@@ -523,13 +523,19 @@
           help: 'Loan repayments are counted in your spending from Loans & Debts; linking a bill here makes sure it’s only counted once.',
         },
         {
-          key: 'accountId', label: 'Paid from / into account (optional)', type: 'select', span: true,
+          key: 'accountId', label: 'Paid from / into account (optional — for a transfer: from)', type: 'select', span: true,
           showIf: (v) => !(v.onCard && (v.kind === 'expense' || v.kind === 'subscription')),
           options: () => [{ value: '', label: 'Not linked — just for my budget' }, ...state.accounts.map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }))],
           help: 'On each payment date MoneyMonkey asks you to confirm before changing that account’s balance.',
         },
+        {
+          key: 'toAccountId', label: 'Into account', type: 'select', span: true, showIf: (v) => v.kind === 'transfer' || (v.kind === 'saving' && !!v.accountId),
+          options: (v) => [{ value: '', label: v.kind === 'transfer' ? 'Choose the account it goes into' : 'Not tracked — e.g. spent on investments directly' }, ...state.accounts.filter((a) => a.id !== v.accountId).map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }))],
+          help: 'When you confirm it, the money leaves the first account and arrives here — e.g. HSBC → Futu cash each month. Your net worth stays the same.',
+        },
         { key: 'active', label: 'Active', type: 'checkbox', default: () => true },
       ],
+      validate: (v) => (v.kind === 'transfer' && (!v.accountId || !v.toAccountId) ? 'A transfer needs both accounts: where it comes from and where it goes.' : null),
       editValues: (item) => ({ ...item, loanLink: item.notLoan ? '__none' : item.loanId || '', rentLink: item.notRent ? '__none' : item.propertyId || '', saverLink: item.notSaver ? '__none' : item.saverId || '' }),
       beforeSave: (item, prev) => {
         if (item.rentLink !== undefined) {
@@ -551,6 +557,7 @@
           if (!item.notLoan) delete item.notLoan;
         }
         if (item.onCard && (item.kind === 'expense' || item.kind === 'subscription')) item.accountId = '';
+        if (!item.toAccountId || !item.accountId) delete item.toAccountId;
         if (!item.accountId) {
           delete item.trackFrom;
           delete item.lastHandled;
@@ -561,7 +568,7 @@
         }
       },
       columns: [
-        { label: 'Item', render: (c) => `<strong>${esc(c.name)}</strong><div class="sub"><span class="badge kind-${esc(c.kind)}">${esc(labelOf(FLOW_KINDS, c.kind))}</span>${c.onCard ? ' <span class="badge" title="Paid by credit card">💳 card</span>' : ''}${c.accountId && accountName(c.accountId) ? ` <span class="badge" title="Linked account — you confirm each payment">↔ ${esc(accountName(c.accountId))}</span>` : ''} ${esc(c.category || '')}</div>` },
+        { label: 'Item', render: (c) => `<strong>${esc(c.name)}</strong><div class="sub"><span class="badge kind-${esc(c.kind)}">${esc(labelOf(FLOW_KINDS, c.kind))}</span>${c.onCard ? ' <span class="badge" title="Paid by credit card">💳 card</span>' : ''}${c.accountId && accountName(c.accountId) ? ` <span class="badge" title="Linked account — you confirm each payment">↔ ${esc(accountName(c.accountId))}${c.toAccountId && accountName(c.toAccountId) ? ` → ${esc(accountName(c.toAccountId))}` : ''}</span>` : ''} ${esc(c.category || '')}</div>` },
         { label: 'Amount', num: true, primary: true, render: (c) => `${money(c.amount, c.currency)}<div class="sub">${esc(labelOf(FREQ, c.frequency))}</div>` },
         { label: 'Per month', num: true, render: (c) => money(toBase(Calc.monthlyAmount(c), c.currency)) },
         { label: 'Per year', num: true, render: (c) => money(toBase(Calc.monthlyAmount(c) * 12, c.currency)) },
@@ -843,6 +850,7 @@
       const name = esc(e.name).replace(/\((\d{4}-\d{2})\)/, (_, m) => `(${fmtMonth(m)})`);
       if (e.outcome === 'notpaid') return `${name}: marked as not paid.`;
       if (e.outcome === 'included') return `${name}: ${money(Math.abs(e.amount), e.currency)} marked as already in the balance${e.accountName ? ` of “${esc(e.accountName)}”` : ''} — nothing changed.`;
+      if (e.toAccountId) return `${name}: ${money(Math.abs(e.amount), e.currency)} moved from “${esc(e.accountName)}” to “${esc(e.toAccountName)}”${e.toCurrency !== e.currency ? ` (received ${money(e.received, e.toCurrency)})` : ''}.`;
       return `${name}: ${money(Math.abs(e.amount), e.currency)} ${e.amount < 0 ? 'paid from' : 'received into'} “${esc(e.accountName)}”${e.paidAmount != null ? ` (${money(e.paidAmount, e.paidCurrency)})` : ''}.`;
     }
     if (e.kind === 'trade') return `${e.side === 'buy' ? 'Bought' : 'Sold'} ${num(e.quantity, 8)} ${esc(e.symbol)} at ${money(e.price, e.currency)}${e.fee ? ` (fee ${money(e.fee, e.currency)})` : ''} — ${e.side === 'buy' ? '−' : '+'}${money(e.cashAmount, e.cashCurrency)}${e.side === 'sell' && e.realised != null ? `, profit ${signed(e.realised, e.currency)}` : ''}.`;
@@ -883,9 +891,7 @@
       const inner = `<span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${label}</span><span class="num">${amt}</span>`;
       return e.ref ? `<li class="clickable has-chev" data-action="open-event" data-kind="${esc(e.kind)}" data-id="${esc(e.ref)}" data-date="${esc(e.date)}" data-account="${esc(e.accountId || '')}" data-card="${esc(e.cardId || '')}" tabindex="0">${inner}<span class="chev" aria-hidden="true">›</span></li>` : `<li>${inner}</li>`;
     }).join('');
-    const recent = state.activity.filter((e) => String(e.kind).startsWith('deposit-') && Calc.daysBetween(e.date, todayISO()) <= 14).slice(0, 3);
-    const alerts = [...recent.map((e) => ({ level: 'good', html: activityText(e) })), ...s.alerts, ...setupAlerts()]
-      .map((a) => `<li class="alert ${a.level}"><span aria-hidden="true">${a.level === 'warn' ? '⚠' : a.level === 'good' ? '✓' : 'ℹ'}</span><span>${a.html || esc(a.text)}</span></li>`).join('');
+    const alerts = attentionRow(dashboardAlerts());
 
     const { platforms, regions } = Calc.platformBreakdown(state, todayISO());
     const named = platforms.filter((p) => p.name);
@@ -955,6 +961,23 @@
         <h2>Goals</h2>
         ${state.goals.length ? state.goals.map(goalCard).join('') : '<p class="sub">No goals yet. <a href="#goals">Set one</a> — e.g. an emergency fund of 6 months’ expenses.</p>'}
       </section>`;
+  }
+
+  // Everything that needs a look: recent maturities, stale values, payments, check-in, setup.
+  function dashboardAlerts() {
+    const recent = state.activity.filter((e) => String(e.kind).startsWith('deposit-') && Calc.daysBetween(e.date, todayISO()) <= 14).slice(0, 3);
+    // Things to act on (payments, check-in) first, then warnings, setup hints and news.
+    const all = [...setupAlerts(), ...summary.alerts, ...recent.map((e) => ({ level: 'good', html: activityText(e) }))];
+    const rank = (a) => (/data-action="(review-payments|checkin)"/.test(a.html || '') ? 0 : a.level === 'warn' ? 1 : a.level === 'good' ? 3 : 2);
+    return all.map((a, i) => [a, i]).sort((x, y) => rank(x[0]) - rank(y[0]) || x[1] - y[1]).map(([a]) => a);
+  }
+  const alertItem = (a) => `<li class="alert ${a.level}"><span aria-hidden="true">${a.level === 'warn' ? '⚠' : a.level === 'good' ? '✓' : 'ℹ'}</span><span>${a.html || esc(a.text)}</span></li>`;
+  // One row on Home instead of a stack of notices: a single one is shown as it is; more open a list.
+  function attentionRow(list) {
+    if (list.length <= 1) return list.map(alertItem).join('');
+    const short = (a) => { const t = (a.text || a.html.replace(/<[^>]+>/g, '')).split(/[:—.]/)[0].trim(); return t.length > 40 ? `${t.slice(0, 38)}…` : t; };
+    const todo = list.filter((a) => a.level !== 'good').length;
+    return `<li class="alert attention clickable" data-action="attention" tabindex="0" role="button"><span aria-hidden="true">${todo ? '⚠' : '✓'}</span><span class="grow"><strong>${todo ? `${plural(todo, 'thing')} need${todo === 1 ? 's' : ''} attention` : 'Updates'}</strong><span class="sub"> · ${esc(list.slice(0, 2).map(short).join(' · '))}${list.length > 2 ? ` · ${list.length - 2} more` : ''}</span></span><span class="chev" aria-hidden="true">›</span></li>`;
   }
 
   function setupAlerts() {
@@ -1058,6 +1081,7 @@
           ${currencies.length > 1 ? `<select class="filter" data-filter="accountsCurrency" aria-label="Filter by currency"><option value="__all">All currencies</option>${currencies.map((c) => `<option value="${esc(c)}" ${curFilter === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : ''}
           ${key === 'stocks' || key === 'crypto' ? `<button class="btn" data-action="refresh">↻ Prices</button><button class="btn" data-action="trade-buy" data-sec="${key}">Buy / sell</button>` : ''}
           ${key === 'accounts' && state.accounts.length ? '<button class="btn" data-action="checkin">Check-in</button><button class="btn" data-action="transfer">Transfer / exchange</button>' : ''}
+          ${key === 'cashflows' ? '<button class="btn" data-action="add" data-sec="cashflows" data-once="1">+ Extra / one-off</button>' : ''}
           <button class="btn primary" data-action="add" data-sec="${key}">+ Add</button>
         </div>
       </div>
@@ -2157,13 +2181,17 @@
   }
 
   function quickAdd() {
-    const items = [['accounts', '¤', 'Bank / cash account'], ['stocks', '↗', 'Stock or ETF'], ['crypto', '₿', 'Crypto'], ['deposits', '%', 'Fixed deposit'], ['properties', '⌂', 'Property'], ['others', '◆', 'Other asset'], ['liabilities', '−', 'Loan or debt'], ['cashflows', '⇄', 'Income, bill or subscription'], ['spending', '💳', 'Card statement'], ['cards', '💳', 'Credit card'], ['transfer', '⇆', 'Transfer between my accounts'], ['goals', '★', 'Goal']];
+    const items = [['accounts', '¤', 'Bank / cash account'], ['stocks', '↗', 'Stock or ETF'], ['crypto', '₿', 'Crypto'], ['deposits', '%', 'Fixed deposit'], ['properties', '⌂', 'Property'], ['others', '◆', 'Other asset'], ['liabilities', '−', 'Loan or debt'], ['cashflows', '⇄', 'Income, bill or subscription'], ['once', '✦', 'Extra income / one-off cost'], ['spending', '💳', 'Card statement'], ['cards', '💳', 'Credit card'], ['transfer', '⇆', 'Transfer between my accounts'], ['goals', '★', 'Goal']];
     openSheet('Add…', `<div class="choice-grid">${items.map(([k, icon, label]) => `<button class="choice" data-sheet-add="${k}"><span class="icon" aria-hidden="true">${icon}</span>${label}</button>`).join('')}</div>`, (e) => {
       const b = e.target.closest('[data-sheet-add]');
       if (!b) return;
       const sec = b.dataset.sheetAdd;
       dialog().close();
       if (sec === 'transfer') return openTransfer();
+      if (sec === 'once') {
+        if (currentView !== 'cashflows') { history.replaceState(null, '', '#cashflows'); currentView = 'cashflows'; render(); }
+        return editItem('cashflows', null, { frequency: 'once', category: 'One-off', kind: 'income' });
+      }
       const view = sec === 'spending' || sec === 'cards' ? 'cashflows' : sec;
       if (currentView !== view) {
         // Show the list we're adding to, then open the form on top of it.
@@ -2530,12 +2558,17 @@
           <label class="check"><input type="checkbox" class="pay-always" ${ui.always.get(p.key) ? 'checked' : ''}> Always ${p.sign > 0 ? 'receive this into' : 'pay this from'} here</label>
         </div>` : '';
       const change = ui.open.has(p.key) ? '' : ` <button type="button" class="linklike" data-pay-change>Change</button>`;
+      // A transfer also lands in another account; if that's in another currency, ask what arrived.
+      const dest = acct && p.toAccountId ? state.accounts.find((a) => a.id === p.toAccountId) : null;
+      const destCur = dest ? Calc.paymentCurrency(dest, p.currency) : null;
+      const destLine = dest ? `<div class="sub">→ into <strong>${esc(dest.name)}</strong>${dest.platform ? ` · ${esc(dest.platform)}` : ''}${destCur !== p.currency ? ` · received in ${esc(destCur)}: <input class="pay-recv" data-cur="${esc(destCur)}" type="number" step="any" inputmode="decimal" value="${convertedPay(ui.amt.get(p.key) ?? p.amount, p.currency, destCur)}" aria-label="Amount received in ${esc(destCur)}">` : ''}</div>` : '';
       const buttons = p.type === 'saver'
         ? `${acct ? '<button class="btn primary small" data-pay="apply">Pay in</button>' : ''}<button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already moved' : 'Paid in'}</button><button class="btn small ghost" data-pay="none">Not paid</button>`
         : `${acct ? `<button class="btn primary small" data-pay="apply">${p.sign > 0 ? 'Add' : 'Deduct'}</button>` : ''}<button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already included' : p.type === 'card' ? 'Mark paid' : 'Dismiss'}</button>`;
       return `<div class="pay-item" data-key="${esc(p.key)}" data-cur="${esc(p.currency)}">
         <div class="pay-head"><span class="badge ${p.sign > 0 ? 'kind-income' : 'kind-expense'}">${p.sign > 0 ? 'In' : 'Out'}</span><strong class="grow">${payName(p)}</strong><span class="sub">${fmtDate(p.date)}</span></div>
         <div class="sub">${acct ? `${dir} <strong>${esc(acct.name)}</strong>${acct.platform ? ` · ${esc(acct.platform)}` : ''}${p.type === 'saver' ? ' into the saver' : ''}` : p.accountId ? 'From <span class="neg">an account that was deleted</span>' : p.type === 'saver' ? 'No paying account linked — this just records it in the saver' : 'No account linked — this just marks it paid'} · ${esc(p.currency)}${change}</div>
+        ${destLine}
         ${picker}
         ${confirmedAfter ? `<div class="hint">You updated this balance on ${fmtDate(acct.updatedAt)}, so it may already include this.</div>` : ''}
         ${cross ? `<div class="pay-row">${amtInput}</div>${cross}<div class="pay-row">${buttons}</div>` : `<div class="pay-row">${amtInput}${buttons}</div>`}
@@ -2567,7 +2600,9 @@
           if (left > 0 && !confirm(`“${acct.name}” only has ${money((from ? from.amount : amt) - left, cur)} in ${cur} in the app — this would leave it at ${money(-left, cur)}. If its real balance is higher, update it first. Deduct anyway?`)) return;
         }
         const snap = JSON.stringify(state);
-        const res = Calc.resolvePayment(state, none ? { ...p, paidIn: false } : p, apply, amt, Date.now(), from);
+        const recv = $('.pay-recv', box);
+        const pp = recv ? { ...p, toCurrency: recv.dataset.cur, received: +recv.value } : p;
+        const res = Calc.resolvePayment(state, none ? { ...pp, paidIn: false } : pp, apply, amt, Date.now(), from);
         if (ui.always.get(p.key) && ui.acct.has(p.key)) setPayingAccount(p, p.accountId || '');
         ui.acct.delete(p.key); ui.amt.delete(p.key); ui.open.delete(p.key); ui.always.delete(p.key);
         commit();
@@ -2591,6 +2626,7 @@
           return redraw();
         }
         if (box && e.target.classList.contains('pay-always')) { ui.always.set(box.dataset.key, e.target.checked); return; }
+        if (box && e.target.classList.contains('pay-amt') && $('.pay-recv', box)) { const r = $('.pay-recv', box); r.value = convertedPay(e.target.value, box.dataset.cur, r.dataset.cur); }
         if (!box || !$('.pay-from', box) || e.target.classList.contains('pay-conv')) return;
         $('.pay-conv', box).value = convertedPay($('.pay-amt', box).value, box.dataset.cur, $('.pay-from', box).value);
       };
@@ -3267,6 +3303,8 @@
     // but paid from an HKD-only account, so its box asks how much HKD the bank took.
     const link = (name, accountId, nextDate) => Object.assign(s.cashflows.find((c) => c.name === name), { accountId, nextDate, trackFrom: nextDate });
     link('Salary', hsbcId, d(-2));
+    // Saving into another account: confirmed like a payment, arrives at Futu cash.
+    Object.assign(link('Monthly investing', hsbcId, d(10)), { toAccountId: s.accounts.find((a) => a.name === 'Futu cash').id });
     link('Rent (HK)', hsbcId, d(1));
     link('iCloud+', zaId, d(-1));
     s.cards = [
@@ -3326,6 +3364,7 @@
         if (b.dataset.account) preset.accountId = b.dataset.account;
         if (b.dataset.card) preset.cardId = b.dataset.card;
         if (b.dataset.kind) preset.kind = b.dataset.kind;
+        if (b.dataset.once) Object.assign(preset, { frequency: 'once', category: 'One-off', kind: 'income' });
         if (b.dataset.type) {
           preset.type = b.dataset.type;
           if (b.dataset.type === 'brokerage' && preset.platform) preset.name = `${preset.platform} cash`;
@@ -3341,6 +3380,7 @@
       case 'open-card': location.hash = `#card/${encodeURIComponent(id)}`; return;
       case 'pay-card': return payCardBill(id);
       case 'open-event': return openEvent(b.dataset);
+      case 'attention': return openSheet('Needs attention', `<ul class="alerts">${dashboardAlerts().map(alertItem).join('')}</ul>`, (e) => { if (e.target.closest('a')) dialog().close(); });
       case 'activity-all': filters.activityAll = id; return render();
       case 'undo-payment': {
         const entry = state.activity.find((x) => x.id === id);

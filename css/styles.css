@@ -575,3 +575,6 @@ table.legend a:hover { text-decoration: underline; }
 .linklike { background: none; border: 0; padding: 0 2px; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
 .pay-pick { flex-direction: column; align-items: stretch; }
 .pay-pick .pay-acct { width: 100%; }
+.alert.attention { align-items: center; cursor: pointer; }
+.alert.attention .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+dialog .alerts { margin: 0; }

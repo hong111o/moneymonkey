@@ -90,6 +90,13 @@ The Cash Flow page starts with:
 - **Loan repayments** from Loans & Debts are counted in spending automatically. If a bill is the same payment (same currency and amount), it's counted once. Tap "Not the same" if that's wrong, or link a bill to a loan in its form.
 - **Matches the app guessed** (rent, a regular saver payment, a loan repayment entered again as an income, saving or bill item) show as blue notes. Tap **Yes, same** to link them, or **Not the same** to keep them separate. Either way the note goes away, and you can change it later in the item's form.
 
+### Extras and regular transfers
+
+- **+ Extra / one-off** (top of Cash Flow, or the **+** button) opens a one-off item: a bonus, tax refund or big purchase. It counts in its own month only.
+- **Regular transfers between your own accounts:** choose the type **Transfer between my accounts** and pick a **From** and an **Into** account, e.g. HK$5,000 from HSBC to Trading 212 every month. Not counted as income or spending.
+- **Saving into another account:** a **Saving / investing** item linked to an account can also have an **Into** account, e.g. HK$8,000 from HSBC to Futu cash. It counts as saving in the plan.
+- **Confirming:** both kinds are confirmed in the payment box like other payments. The money leaves one account and arrives in the other, so your net worth stays the same. If the destination holds another currency, you enter what arrived. Undo reverses both sides.
+
 ### Credit cards
 
 On the Cash Flow page, **Credit cards & monthly spending** keeps your cards and their statements together:
@@ -136,7 +143,7 @@ If part of a broker or exchange account is uninvested cash, add it with **+ Cash
 - Investment P&L, today's market move, net cash flow, savings rate, passive income, emergency runway, subscriptions
 - Allocation donut, **by region & platform** breakdown, net-worth history chart (one snapshot per day)
 - The next 30 days: bills, pay days, deposit maturities, property updates due. Amounts show in their own currency with the converted amount underneath. Tap a row to open it. If it's due or overdue, the payment box opens.
-- Alerts: matured deposits that were moved to cash, stale property values, spending to record
+- **Needs attention:** one row on Home lists what to do: payments to confirm, the check-in, values due for an update, deposits that matured. Tap it to see them all.
 
 ### Tappable boxes on other pages
 

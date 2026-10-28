@@ -592,6 +592,7 @@
       if (cf.active === false) continue;
       const monthly = toBase(monthlyAmount(cf), cf.currency);
       const isBill = cf.kind === 'expense' || cf.kind === 'subscription';
+      if (cf.kind === 'transfer') { for (const date of occurrences(cf, today, horizon)) events.push({ date, label: cf.name, amount: toBase(cf.amount, cf.currency), kind: 'transfer', ref: cf.id, orig: +cf.amount, currency: cf.currency }); continue; }
       if (!matchedIds.has(cf.id)) {
         flow[cf.kind] = (flow[cf.kind] || 0) + monthly;
         if (isBill && !cf.onCard) notOnCard += monthly;
@@ -782,7 +783,7 @@
     return row;
   }
 
-  const OUTGOING = { expense: true, subscription: true, saving: true };
+  const OUTGOING = { expense: true, subscription: true, saving: true, transfer: true };
 
   // Payments waiting for the user to confirm: cash-flow items linked to an account whose dates
   // have arrived (card-paid bills are skipped — they're in the card statement), and card bills
@@ -809,7 +810,7 @@
       // Dates re-opened by undoing an answer come back too.
       const dates = [...new Set([...occurrences(cf, from, today), ...(cf.reask || []).filter((d) => d <= today)])].sort();
       for (const date of dates) {
-        out.push({ key: `cf:${cf.id}:${date}`, type: 'cashflow', id: cf.id, date, name: cf.name, amount: +cf.amount || 0, currency: cf.currency, accountId: cf.accountId, sign: OUTGOING[cf.kind] ? -1 : 1 });
+        out.push({ key: `cf:${cf.id}:${date}`, type: 'cashflow', id: cf.id, date, name: cf.name, amount: +cf.amount || 0, currency: cf.currency, accountId: cf.accountId, toAccountId: cf.toAccountId || null, sign: OUTGOING[cf.kind] ? -1 : 1 });
       }
     }
     for (const e of unpaidCardBills(state)) {
@@ -845,6 +846,12 @@
       else adjustLine(acct, p.currency, p.sign * amount, p.date);
       acct._mt = nowMs;
     }
+    // A transfer (or saving into another account) also arrives in the destination account, in
+    // `p.toCurrency` (`p.received`, e.g. at the bank's rate; same currency: the amount itself).
+    const dest = apply && acct && p.toAccountId ? (state.accounts || []).find((a) => a.id === p.toAccountId) : null;
+    const toCurrency = dest ? p.toCurrency || paymentCurrency(dest, p.currency) : null;
+    const received = dest ? round2(toCurrency === p.currency || p.received == null ? amount : +p.received) : null;
+    if (dest) { adjustLine(dest, toCurrency, received, p.date); dest._mt = nowMs; }
     const unask = (item) => { if (item.reask) { item.reask = item.reask.filter((d) => d !== p.date); if (!item.reask.length) delete item.reask; } };
     const prev = {};
     if (p.type === 'saver') {
@@ -877,6 +884,7 @@
       accountId: named ? named.id : null, accountName: named ? named.name : null, prev, _mt: nowMs,
     };
     if (applied && other) { entry.paidCurrency = other.currency; entry.paidAmount = round2(+other.amount); }
+    if (dest) Object.assign(entry, { toAccountId: dest.id, toAccountName: dest.name, toCurrency, received });
     state.activity = [entry, ...(state.activity || []).filter((x) => x.id !== entry.id)].slice(0, ACTIVITY_MAX);
     return entry;
   }
@@ -896,6 +904,8 @@
         else adjustLine(acct, entry.currency, -entry.amount, entry.date);
         acct._mt = nowMs;
       }
+      const dest = entry.toAccountId && (state.accounts || []).find((a) => a.id === entry.toAccountId);
+      if (dest) { adjustLine(dest, entry.toCurrency, -entry.received, entry.date); dest._mt = nowMs; }
     }
     const reopen = (item) => {
       // The latest answer: step back. An earlier one: ask about that date again.
