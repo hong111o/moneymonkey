@@ -189,7 +189,7 @@ function renderAccount(id) {
   const meta = [a.platform ? `<a href="#platform/${encodeURIComponent(a.platform)}">${esc(a.platform)}</a>` : '', esc(labelOf(ACCOUNT_TYPES, a.type)), esc(a.note || '')].filter(Boolean).join(' · ');
   return `<a class="back" href="#accounts">‹ Cash &amp; Bank</a>
     <div class="page-head">
-      <div><h1>${esc(a.name)}</h1><p class="sub">${meta}</p></div>
+      <div><h1 class="keep-case">${esc(a.name)}</h1><p class="sub">${meta}</p></div>
       <div class="row-actions"><button class="btn" data-action="transfer" data-account="${esc(a.id)}">Transfer / exchange</button><button class="btn" data-action="edit" data-sec="accounts" data-id="${esc(a.id)}">Edit account</button></div>
     </div>
     <section class="tiles">
@@ -294,7 +294,7 @@ function renderRegion(name) {
 
 // ---------------------------------------------------------------- one platform
 
-const PLATFORM_GROUP_TITLES = [['accounts', 'Cash accounts'], ['deposits', 'Fixed deposits'], ['stocks', 'Stocks & ETFs'], ['crypto', 'Crypto'], ['properties', 'Property'], ['others', 'Other assets'], ['liabilities', 'Loans & debts']];
+const PLATFORM_GROUP_TITLES = [['accounts', 'Cash accounts'], ['deposits', 'Fixed deposits'], ['stocks', 'Stocks & ETFs'], ['crypto', 'Crypto'], ['properties', 'Property'], ['others', 'Other assets'], ['liabilities', 'Debts']];
 
 function renderPlatformDetail(name) {
   const p = Calc.platformBreakdown(state, todayISO()).platforms.find((x) => x.name === name);

@@ -39,6 +39,12 @@
   }
 
   // points: [{ date: 'YYYY-MM-DD', value }]; format: number -> string
+  // "2026-10-28" → "28 Oct 2026", the same way dates are written across the app.
+  function fmtDay(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    return m ? `${+m[3]} ${'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ')[+m[2] - 1]} ${m[1]}` : String(iso || '');
+  }
+
   function lineChart(points, opts = {}) {
     const W = opts.width || 640;
     const H = opts.height || 220;
@@ -57,21 +63,17 @@
     const y = (v) => pad.t + (1 - (v - min) / (max - min)) * (H - pad.t - pad.b);
     const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join('');
     const area = `${path}L${x(points.length - 1).toFixed(1)},${H - pad.b}L${x(0).toFixed(1)},${H - pad.b}Z`;
-    const grid = [0.25, 0.5, 0.75]
-      .map((f) => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${pad.t + f * (H - pad.t - pad.b)}" y2="${pad.t + f * (H - pad.t - pad.b)}" class="grid"/>`)
-      .join('');
     const fmt = opts.format || String;
-    const data = esc(JSON.stringify(points.map((p, i) => [x(i), y(p.value), p.date, fmt(p.value)])));
+    const day = opts.formatDate || fmtDay;
+    const data = esc(JSON.stringify(points.map((p, i) => [x(i), y(p.value), day(p.date), fmt(p.value)])));
     return `<div class="line-wrap" data-points="${data}" data-w="${W}">
       <svg viewBox="0 0 ${W} ${H}" class="line-chart" preserveAspectRatio="none" role="img" aria-label="Net worth over time">
-        ${grid}
-        <line x1="${pad.l}" x2="${W - pad.r}" y1="${H - pad.b}" y2="${H - pad.b}" class="axis"/>
         <path d="${area}" class="area"/>
         <path d="${path}" class="line" vector-effect="non-scaling-stroke"/>
         <line class="crosshair" x1="0" x2="0" y1="${pad.t}" y2="${H - pad.b}" vector-effect="non-scaling-stroke" style="display:none"/>
       </svg>
       <div class="line-dot" style="display:none"></div>
-      <div class="axis-labels"><span>${esc(points[0].date)}</span><span>${esc(points[points.length - 1].date)}</span></div>
+      <div class="axis-labels"><span>${esc(day(points[0].date))}</span><span>${esc(day(points[points.length - 1].date))}</span></div>
     </div>`;
   }
 
@@ -116,7 +118,7 @@
     const d = values
       .map((v, i) => `${i ? 'L' : 'M'}${((i / (values.length - 1)) * (W - 4) + 2).toFixed(1)},${(2 + (1 - (v - min) / (max - min)) * (H - 4)).toFixed(1)}`)
       .join('');
-    return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><path d="${d}"/></svg>`;
+    return `<svg class="spark ${opts.cls || ''}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><path d="${d}"/></svg>`;
   }
 
   root.Charts = { donut, lineChart, bindLineHover, sparkline };

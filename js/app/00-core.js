@@ -111,7 +111,7 @@ function signed(v, cur = base(), dp = 2) {
 
 function pct(v, withSign = true) {
   if (v == null || !isFinite(v)) return '—';
-  const s = (v * 100).toFixed(2) + '%';
+  const s = (v * 100).toFixed(1) + '%';
   if (!withSign) return s;
   const cls = v > 0.00005 ? 'pos' : v < -0.00005 ? 'neg' : '';
   return `<span class="${cls}">${v > 0 ? '+' : ''}${s}</span>`;
@@ -129,9 +129,11 @@ const toBase = (amt, cur) => {
   const v = Calc.convert(+amt || 0, cur || base(), base(), state.fx);
   return isFinite(v) ? v : NaN;
 };
+// One date style everywhere: "28 Oct 2026".
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const fmtDate = (iso) => {
   const d = Calc.parseDate(iso);
-  return d ? d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+  return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : '—';
 };
 const ago = (iso) => {
   if (!iso) return 'never';
@@ -146,7 +148,7 @@ const labelOf = (options, v) => (options.find((o) => o.value === v) || {}).label
 const lastMonth = () => Calc.toISO(Calc.addMonths(new Date(), -1)).slice(0, 7);
 const fmtMonth = (ym) => {
   const d = Calc.parseDate(`${ym}-01`);
-  return d ? d.toLocaleDateString(undefined, { year: 'numeric', month: 'short' }) : ym;
+  return d ? `${MONTHS[d.getMonth()]} ${d.getFullYear()}` : ym;
 };
 // Amount column for a group of bars, as wide as its longest amount, so every row lines up
 // (keeping bar lengths comparable) and long numbers never spill out of the card.
@@ -173,7 +175,7 @@ const LOAN_TYPES = opt([['mortgage', 'Mortgage'], ['car', 'Car loan'], ['persona
 const ON_MATURITY = opt([['cash', 'Move capital + interest to cash'], ['renew', 'Renew automatically (same term & rate)'], ['keep', 'Do nothing — I’ll update it myself']]);
 const EVENT_LABELS = { transfer: 'Transfer', income: 'Income', expense: 'Expense', subscription: 'Subscription', saving: 'Saving', deposit: 'Deposit', property: 'Property', card: 'Card bill', saver: 'Saver' };
 const CATEGORY_COLORS = { cash: 'var(--series-1)', stocks: 'var(--series-2)', crypto: 'var(--series-3)', deposits: 'var(--series-4)', property: 'var(--series-5)', other: 'var(--series-6)' };
-const CATEGORY_LABELS = { cash: 'Cash & bank', stocks: 'Stocks & ETFs', crypto: 'Crypto', deposits: 'Fixed deposits', property: 'Property', other: 'Other assets' };
+const CATEGORY_LABELS = { cash: 'Cash & Bank', stocks: 'Stocks & ETFs', crypto: 'Crypto', deposits: 'Fixed Deposits', property: 'Property', other: 'Other Assets' };
 const CATEGORY_VIEW = { cash: 'accounts', stocks: 'stocks', crypto: 'crypto', deposits: 'deposits', property: 'properties', other: 'others' };
 const PLATFORM_SUGGESTIONS = [
   'HSBC HK', 'Hang Seng Bank', 'Bank of China (HK)', 'Standard Chartered HK', 'ZA Bank', 'Mox', 'Futu / moomoo', 'Interactive Brokers', 'Tiger Brokers', 'MPF',

@@ -253,7 +253,7 @@ function renderCard(id) {
       ${e.dueDate && !e.paidOn ? `<button class="btn small" data-action="pay-card" data-id="${esc(e.id)}">Pay</button>` : ''}</li>`).join('');
   return `${back}
     <div class="page-head">
-      <div><h1>${esc(c.name)}</h1><p class="sub">${meta}</p></div>
+      <div><h1 class="keep-case">${esc(c.name)}</h1><p class="sub">${meta}</p></div>
       <div class="row-actions"><button class="btn" data-action="edit" data-sec="cards" data-id="${esc(c.id)}">Edit card</button><button class="btn primary" data-action="add" data-sec="spending" data-card="${esc(c.id)}">+ Statement</button></div>
     </div>
     <section class="tiles">

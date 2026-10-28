@@ -274,7 +274,7 @@ const SECTIONS = {
   },
 
   liabilities: {
-    title: 'Loans & Debts',
+    title: 'Debts',
     singular: 'loan',
     intro: 'Mortgages, car and personal loans. “Auto” lets the balance fall each month from the repayment schedule; “Manual” lets you type the balance yourself. Credit cards are in Cash Flow → Credit cards.',
     fields: [
@@ -333,7 +333,7 @@ const SECTIONS = {
       {
         key: 'loanLink', label: 'Is this a loan repayment?', type: 'select', span: true, transient: true, showIf: (v) => v.kind === 'expense' && state.liabilities.some((l) => l.type !== 'credit'),
         options: () => [{ value: '', label: 'Detect automatically (same amount as a loan)' }, { value: '__none', label: 'No — not a loan repayment' }, ...state.liabilities.filter((l) => l.type !== 'credit').map((l) => ({ value: l.id, label: `Yes — repayment for “${l.name}”` }))],
-        help: 'Loan repayments are counted in your spending from Loans & Debts; linking a bill here makes sure it’s only counted once.',
+        help: 'Loan repayments are counted in your spending from Debts; linking a bill here makes sure it’s only counted once.',
       },
       {
         key: 'accountId', label: 'Paid from / into account (optional — for a transfer: from)', type: 'select', span: true,

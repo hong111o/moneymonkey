@@ -10,7 +10,7 @@
 
 let layoutEditing = null; // the page being edited, or null
 // Pages whose summary boxes can be pinned to Home (their boxes don't depend on which item is open).
-const PINNABLE = { dashboard: 'Home', cashflows: 'Cash Flow', accounts: 'Cash & Bank', stocks: 'Stocks', crypto: 'Crypto', deposits: 'Fixed deposits', properties: 'Property', others: 'Other assets', liabilities: 'Loans & debts' };
+const PINNABLE = { dashboard: 'Home', cashflows: 'Cash Flow', accounts: 'Cash & Bank', stocks: 'Stocks', crypto: 'Crypto', deposits: 'Fixed deposits', properties: 'Property', others: 'Other assets', liabilities: 'Debts' };
 
 function layoutCfg() {
   const l = state.settings.layout || {};
@@ -39,7 +39,7 @@ function pinnedItemTile(pin) {
   const open = key === 'accounts' ? `data-action="open-account" data-id="${esc(id)}"` : `data-action="edit" data-sec="${key}" data-id="${esc(id)}"`;
   const sub = [item.platform || '', key === 'stocks' || key === 'crypto' ? `${num(item.quantity, 8)} · ${pct(hv(item).pnlPct)}` : ''].filter(Boolean).join(' · ');
   const tpl = document.createElement('template');
-  tpl.innerHTML = tile(esc(itemName(key, item)), key === 'liabilities' ? `<span class="owed">${money(value, base(), 0)}</span>` : money(value, base(), 0), sub, '', open);
+  tpl.innerHTML = tile(`<span class="keep-case">${esc(itemName(key, item))}</span>`, key === 'liabilities' ? `<span class="owed">${money(value, base(), 0)}</span>` : money(value, base(), 0), sub, '', open);
   const el = tpl.content.firstElementChild;
   el.dataset.box = pin;
   el.insertAdjacentHTML('beforeend', `<div class="tile-from">${esc(PINNABLE[key] || key)}</div>`);
@@ -100,6 +100,14 @@ function applyLayout() {
   }
   if (!containers.length) return;
   // The "Edit layout" button (or, while editing, the editing bar) above the first box row.
+  if (!editing) {
+    // A small button in the page's header (its own row only on pages without one).
+    const btn = `<button class="btn icon-only edit-layout-btn" data-lay="edit" title="Edit layout" aria-label="Edit layout">${icon('grip')}</button>`;
+    const spot = main.querySelector('.head-actions') || main.querySelector('.page-head .row-actions');
+    if (spot) return spot.insertAdjacentHTML('afterbegin', btn);
+    const head = main.querySelector('.page-head');
+    if (head) return head.insertAdjacentHTML('beforeend', `<div class="row-actions">${btn}</div>`);
+  }
   const bar = document.createElement('div');
   bar.className = `layout-bar${editing ? ' on' : ''}`;
   bar.innerHTML = editing
@@ -222,7 +230,9 @@ document.addEventListener('pointerdown', (e) => {
     ev.preventDefault();
     lastY = ev.clientY;
     const under = document.elementFromPoint(ev.clientX, ev.clientY);
-    const target = under && under.closest('[data-box]');
+    // The box in this row under the finger (it may be pointing at something inside a box).
+    let target = under && under.closest('[data-box]');
+    while (target && target.parentElement !== container) target = target.parentElement.closest('[data-box]');
     if (!target || target === el || target.parentElement !== container) return;
     const boxes = [...container.children];
     if (boxes.indexOf(target) > boxes.indexOf(el)) target.after(el);

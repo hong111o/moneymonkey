@@ -23,6 +23,7 @@
     <div class="topbar-right">
       <span id="status" class="status" aria-live="polite"></span>
       <button id="sync-status" class="sync-chip" data-action="sync-status" hidden></button>
+      <button class="btn small icon-only side-toggle" id="side-btn" data-action="toggle-side" aria-pressed="false" title="Show side panel" aria-label="Show side panel" data-icon="panel"></button>
       <button class="btn small icon-only" data-action="search" title="Search" aria-label="Search" data-icon="search"></button>
       <button class="btn small icon-only" data-action="refresh" title="Refresh prices now" aria-label="Refresh prices" data-icon="refresh"></button>
       <button class="btn small" id="privacy-btn" data-action="privacy" aria-pressed="false"></button>
@@ -30,6 +31,7 @@
   </header>
   <div class="layout">
     <nav id="nav" class="nav" aria-label="Sections"></nav>
+    <aside id="side" class="side-panel" aria-label="Your money"></aside>
     <main id="main" class="main"></main>
   </div>
   <nav id="tabbar" class="tabbar" aria-label="Main"></nav>

@@ -88,7 +88,7 @@ test('check-in opens first, marks due payments done without changing balances, a
   await page.evaluate(() => { localStorage.removeItem('moneymonkey.prompted'); });
   await page.reload();
   await page.waitForTimeout(2000);
-  assert.match(await page.textContent('dialog h2'), /Monthly check-in/);
+  assert.match(await page.textContent('dialog h2'), /Monthly check-in/i);
   assert.ok((await page.$$('.ci-pay')).length >= 4);
   const hk = await balance('HSBC One', 'HKD');
   await page.uncheck('.ci-pay:has-text("Salary") input');
@@ -234,8 +234,8 @@ test('layout: reorder with arrows and drag, hide, pin to Home, reset', { skip: s
   const { page, ctx, errors, state, go } = await demo();
   const order = (sel) => page.$$eval(`${sel} > [data-box]`, (e) => e.filter((x) => !x.hidden).map((x) => x.dataset.box));
   await page.click('[data-lay=edit]');
-  await page.click('[data-layout="tiles"] > [data-box="liabilities"] [data-lay=up]');
-  assert.deepEqual((await order('[data-layout="tiles"]')).slice(0, 2), ['liabilities', 'total-assets']);
+  await page.click('[data-layout="tiles"] > [data-box="net-cash-flow-mo"] [data-lay=up]');
+  assert.deepEqual((await order('[data-layout="tiles"]')).slice(0, 2), ['net-cash-flow-mo', 'investment-p-l']);
   assert.equal(await page.$eval('dialog', (d) => d.open), false, 'controls don’t open the box');
   // Drag the last box to the top (auto-scrolls).
   const h = await page.$('[data-layout="tiles"] > [data-box="subscriptions-mo"] [data-lay=drag]');
@@ -243,10 +243,22 @@ test('layout: reorder with arrows and drag, hide, pin to Home, reset', { skip: s
   const hb = await h.boundingBox();
   await page.mouse.move(hb.x + 10, hb.y + 10);
   await page.mouse.down();
-  for (let i = 1; i <= 30; i++) { await page.mouse.move(60, Math.max(20, hb.y - i * 20)); await page.waitForTimeout(30); }
-  await page.waitForTimeout(600);
-  const top = await (await page.$('[data-layout="tiles"] > [data-box]:not([data-box="subscriptions-mo"])')).boundingBox();
-  await page.mouse.move(top.x + 30, top.y + 40);
+  // Move up (the page scrolls near the edge) until the first box is on screen, then drop on it.
+  const first = await page.$('[data-layout="tiles"] > [data-box]:not([data-box="subscriptions-mo"])');
+  let top = null;
+  for (let i = 1; i <= 80 && !top; i++) {
+    await page.mouse.move(60, Math.max(20, hb.y - i * 20));
+    await page.waitForTimeout(30);
+    const b = await first.boundingBox();
+    if (b && b.y > 90 && b.y < 600) top = b;
+  }
+  assert.ok(top, 'first box came into view while dragging');
+  await page.mouse.move(60, 400); // away from the edge, so the page stops scrolling
+  await page.waitForTimeout(100);
+  if ((await order('[data-layout="tiles"]'))[0] !== 'subscriptions-mo') {
+    top = await (await page.$('[data-layout="tiles"] > [data-box]')).boundingBox();
+    await page.mouse.move(top.x + 30, top.y + 40, { steps: 3 });
+  }
   await page.mouse.up();
   assert.equal((await order('[data-layout="tiles"]'))[0], 'subscriptions-mo');
   await page.click('[data-layout="tiles"] > [data-box="emergency-runway"] [data-lay=hide]');
@@ -264,7 +276,7 @@ test('layout: reorder with arrows and drag, hide, pin to Home, reset', { skip: s
   // Reset puts Home back and unpins.
   await page.click('[data-lay=edit]');
   await page.click('[data-lay=reset]');
-  assert.equal((await order('[data-layout="tiles"]'))[0], 'total-assets');
+  assert.equal((await order('[data-layout="tiles"]'))[0], 'investment-p-l');
   assert.equal(await page.$$eval('[data-layout="pinned"]', (e) => e.length), 0);
   assert.deepEqual(errors, []);
   await ctx.close();

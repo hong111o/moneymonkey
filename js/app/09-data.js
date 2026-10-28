@@ -67,7 +67,13 @@ function recordSnapshot() {
   // The regular plan of the day is saved too, so Month by month can show each month as it was
   // (a raise or a cancelled subscription doesn't rewrite earlier months).
   const plan = { income: round2(s.incomeTotal), fixed: round2(s.split.bills + s.loanRepayments), cardFixed: round2(s.cardPaidBills) };
-  state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), ...plan, t: Date.now() }, HISTORY_MAX);
+  // Each category's and item's value too, for the trend lines in the Assets card and side panel.
+  const cats = { ...Object.fromEntries(Object.entries(s.totals).map(([k, v]) => [k, round2(v)])), debt: round2(s.liabilities), loans: round2(SECTIONS.liabilities.total(state.liabilities)) };
+  const items = Calc.itemValues(state, todayISO());
+  state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), ...plan, cats, items, t: Date.now() }, HISTORY_MAX);
+  // Item values are only kept for the last 400 days, so the saved history stays small.
+  const keepItems = Calc.toISO(Calc.addDays(new Date(), -400));
+  for (const h of state.history) if (h.items && h.date < keepItems) delete h.items;
   // Demo history is stored as a share of today's net worth, so the chart joins up with
   // today's figure whatever prices and exchange rates have loaded.
   for (const h of state.history) {
@@ -76,6 +82,16 @@ function recordSnapshot() {
     h.currency = base();
     h.liabilities = round2(s.liabilities);
     h.assets = round2(h.netWorth + s.liabilities);
+    // Made-up category and item history: today's values with a gentle wave (stronger for shares).
+    const day = Date.parse(h.date) / 864e5;
+    // Loans were a little higher in the past (repayments bring them down).
+    const ago = Math.max(0, (Date.parse(todayISO()) - Date.parse(h.date)) / 864e5);
+    const owed = h.demo * (1 + ago * 0.0003);
+    const wave = (key, amp) => { let seed = 0; for (const ch of key) seed = (seed * 31 + ch.charCodeAt(0)) % 997; return h.demo * (1 + amp * Math.sin(day / 9 + seed) + amp * 0.4 * Math.sin(day / 2.7 + seed * 2)); };
+    const amp = (k) => (k === 'stocks' || k === 'crypto' ? 0.05 : k === 'property' ? 0.01 : 0.004);
+    h.cats = Object.fromEntries(Object.entries(cats).map(([k, v]) => [k, round2(v * (k === 'debt' || k === 'loans' ? owed : wave(k, amp(k))))]));
+    const kindOf = (id) => (state.stocks.some((x) => x.id === id) ? 'stocks' : state.crypto.some((x) => x.id === id) ? 'crypto' : state.properties.some((x) => x.id === id) ? 'property' : 'cash');
+    h.items = Object.fromEntries(Object.entries(items).map(([id, v]) => [id, round2(v * (state.liabilities.some((x) => x.id === id) ? owed : wave(id, amp(kindOf(id)))))]));
     // The demo's past plans are filled in once, then kept like real saved months.
     if (h.raise != null && h.income == null) Object.assign(h, plan, { income: round2(plan.income - h.raise) });
   }
@@ -83,11 +99,13 @@ function recordSnapshot() {
 
 // Ticks the "interest earned today" figure every second without a full re-render.
 function tickLive() {
+  const clock = $('#clock');
+  if (clock) clock.textContent = clockText();
   const el = $('#live-interest');
   if (!el || !summary) return;
   const now = new Date();
   const frac = (now - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000;
-  el.textContent = money(summary.interestDaily * frac, base(), 4);
+  el.textContent = money(summary.interestDaily * frac, base(), 2);
 }
 
 let priceTimer = null;

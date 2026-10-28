@@ -1213,6 +1213,23 @@
     return [{ currency: item.currency, value: itemValue(section, item, today) }];
   }
 
+  // Every item's value today in the base currency (loans: what's still owed), for item history.
+  function itemValues(state, today) {
+    const base = state.settings.baseCurrency;
+    const out = {};
+    for (const section of Object.keys(PLATFORM_GROUPS)) {
+      for (const item of state[section] || []) {
+        let v = 0;
+        for (const part of itemParts(section, item, today)) {
+          const c = convert(part.value, part.currency || base, base, state.fx);
+          if (isFinite(c)) v += c;
+        }
+        out[item.id] = round2(v);
+      }
+    }
+    return out;
+  }
+
   // Native-currency value of one single-currency item.
   function itemValue(section, item, today) {
     switch (section) {
@@ -1310,7 +1327,7 @@
     monthlyAmount, occurrences, nextOccurrence,
     upsertHistory, monthsToGoal, spendingByMonth,
     summarize,
-    itemValue, itemParts, migratePlatforms, platformBreakdown,
+    itemValue, itemParts, itemValues, migratePlatforms, platformBreakdown,
     accountBalances, migrateAccounts, cashByCurrency, accountForPlatform, linkDeposits,
     unpaidCardBills, cardDueDate, linkCards,
     balanceValue, adjustLine, pendingPayments, resolvePayment, undoPayment, paymentCurrency, regularSaverSchedule, regularPaid, shortfall, applyTrade, realisedProfit, dividendsReceived, transfer, checkinDate, checkinDue, recordCheckin,

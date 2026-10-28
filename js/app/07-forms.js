@@ -379,14 +379,14 @@ function explain(what, param) {
     const rows = Object.keys(s.totals).filter((k) => s.totals[k]).map((k) => ({ v: s.totals[k], html: row(`#${CATEGORY_VIEW[k]}`, CATEGORY_LABELS[k], s.assets ? `${((s.totals[k] / s.assets) * 100).toFixed(1)}% of assets` : '', money(s.totals[k], base(), 0)) }));
     body = group('By type', rows.sort(sortDesc).map((r) => r.html)) + total('Total', money(s.assets, base(), 0));
   } else if (what === 'liabilities') {
-    title = 'Liabilities';
+    title = 'Debts';
     const rows = state.liabilities.map((l) => {
       const b = Calc.loanBalance(l, t).balance;
       return { v: toBase(b, l.currency) || 0, html: row('#liabilities', esc(l.name), [esc(l.platform || ''), l.rate ? `${num(l.rate, 2)}%` : '', l.payment ? `${money(l.payment, l.currency)}/mo` : ''].filter(Boolean).join(' · '), `<span class="neg">${money(b, l.currency)}</span>`) };
     });
     const bills = Calc.unpaidCardBills(state).map((e) => ({ v: toBase(e.amount, e.currency) || 0, html: row(`#card/${encodeURIComponent(e.cardId)}`, `${esc(e.platform || 'Card')} · ${fmtMonth(e.month)}`, billStatus(e), `<span class="neg">${money(e.amount, e.currency)}</span>`) }));
     body = (rows.length || bills.length
-      ? group('Loans & debts', rows.sort(sortDesc).map((r) => r.html)) + group('Unpaid card bills', bills.sort(sortDesc).map((r) => r.html))
+      ? group('Loans', rows.sort(sortDesc).map((r) => r.html)) + group('Card bills', bills.sort(sortDesc).map((r) => r.html))
       : '<p class="sub">No loans, debts or unpaid card bills.</p>') + total('Total owed', `<span class="owed">${money(s.liabilities, base(), 0)}</span>`);
   } else if (what === 'pnl') {
     title = param === 'stocks' ? 'Stocks profit / loss' : param === 'crypto' ? 'Crypto profit / loss' : 'Investment profit / loss';
@@ -530,7 +530,7 @@ function explain(what, param) {
   } else if (what === 'loans') {
     title = 'Loan repayments per month';
     const rows = loanRows();
-    body = (rows.length ? group('From Loans & Debts', rows) : '<p class="sub">No loans with a monthly repayment. Add them in Loans &amp; Debts.</p>')
+    body = (rows.length ? group('From Debts', rows) : '<p class="sub">No loans with a monthly repayment. Add them in Debts.</p>')
       + total('Per month', money(s.loanRepayments, base(), 0))
       + '<p class="sub">Credit card balances aren’t included here: card statements already count as spending.</p>';
   } else if (what === 'fixed') {

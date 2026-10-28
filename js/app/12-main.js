@@ -160,7 +160,7 @@ document.addEventListener('submit', (e) => {
   const newBase = f.baseCurrency.value.trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(newBase)) return toast('Base currency must be a 3-letter code like HKD or GBP.', 'error');
   const baseChanged = newBase !== state.settings.baseCurrency;
-  state.settings = { ...state.settings, baseCurrency: newBase, finnhubKey: f.finnhubKey.value.trim(), refreshSec: Math.max(15, +f.refreshSec.value || 60), theme: f.theme.value, costMethod: f.costMethod.value, checkinDay: Math.min(31, Math.max(1, Math.round(+f.checkinDay.value) || 1)) };
+  state.settings = { ...state.settings, name: f.name.value.trim().slice(0, 40), baseCurrency: newBase, finnhubKey: f.finnhubKey.value.trim(), refreshSec: Math.max(15, +f.refreshSec.value || 60), theme: f.theme.value, costMethod: f.costMethod.value, checkinDay: Math.min(31, Math.max(1, Math.round(+f.checkinDay.value) || 1)) };
   state.settingsMt = Date.now();
   save();
   schedule();
@@ -233,6 +233,41 @@ function fillDatalists() {
   Object.values(state.platformMeta).forEach((m) => m.region && regions.add(m.region));
   $('#region-list').innerHTML = [...regions].map((r) => `<option value="${esc(r)}">`).join('');
 }
+
+// ================================================================== headings in Title Case
+
+// Every heading and label reads in Title Case ("Net Cash Flow / Mo", "Debt-to-Asset").
+// Only all-lowercase words change, so names like "iPhone", "eToro", "HSBC" or "HK$5M" stay
+// as typed; short joining words stay lowercase unless they come first. Elements marked
+// `.keep-case` (the greeting, account and card names) are left alone.
+const SMALL_WORDS = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'to', 'in', 'on', 'at', 'for', 'per', 'by', 'vs', 'via', 'from', 'with']);
+const TITLE_SEL = 'h1, h2, h3, .tile-label, th, .nav-group, .bal-head';
+function titleCase(text, first = true) {
+  return text.replace(/[A-Za-z][A-Za-z'’]*/g, (w, i) => {
+    if (w !== w.toLowerCase()) return w;
+    if (SMALL_WORDS.has(w) && !(first && !text.slice(0, i).trim())) return w;
+    return w[0].toUpperCase() + w.slice(1);
+  });
+}
+function titleCaseIn(root) {
+  if (!root || root.nodeType !== 1) return;
+  const els = root.matches(TITLE_SEL) ? [root] : [];
+  els.push(...root.querySelectorAll(TITLE_SEL));
+  for (const el of els) {
+    if (el.closest('.keep-case')) continue;
+    let first = true;
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (n.parentElement.closest('.keep-case, .sub, input, select, option')) { if (n.nodeValue.trim()) first = false; continue; }
+      const t = titleCase(n.nodeValue, first);
+      if (t !== n.nodeValue) n.nodeValue = t;
+      if (n.nodeValue.trim()) first = false;
+    }
+  }
+  for (const el of root.querySelectorAll('[data-label]')) el.dataset.label = titleCase(el.dataset.label);
+}
+new MutationObserver((list) => { for (const m of list) for (const n of m.addedNodes) titleCaseIn(n); })
+  .observe(document.body, { childList: true, subtree: true });
 
 // ================================================================== boot
 

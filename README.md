@@ -14,7 +14,7 @@ No server and no dependencies. Your data is stored on your devices and, if you t
 | **Fixed Deposits** | Bank, amount, start date, term in **months or an end date**, and either the **rate** or the **total interest** quoted | Interest accrued daily, "from → to · N months · X days left", maturity value. **On maturity, capital + interest move into a cash account automatically** (or the deposit renews, your choice) |
 | **Property** | Purchase price and date, then a new valuation weekly or monthly, optional monthly rent | Gain since purchase, valuation history, reminder when an update is due |
 | **Other Assets** | Car, gold, MPF / pension, insurance cash value… plus an optional yearly % change | Value drifts automatically (e.g. −15%/yr for a car) |
-| **Loans & Debts** | Mortgage, car loan, credit card. Enter the balance yourself, or the loan terms | Balance falls each month on its repayment schedule, with a debt-free date |
+| **Debts** | Mortgage, car loan, credit card. Enter the balance yourself, or the loan terms | Balance falls each month on its repayment schedule, with a debt-free date |
 | **Cash Flow** | Income, bills, subscriptions and regular saving, weekly to yearly | Monthly/yearly totals, savings rate, upcoming payments |
 | **Actual spending** | What you really spent each month, e.g. each **credit card statement** | Cash flow, savings rate and runway use your real 3-month average instead of estimates |
 | **Goals** | Target amount and optional date | Progress, and whether you're on track |
@@ -87,7 +87,7 @@ The Cash Flow page has three tabs: **Overview** (the plan and month by month), *
 - **Interest counts as income,** averaged per month the same way yearly and quarterly bills are (a HK$1,200 yearly bill counts as HK$100/mo). Fixed deposit and saver interest is shown on its own line, separate from regular income. A deposit set to renew keeps its interest, so that part also counts as saving. If you've entered a saver's interest yourself as an income item (linked to that account, with "interest" in its name), it isn't added twice.
 - **Rent counts once.** A property's monthly rent is income automatically, both in Cash Flow and in passive income, so you don't need to add it in Cash Flow too. If you already have it there (same currency and amount, monthly), it's counted only once. Tap "Not the same" if that's wrong, or choose in the income item's form whether it's a property's rent.
 - **Dividends:** give a stock or ETF its dividend per share or its yield. The yearly amount is averaged per month into income and passive income, and shows on the Stocks page. If it's reinvested (DRIP or an accumulating fund), it also counts as saving.
-- **Loan repayments** from Loans & Debts are counted in spending automatically. If a bill is the same payment (same currency and amount), it's counted once. Tap "Not the same" if that's wrong, or link a bill to a loan in its form.
+- **Loan repayments** from Debts are counted in spending automatically. If a bill is the same payment (same currency and amount), it's counted once. Tap "Not the same" if that's wrong, or link a bill to a loan in its form.
 - **Matches the app guessed** (rent, a regular saver payment, a loan repayment entered again as an income, saving or bill item) show as blue notes. Tap **Yes, same** to link them, or **Not the same** to keep them separate. Either way the note goes away, and you can change it later in the item's form.
 
 ### Extras and regular transfers
@@ -103,7 +103,7 @@ On the Cash Flow page, **Credit cards & monthly spending** keeps your cards and 
 
 - Add each card once: name, bank, billing currency, **payment due day** and the account that usually pays it.
 - Record each month's statement (**+ Statement**, or in the monthly check-in). Its due date fills in from the card's due day.
-- Unpaid bills appear in **Next 30 days** on the home page (overdue ones at the top) and count as **debt** until you confirm they're paid.
+- Unpaid bills appear in **Next 7 days** and the **Debts** card on Home (overdue ones at the top) and count as **debt** until you confirm they're paid.
 - On the due date you're asked to confirm the payment: it's deducted from the paying account, or just marked paid if no account is linked. Each card's page also has a **Pay** button.
 - The Cash Flow page shows its summary boxes, cards & spending and categories first; the full list of income, bills and subscriptions is at the bottom (with a jump link).
 
@@ -162,24 +162,27 @@ Tap **Dividend / split** on a stock:
 
 If part of a broker or exchange account is uninvested cash, add it with **+ Cash** in the **By account** section of the Stocks (or Crypto) page. This creates a multi-currency account of type **Brokerage cash** on that platform. Each broker then shows *invested + cash = total*. The cash counts as cash in your net worth and appears under the broker on the Platforms page.
 
-### Dashboard
+### Home
 
-- Net worth, total assets and liabilities in your base currency. **Tap any summary box with a ›** (assets, liabilities, P&L, cash flow, savings rate, passive income, runway, subscriptions, interest today) to see what's inside it, with links to edit each item
-- **Interest earned today**, ticking every second
-- Investment P&L, today's market move, net cash flow, savings rate, passive income, emergency runway, subscriptions
-- Allocation donut, **by region & platform** breakdown, net-worth history chart (one snapshot per day)
-- The next 30 days: bills, pay days, deposit maturities, property updates due. Amounts show in their own currency with the converted amount underneath. Tap a row to open it. If it's due or overdue, the payment box opens.
-- **Needs attention:** one row on Home lists what to do: payments to confirm, the check-in, values due for an update, deposits that matured. Tap it to see them all.
+- **Greeting** by time of day ("Good morning, Alex"; set your name in Settings), with today's date and a live clock showing your time zone (e.g. `Wed 28 Oct 2026 · 14:05:09 (GMT+8)`)
+- **Net worth** with its change over the chosen period (1W, 1M, 3M, 1Y or All) and a line chart; hover or touch it to see any day. Underneath: today's market move and **interest earned today**, ticking every second
+- **Needs attention:** one row lists what to do: payments to confirm, the check-in, values due for an update, deposits that matured. The icon turns red when something is overdue. Tap it to see them all.
+- **Assets:** the total, one bar split by category with each category's share, and a table. Tap a category to open its accounts and holdings, each with its share, value and change over the last 30 days (with a small chart). The 30-day column appears once there are a couple of days of history.
+- **Debts** in the same style: loans (going down shows green) and card bills not yet paid (with their due date), plus Debt-to-Asset
+- Summary boxes. **Tap any box with a ›** (P&L, cash flow, savings rate, passive income, runway, subscriptions, interest today) to see what's inside it, with links to edit each item
+- **By region & platform** (top 5), **Next 7 days** (bills, pay days, deposit maturities, property updates; the first 5, with See all) and **Goals**. Amounts in Next 7 days show in their own currency with the converted amount underneath; tap a row to open it, and if it's due or overdue the payment box opens.
+
+On a computer, the menu is a column of icons on the left (hover for names). The **side panel** button in the top bar shows an extra panel with your debts and goals (on other pages: assets and debts with search). It's hidden unless you turn it on, and the choice is remembered on that device.
 
 ### Arrange each page
 
-Tap **Edit layout** above the boxes on any page:
-- **Move a box:** drag its handle (works on a phone too; the page scrolls when you drag near the edge), or use the up/down arrows.
+Tap the **⠿ Edit layout** button in a page's header:
+- **Move a box:** drag its handle (works on a phone too; the page scrolls when you drag near the edge), or use the up/down arrows. On Home every box moves: net worth, Needs attention, Assets, Debts, the summary boxes, region & platform, Next 7 days and Goals.
 - **Hide** boxes you don't need. They stay visible, faded, while you edit, so you can bring them back.
-- **Pin to Home:** any box from Home, Cash Flow, Cash & Bank, Stocks, Crypto, Fixed deposits, Property, Other assets or Loans. Pinned boxes show in a row at the top of Home.
-- **Accounts, holdings and other items** in a list (Cash & Bank, Stocks, Crypto, Fixed deposits, Property, Other assets, Loans) can be put in your own order too, and pinned to Home. A pinned item shows its name and value, and tapping it opens it.
+- **Pin to Home:** any box from Home, Cash Flow, Cash & Bank, Stocks, Crypto, Fixed deposits, Property, Other assets or Debts. Pinned boxes show in a row above the summary boxes on Home.
+- **Accounts, holdings and other items** in a list (Cash & Bank, Stocks, Crypto, Fixed deposits, Property, Other assets, Debts) can be put in your own order too, and pinned to Home. A pinned item shows its name and value, and tapping it opens it.
 
-Home's and Cash Flow's larger sections can be moved and hidden too. **Reset** puts a page back to its usual layout. Your layout syncs to your other devices.
+**Reset** puts a page back to its usual layout. Your layout syncs to your other devices.
 
 ### Tappable boxes on other pages
 

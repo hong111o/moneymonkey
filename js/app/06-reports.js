@@ -268,6 +268,8 @@ function renderSettings() {
     ${renderSyncCard()}
     <form class="card form-grid" id="settings-form">
       <h2 class="span-2">Preferences</h2>
+      <label class="span-2">Your name<input name="name" value="${esc(st.name || '')}" maxlength="40" autocomplete="given-name" placeholder="e.g. Alex">
+        <small>Home greets you with it: “Good morning, Alex”.</small></label>
       <label>Base currency<input name="baseCurrency" list="currency-list" value="${esc(st.baseCurrency)}" required maxlength="3" pattern="[A-Za-z]{3}" autocapitalize="characters">
         <small>All totals are converted into this currency with live exchange rates.</small></label>
       <label>Price refresh (seconds)<input name="refreshSec" type="number" inputmode="numeric" min="15" step="5" value="${esc(st.refreshSec)}">

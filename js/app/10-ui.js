@@ -97,7 +97,7 @@ function download(name, text, type) {
 function exportCsv() {
   const t = todayISO();
   const rows = [['Section', 'Name', 'Platform', 'Currency', 'Value', `Value (${base()})`]];
-  const names = { accounts: 'Cash', stocks: 'Stocks', crypto: 'Crypto', deposits: 'Fixed deposit', properties: 'Property', others: 'Other', liabilities: 'Liability' };
+  const names = { accounts: 'Cash', stocks: 'Stocks', crypto: 'Crypto', deposits: 'Fixed deposit', properties: 'Property', others: 'Other', liabilities: 'Debt' };
   for (const s of PLATFORM_SECTIONS) {
     for (const item of state[s]) {
       const sign = s === 'liabilities' ? -1 : 1;
