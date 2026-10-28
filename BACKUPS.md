@@ -34,3 +34,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 19 | 2026-10-28 | `59e8d69` | Layout editing on every page (drag, pin, hide), ± for negative numbers, honest profit %, cost method setting |
 | 20 | 2026-10-28 | `32d088a` | Reorder and pin accounts, holdings and other list items |
 | 21 | 2026-10-28 | `12140ed` | Reorder and pin list items; last version before the calm redesign |
+| 22 | 2026-10-28 | `a6bdd89` | Calm redesign of Home and the app shell |
