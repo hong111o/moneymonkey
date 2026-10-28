@@ -111,7 +111,7 @@ function applyLayout() {
   const bar = document.createElement('div');
   bar.className = `layout-bar${editing ? ' on' : ''}`;
   bar.innerHTML = editing
-    ? `<span class="grow"><strong>Editing layout</strong> <span class="sub">— drag ${icon('grip')} or use the arrows · ${PINNABLE[view] || main.querySelector('[data-layout^="list-"]') ? 'pin to Home · ' : ''}hide boxes you don’t need</span></span><button class="btn small ghost" data-lay="reset">Reset</button><button class="btn small primary" data-lay="done">Done</button>`
+    ? `<span class="grow"><strong>Editing layout</strong> <span class="sub">— drag ${icon('grip')} or use the arrows · ${PINNABLE[view] || [...main.querySelectorAll('[data-layout^="list-"]')].some((c) => PINNABLE[c.dataset.layout.slice(5)]) ? 'pin to Home · ' : ''}hide boxes you don’t need</span></span><button class="btn small ghost" data-lay="reset">Reset</button><button class="btn small primary" data-lay="done">Done</button>`
     : `<button class="btn small ghost" data-lay="edit">${icon('grip')} Edit layout</button>`;
   containers[0].before(bar);
 }

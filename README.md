@@ -180,7 +180,7 @@ Tap the **⠿ Edit layout** button in a page's header:
 - **Move a box:** drag its handle (works on a phone too; the page scrolls when you drag near the edge), or use the up/down arrows. On Home every box moves: net worth, Needs attention, Assets, Debts, the summary boxes, region & platform, Next 7 days and Goals.
 - **Hide** boxes you don't need. They stay visible, faded, while you edit, so you can bring them back.
 - **Pin to Home:** any box from Home, Cash Flow, Cash & Bank, Stocks, Crypto, Fixed deposits, Property, Other assets or Debts. Pinned boxes show in a row above the summary boxes on Home.
-- **Accounts, holdings and other items** in a list (Cash & Bank, Stocks, Crypto, Fixed deposits, Property, Other assets, Debts) can be put in your own order too, and pinned to Home. A pinned item shows its name and value, and tapping it opens it.
+- **Accounts, holdings and other items** in a list (Cash & Bank, Stocks, Crypto, Fixed deposits, Property, Other assets, Debts) can be put in your own order too, and pinned to Home. A pinned item shows its name and value, and tapping it opens it. Platforms on the Platforms page can be put in your own order too.
 
 **Reset** puts a page back to its usual layout. Your layout syncs to your other devices.
 

@@ -255,12 +255,13 @@ function renderPlatformTable(platforms) {
   const net = summary.netWorth || 0;
   const cell = (v, cls = '') => (Math.abs(v) < 0.005 ? '<span class="sub">—</span>' : `<span class="${cls}">${money(v, base(), 0)}</span>`);
   const td = (label, v, cls = '') => `<td class="num ${Math.abs(v) < 0.005 ? 'empty-cell' : ''}" data-label="${label}">${cell(v, cls)}</td>`;
-  const rows = platforms.map((p) => `<tr class="clickable" data-action="open-platform" data-name="${esc(p.name)}" tabindex="0">
+  // Each platform is a box you can move in Edit layout (the "no platform" row too).
+  const rows = platforms.map((p) => `<tr class="clickable" data-action="open-platform" data-name="${esc(p.name)}" data-box="${esc(p.name || '__none')}" tabindex="0">
       <td data-label="Platform"><strong>${esc(p.name || 'No platform set')}</strong><div class="sub">${p.region ? `${esc(p.region)}${p.regionGuessed ? ' <span class="badge" title="Guessed from currency — tap to set">guess</span>' : ''}` : (p.name ? 'Tap to set a region' : 'Edit items to add a platform')} · ${plural(p.count, 'item')} · ${esc(p.currencies.join(', '))}</div></td>
       ${td('Cash', p.cash)}${td('Investments', p.invest)}${td('Deposits', p.deposits)}${td('Property &amp; other', p.property + p.other)}${td('Debts', -p.debt, 'neg')}
       <td class="num primary" data-label="Net">${money(p.net, base(), 0)}<div class="sub">${net > 0 ? `${((p.net / net) * 100).toFixed(1)}%` : ''}</div></td>
       <td class="actions"><span class="chev" aria-hidden="true">›</span></td></tr>`).join('');
-  return `<div class="card table-card"><table class="data"><thead><tr><th>Platform</th><th class="num">Cash</th><th class="num">Investments</th><th class="num">Deposits</th><th class="num">Property & other</th><th class="num">Debts</th><th class="num">Net</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div class="card table-card"><table class="data"><thead><tr><th>Platform</th><th class="num">Cash</th><th class="num">Investments</th><th class="num">Deposits</th><th class="num">Property & other</th><th class="num">Debts</th><th class="num">Net</th><th></th></tr></thead><tbody data-layout="list-platforms">${rows}</tbody></table></div>`;
 }
 
 // ---------------------------------------------------------------- one region
