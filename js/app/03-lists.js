@@ -97,14 +97,21 @@ function renderSection(key, opts = {}) {
 }
 
 // The list of items for a section, as a table on wide screens and tappable cards on phones.
+// What an item is called, for labels and pinned boxes.
+function itemName(key, item) {
+  if (key === 'deposits') return `${item.platform || (item.kind === 'regular' ? 'Regular saver' : 'Fixed deposit')}${item.name ? ` · ${item.name}` : ''}`;
+  return item.name || item.symbol || item.coinId || item.platform || '';
+}
+
 function renderItemsTable(key, items) {
   const sec = SECTIONS[key];
   const rows = items
-    .map((item) => `<tr class="clickable" data-action="${sec.rowAction || 'edit'}" data-sec="${key}" data-id="${esc(item.id)}" tabindex="0">
+    .map((item) => `<tr class="clickable" data-action="${sec.rowAction || 'edit'}" data-sec="${key}" data-id="${esc(item.id)}" data-box="${esc(item.id)}" data-name="${esc(itemName(key, item))}" tabindex="0">
       ${sec.columns.map((c) => `<td class="${c.num ? 'num' : ''} ${c.primary ? 'primary' : ''} ${c.wide ? 'wide' : ''}" data-label="${esc(c.label)}">${c.render(item)}</td>`).join('')}
       <td class="actions">${(sec.actions || []).map((a) => `<button class="btn small" data-action="${a.id}" data-sec="${key}" data-id="${esc(item.id)}">${a.label}</button>`).join('')}<span class="chev" aria-hidden="true">›</span></td></tr>`)
     .join('');
-  return `<div class="card table-card"><table class="data"><thead><tr>${sec.columns.map((c) => `<th class="${c.num ? 'num' : ''}">${c.label}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  // The rows can be reordered (and pinned to Home) with Edit layout, like the boxes.
+  return `<div class="card table-card"><table class="data"><thead><tr>${sec.columns.map((c) => `<th class="${c.num ? 'num' : ''}">${c.label}</th>`).join('')}<th></th></tr></thead><tbody data-layout="list-${key}">${rows}</tbody></table></div>`;
 }
 
 // ---------------------------------------------------------------- investment accounts (holdings + cash)

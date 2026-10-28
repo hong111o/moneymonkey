@@ -269,3 +269,26 @@ test('layout: reorder with arrows and drag, hide, pin to Home, reset', { skip: s
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('layout: accounts and holdings can be reordered and pinned to Home', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  const rows = (k) => page.$$eval(`[data-layout="list-${k}"] > tr`, (e) => e.map((x) => x.dataset.name));
+  await go('#accounts');
+  const before = await rows('accounts');
+  await page.click('[data-lay=edit]');
+  await page.click('[data-layout="list-accounts"] > tr:nth-child(3) [data-lay=up]');
+  await page.click('[data-layout="list-accounts"] > tr:nth-child(1) [data-lay=pin]');
+  await page.click('[data-lay=done]');
+  await page.reload();
+  await page.waitForTimeout(600);
+  assert.deepEqual((await rows('accounts')).slice(0, 3), [before[0], before[2], before[1]]);
+  await go('#dashboard');
+  const pinned = await page.$$eval('[data-layout="pinned"] > [data-box]', (e) => e.map((x) => x.dataset.box));
+  assert.equal(pinned.length, 1);
+  assert.match(pinned[0], /^item\|accounts\|/);
+  await page.click('[data-layout="pinned"] > [data-box]');
+  await page.waitForTimeout(300);
+  assert.match(page.url(), /#account\//);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

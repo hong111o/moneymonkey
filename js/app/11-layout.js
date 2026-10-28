@@ -30,7 +30,24 @@ function pageTiles(page) {
   if (SECTIONS[page]) return sectionTiles(page, state[page]);
   return '';
 }
+// A pinned account, holding, deposit, property, other asset or loan: its name and value.
+function pinnedItemTile(pin) {
+  const [, key, id] = pin.split('|');
+  const item = (state[key] || []).find((x) => x.id === id);
+  if (!item || !SECTIONS[key]) return null;
+  const value = SECTIONS[key].total([item]);
+  const open = key === 'accounts' ? `data-action="open-account" data-id="${esc(id)}"` : `data-action="edit" data-sec="${key}" data-id="${esc(id)}"`;
+  const sub = [item.platform || '', key === 'stocks' || key === 'crypto' ? `${num(item.quantity, 8)} · ${pct(hv(item).pnlPct)}` : ''].filter(Boolean).join(' · ');
+  const tpl = document.createElement('template');
+  tpl.innerHTML = tile(esc(itemName(key, item)), key === 'liabilities' ? `<span class="owed">${money(value, base(), 0)}</span>` : money(value, base(), 0), sub, '', open);
+  const el = tpl.content.firstElementChild;
+  el.dataset.box = pin;
+  el.insertAdjacentHTML('beforeend', `<div class="tile-from">${esc(PINNABLE[key] || key)}</div>`);
+  return el;
+}
+
 function pinnedTile(pin) {
+  if (pin.startsWith('item|')) return pinnedItemTile(pin);
   const [page, box] = pin.split('|');
   const tpl = document.createElement('template');
   tpl.innerHTML = pageTiles(page);
@@ -86,15 +103,19 @@ function applyLayout() {
   const bar = document.createElement('div');
   bar.className = `layout-bar${editing ? ' on' : ''}`;
   bar.innerHTML = editing
-    ? `<span class="grow"><strong>Editing layout</strong> <span class="sub">— drag ${icon('grip')} or use the arrows · ${PINNABLE[view] ? 'pin to Home · ' : ''}hide what you don’t need</span></span><button class="btn small ghost" data-lay="reset">Reset</button><button class="btn small primary" data-lay="done">Done</button>`
+    ? `<span class="grow"><strong>Editing layout</strong> <span class="sub">— drag ${icon('grip')} or use the arrows · ${PINNABLE[view] || main.querySelector('[data-layout^="list-"]') ? 'pin to Home · ' : ''}hide boxes you don’t need</span></span><button class="btn small ghost" data-lay="reset">Reset</button><button class="btn small primary" data-lay="done">Done</button>`
     : `<button class="btn small ghost" data-lay="edit">${icon('grip')} Edit layout</button>`;
   containers[0].before(bar);
 }
 
 function addBoxControls(el, container, view, isHidden) {
   const pinned = container.dataset.layout === 'pinned';
-  const canPin = !pinned && PINNABLE[view] && container.classList.contains('tiles');
-  const isPinned = canPin && layoutCfg().pins.includes(`${view}|${el.dataset.box}`);
+  // List rows (accounts, holdings…): reorder and pin to Home, but not hide.
+  const listKey = container.dataset.layout.startsWith('list-') ? container.dataset.layout.slice(5) : null;
+  const pinKey = listKey ? (PINNABLE[listKey] && listKey !== 'dashboard' && listKey !== 'cashflows' ? `item|${listKey}|${el.dataset.box}` : null)
+    : !pinned && PINNABLE[view] && container.classList.contains('tiles') ? `${view}|${el.dataset.box}` : null;
+  const canPin = !!pinKey;
+  const isPinned = canPin && layoutCfg().pins.includes(pinKey);
   const name = el.dataset.name || el.dataset.box;
   const ctl = document.createElement('div');
   ctl.className = 'box-ctl';
@@ -103,8 +124,10 @@ function addBoxControls(el, container, view, isHidden) {
     + `<button type="button" class="lay-btn" data-lay="down" aria-label="Move ${esc(name)} later">${icon('down')}</button>`
     + (pinned ? `<button type="button" class="lay-btn on" data-lay="unpin" aria-label="Unpin ${esc(name)} from Home">${icon('pin')}</button>` : '')
     + (canPin ? `<button type="button" class="lay-btn${isPinned ? ' on' : ''}" data-lay="pin" aria-pressed="${isPinned}" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${esc(name)} ${isPinned ? 'from' : 'to'} Home">${icon('pin')}</button>` : '')
-    + (pinned ? '' : `<button type="button" class="lay-btn" data-lay="hide" aria-pressed="${isHidden}" aria-label="${isHidden ? 'Show' : 'Hide'} ${esc(name)}">${icon(isHidden ? 'eyeOff' : 'eye')}</button>`);
-  el.appendChild(ctl);
+    + (pinned || listKey ? '' : `<button type="button" class="lay-btn" data-lay="hide" aria-pressed="${isHidden}" aria-label="${isHidden ? 'Show' : 'Hide'} ${esc(name)}">${icon(isHidden ? 'eyeOff' : 'eye')}</button>`);
+  if (canPin) ctl.dataset.pin = pinKey;
+  // In a table row the controls go in the last cell (beside Buy / Sell), not over the row.
+  if (el.tagName === 'TR') { ctl.classList.add('inline'); el.lastElementChild.prepend(ctl); } else el.appendChild(ctl);
 }
 
 // Saves a row's order (or the pinned row's) from what's on screen.
@@ -167,7 +190,7 @@ document.addEventListener('click', (e) => {
     else hidden.add(el.dataset.box);
     cfg.pages[key] = { ...pc, hidden: [...hidden] };
   } else if (what === 'pin' || what === 'unpin') {
-    const pin = what === 'unpin' ? el.dataset.box : `${currentView}|${el.dataset.box}`;
+    const pin = what === 'unpin' ? el.dataset.box : b.closest('.box-ctl').dataset.pin;
     cfg.pins = cfg.pins.includes(pin) ? cfg.pins.filter((x) => x !== pin) : [...cfg.pins, pin];
     if (what === 'pin') toast(cfg.pins.includes(pin) ? `Pinned to Home: ${el.dataset.name || ''}` : 'Unpinned from Home');
   }

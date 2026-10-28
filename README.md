@@ -177,6 +177,7 @@ Tap **Edit layout** above the boxes on any page:
 - **Move a box:** drag its handle (works on a phone too; the page scrolls when you drag near the edge), or use the up/down arrows.
 - **Hide** boxes you don't need. They stay visible, faded, while you edit, so you can bring them back.
 - **Pin to Home:** any box from Home, Cash Flow, Cash & Bank, Stocks, Crypto, Fixed deposits, Property, Other assets or Loans. Pinned boxes show in a row at the top of Home.
+- **Accounts, holdings and other items** in a list (Cash & Bank, Stocks, Crypto, Fixed deposits, Property, Other assets, Loans) can be put in your own order too, and pinned to Home. A pinned item shows its name and value, and tapping it opens it.
 
 Home's and Cash Flow's larger sections can be moved and hidden too. **Reset** puts a page back to its usual layout. Your layout syncs to your other devices.
 

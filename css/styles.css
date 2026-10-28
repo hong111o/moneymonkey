@@ -626,7 +626,7 @@ h3 .ic { color: var(--text-2); margin-right: 4px; }
 .layout-bar.on .grow { min-width: 0; }
 .layout-editing > [data-box] { position: relative; outline: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -2px; }
 .layout-editing > .tile[data-box] { padding-top: 44px; }
-.layout-editing > [data-box]:not(.tile) { padding-top: 42px; }
+.layout-editing > [data-box]:not(.tile):not(tr) { padding-top: 42px; }
 .layout-editing > .is-hidden { opacity: 0.4; }
 .layout-editing > .dragging { opacity: 0.6; outline-style: solid; z-index: 3; pointer-events: none; }
 .box-ctl { position: absolute; top: 6px; left: 6px; right: 6px; display: flex; gap: 4px; justify-content: flex-end; }
@@ -638,3 +638,7 @@ h3 .ic { color: var(--text-2); margin-right: 4px; }
 .tile-from { font-size: 0.7rem; color: var(--muted); margin-top: 4px; }
 .boxes { display: block; }
 .grid-2.boxes > .wide { grid-column: 1 / -1; }
+.layout-editing > tr[data-box] { outline-offset: -3px; }
+.box-ctl.inline { position: static; display: inline-flex; margin-right: auto; }
+table.data td.actions:has(.box-ctl.inline) { display: flex !important; gap: 6px; align-items: center; flex-wrap: wrap; }
+.layout-editing > tr[data-box] .actions > .btn, .layout-editing > tr[data-box] .chev { display: none; }
