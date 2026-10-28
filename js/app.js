@@ -27,7 +27,7 @@
   function defaultState() {
     return {
       version: 2,
-      settings: { baseCurrency: 'USD', finnhubKey: '', refreshSec: 60, theme: 'auto', privacy: false },
+      settings: { baseCurrency: 'USD', finnhubKey: '', refreshSec: 60, theme: 'auto', privacy: false, checkinDay: 1 },
       settingsMt: 0,
       accounts: [], stocks: [], crypto: [], deposits: [], properties: [], others: [], liabilities: [], cashflows: [], spending: [], cards: [], goals: [],
       activity: [],
@@ -939,10 +939,10 @@
     }
     const pend = Calc.pendingPayments(state, todayISO());
     if (pend.length) {
-      out.push({ level: 'warn', html: `${plural(pend.length, 'payment')} to confirm: ${esc(pend.slice(0, 3).map((p) => p.name).join(', '))}${pend.length > 3 ? '…' : ''}. <a href="#" data-action="review-payments">Review</a>` });
+      out.push({ level: 'warn', html: `${plural(pend.length, 'payment')} to confirm: ${pend.slice(0, 3).map(payName).join(', ')}${pend.length > 3 ? '…' : ''}. <a href="#" data-action="review-payments">Review</a>` });
     }
     if (Calc.checkinDue(state, todayISO())) {
-      out.push({ level: 'info', html: `Monthly check-in for ${fmtMonth(todayISO().slice(0, 7))}: update your balances and last month’s card spending. <a href="#" data-action="checkin">Start</a>` });
+      out.push({ level: 'info', html: `Monthly check-in (due ${fmtDate(Calc.checkinDate(state, todayISO()))}): update your balances, confirm what’s been paid, and record last month’s card spending. <a href="#" data-action="checkin">Start</a>` });
     }
     if (syncCfg.token && !sessionPass) out.push({ level: 'warn', html: 'Sync is locked on this device. <a href="#" data-action="unlock">Enter your passphrase</a> to sync.' });
     if (lastErrors.length) out.push({ level: 'warn', text: `Last price update had problems: ${lastErrors.slice(0, 3).join('; ')}${lastErrors.length > 3 ? '…' : ''}` });
@@ -1385,7 +1385,23 @@
   // Shows the last month, quarter or 6 months, or one row per year (all recorded months).
   function renderHistory() {
     const s = summary;
-    const months = s.spendMonths; // newest first, every recorded month
+    // Every month with a card statement or a one-off (extra income / one-off cost), newest first.
+    // One-offs count in their own month only — never in the regular monthly plan.
+    const extras = new Map();
+    const thisMonth = todayISO().slice(0, 7);
+    for (const c of state.cashflows) {
+      if (c.frequency !== 'once' || c.active === false || !c.nextDate || c.nextDate.slice(0, 7) > thisMonth) continue;
+      const v = toBase(c.amount, c.currency) || 0;
+      const e = extras.get(c.nextDate.slice(0, 7)) || { in: 0, out: 0, names: [] };
+      if (c.kind === 'income') e.in += v;
+      else if (c.kind === 'expense' || c.kind === 'subscription') e.out += v;
+      else continue;
+      e.names.push(c.name);
+      extras.set(c.nextDate.slice(0, 7), e);
+    }
+    const cardByMonth = new Map(s.spendMonths.map((m) => [m.month, m.total]));
+    const months = [...new Set([...cardByMonth.keys(), ...extras.keys()])].sort().reverse()
+      .map((month) => ({ month, total: cardByMonth.get(month), extra: extras.get(month) || { in: 0, out: 0, names: [] } }));
     if (!months.length) {
       return `<div class="card"><h2>Month by month</h2><p class="sub">Record your monthly card statements (Credit cards &amp; monthly spending, below) to see how each month compares with your income.</p></div>`;
     }
@@ -1396,26 +1412,31 @@
       const years = new Map();
       for (const m of months) {
         const y = m.month.slice(0, 4);
-        const r = years.get(y) || { label: y, n: 0, card: 0 };
-        r.n += 1; r.card += m.total;
+        const r = years.get(y) || { label: y, n: 0, card: 0, xin: 0, xout: 0 };
+        r.n += 1; r.card += m.total ?? s.cardPaidBills; r.xin += m.extra.in; r.xout += m.extra.out;
         years.set(y, r);
       }
       h = [...years.values()].sort((x, y) => (x.label < y.label ? -1 : 1)).map((r) => {
-        const spending = r.card + fixed * r.n;
-        return { label: `${r.label}`, sub: plural(r.n, 'month'), income: s.incomeTotal * r.n, card: r.card, spending, net: s.incomeTotal * r.n - spending };
+        const spending = r.card + fixed * r.n + r.xout;
+        const income = s.incomeTotal * r.n + r.xin;
+        return { label: `${r.label}`, sub: plural(r.n, 'month'), regular: s.incomeTotal * r.n, xin: r.xin, xout: r.xout, income, card: r.card, spending, net: income - spending };
       });
     } else {
       h = months.slice(0, +monthRange).reverse().map((m) => {
-        const spending = m.total + fixed;
-        return { label: fmtMonth(m.month), month: m.month, income: s.incomeTotal, card: m.total, spending, net: s.incomeTotal - spending };
+        // A month with only a one-off and no statement: assume just the fixed bills charged to cards.
+        const card = m.total ?? s.cardPaidBills;
+        const spending = card + fixed + m.extra.out;
+        const income = s.incomeTotal + m.extra.in;
+        return { label: fmtMonth(m.month), month: m.month, noStatement: m.total == null, regular: s.incomeTotal, xin: m.extra.in, xout: m.extra.out, names: m.extra.names, income, card, spending, net: income - spending };
       });
     }
+    const extraSub = (m) => [m.xin ? `<span class="pos">+${money(m.xin, base(), 0)} extra</span>` : '', m.xout ? `−${money(m.xout, base(), 0)} one-off` : '', m.noStatement ? 'no card statement' : ''].filter(Boolean).join(' · ');
     const max = Math.max(1, ...h.map((m) => Math.max(m.income, m.spending)));
     const rows = h.map((m) => `<div class="hist-row">
-        <span class="hist-month">${m.label}${m.sub ? `<div class="sub">${m.sub}</div>` : ''}</span>
+        <span class="hist-month">${m.label}${m.sub || extraSub(m) ? `<div class="sub">${[m.sub, extraSub(m)].filter(Boolean).join(' · ')}</div>` : ''}</span>
         <span class="hist-bars">
-          <span class="hist-bar in" style="width:${(m.income / max) * 100}%" data-tip="Income: ${esc(money(m.income, base(), 0))}"></span>
-          <span class="hist-bar out" style="width:${(m.spending / max) * 100}%" data-tip="Spent: ${esc(money(m.spending, base(), 0))} (cards ${esc(money(m.card, base(), 0))})"></span>
+          <span class="hist-bar in" style="width:${(m.income / max) * 100}%" data-tip="Income: ${esc(money(m.income, base(), 0))}${m.xin ? ` (regular ${esc(money(m.regular, base(), 0))} + extra ${esc(money(m.xin, base(), 0))}${m.names ? ` — ${esc(m.names.join(', '))}` : ''})` : ''}"></span>
+          <span class="hist-bar out" style="width:${(m.spending / max) * 100}%" data-tip="Spent: ${esc(money(m.spending, base(), 0))} (cards ${esc(money(m.card, base(), 0))}${m.xout ? `, one-off ${esc(money(m.xout, base(), 0))}` : ''})"></span>
         </span>
         <span class="num ${m.net >= 0 ? 'pos' : 'neg'}">${m.net >= 0 ? '+' : '−'}${money(Math.abs(m.net), base(), 0)}</span>
       </div>`).join('');
@@ -1430,7 +1451,7 @@
       <div class="card-head"><h2>Month by month</h2>${seg}</div>
       <p class="sub legend-inline"><span class="swatch" style="background:var(--series-1)"></span>income <span class="swatch" style="background:var(--series-2)"></span>spent</p>
       ${rows}
-      <p class="sub">Left over ${money(avgNet, base(), 0)} a month on average${byYear ? ` across ${plural(nMonths, 'recorded month')}` : ''} (before planned saving)${best ? ` · best ${best.label}, highest spending ${worst.label}` : ''}.${more} Card spending is what you recorded; income is your regular monthly income (income items, interest, rent and dividends) and bills and loan repayments are your regular amounts.</p>
+      <p class="sub">Left over ${money(avgNet, base(), 0)} a month on average${byYear ? ` across ${plural(nMonths, 'recorded month')}` : ''} (before planned saving)${best ? ` · best ${best.label}, highest spending ${worst.label}` : ''}.${more} Card spending is what you recorded; income is your regular monthly income (income items, interest, rent and dividends) plus any extras that month, and bills and loan repayments are your regular amounts. Add extras in the monthly check-in or as a one-off item.</p>
     </div>`;
   }
 
@@ -1777,6 +1798,8 @@
           <small>Free Finnhub keys allow 60 requests a minute.</small></label>
         <label class="span-2">Finnhub API key (live stock prices)<input name="finnhubKey" value="${esc(st.finnhubKey)}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste key here">
           <small>Free key at <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a>. Crypto prices and exchange rates don’t need one. Synced to your other devices.</small></label>
+        <label>Monthly check-in day<input name="checkinDay" type="number" inputmode="numeric" min="1" max="31" step="1" value="${esc(st.checkinDay || 1)}">
+          <small>1–31. In shorter months it falls on the last day (e.g. 31 → 30 April, 28 February).</small></label>
         <label>Theme (this device)<select name="theme">${[['auto', 'Match system'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<option value="${v}" ${st.theme === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <div class="span-2 row-actions"><button class="btn primary" type="submit">Save settings</button></div>
       </form>
@@ -2420,6 +2443,9 @@
     return isFinite(v) ? round2(v) : '';
   };
 
+  // Card bills are named "<card> bill (YYYY-MM)": show the month as words.
+  const payName = (p) => esc(p.name).replace(/\((\d{4}-\d{2})\)/, (_, m) => `(${fmtMonth(m)})`);
+
   // One box per payment; `getList` is re-read after each tap (another device may have handled one).
   function paymentSheet(getList, onEmpty) {
     const list = getList();
@@ -2446,7 +2472,7 @@
         ? `${acct ? '<button class="btn primary small" data-pay="apply">Pay in</button>' : ''}<button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already moved' : 'Paid in'}</button><button class="btn small ghost" data-pay="none">Not paid</button>`
         : `${acct ? `<button class="btn primary small" data-pay="apply">${p.sign > 0 ? 'Add' : 'Deduct'}</button>` : ''}<button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already included' : p.type === 'card' ? 'Mark paid' : 'Dismiss'}</button>`;
       return `<div class="pay-item" data-key="${esc(p.key)}" data-cur="${esc(p.currency)}">
-        <div class="pay-head"><span class="badge ${p.sign > 0 ? 'kind-income' : 'kind-expense'}">${p.sign > 0 ? 'In' : 'Out'}</span><strong class="grow">${esc(p.name)}</strong><span class="sub">${fmtDate(p.date)}</span></div>
+        <div class="pay-head"><span class="badge ${p.sign > 0 ? 'kind-income' : 'kind-expense'}">${p.sign > 0 ? 'In' : 'Out'}</span><strong class="grow">${payName(p)}</strong><span class="sub">${fmtDate(p.date)}</span></div>
         <div class="sub">${acct ? `${p.sign > 0 ? 'Into' : 'From'} <strong>${esc(acct.name)}</strong>${acct.platform ? ` · ${esc(acct.platform)}` : ''}${p.type === 'saver' ? ' into the saver' : ''}` : p.accountId ? 'From <span class="neg">an account that was deleted</span>' : p.type === 'saver' ? 'No paying account linked — this just records it in the saver' : 'No paying account linked — this just marks it paid'} · ${esc(p.currency)}</div>
         ${confirmedAfter ? `<div class="hint">You updated this balance on ${fmtDate(acct.updatedAt)}, so it may already include this.</div>` : ''}
         ${cross ? `<div class="pay-row">${amtInput}</div>${cross}<div class="pay-row">${buttons}</div>` : `<div class="pay-row">${amtInput}${buttons}</div>`}
@@ -2512,27 +2538,47 @@
         }).join('') || '<p class="sub">No balances yet — tap the account later to add some.</p>'}
       </div>`;
     }).join('');
+    // Payments due since the last check-in: the balances entered here already include them.
+    const pending = Calc.pendingPayments(state, t);
+    const payLines = pending.map((p) => {
+      const acct = state.accounts.find((a) => a.id === p.accountId);
+      return `<label class="ci-pay"><input type="checkbox" data-pay-key="${esc(p.key)}" checked><span class="grow"><strong>${payName(p)}</strong><div class="sub">${fmtDate(p.date)} · ${p.sign > 0 ? '+' : '−'}${money(p.amount, p.currency)}${acct ? ` · ${p.sign > 0 ? 'into' : 'from'} ${esc(acct.name)}` : ''}</div></span></label>`;
+    }).join('');
+    const extraRow = () => `<div class="ci-extra"><select class="ci-x-kind" aria-label="Type"><option value="income">Extra income</option><option value="expense">One-off cost</option></select><input class="ci-x-name" placeholder="e.g. Bonus" aria-label="What"><input class="ci-x-amt" type="number" step="any" inputmode="decimal" placeholder="Amount" aria-label="Amount"><input class="ci-x-cur" list="currency-list" maxlength="3" value="${esc(base())}" aria-label="Currency"></div>`;
     const html = `<p class="sub">Update each balance from your bank apps; leave the ones that haven’t changed.</p>
       ${blocks}
+      ${pending.length ? `<h3>✓ Due since your last check-in</h3>
+      <p class="sub">Ticked = already in the balances above: it’s marked as done and nothing is taken off again. Untick anything that hasn’t gone through yet — you’ll be asked about it later.</p>
+      <div class="ci-pays">${payLines}</div>` : ''}
       <h3>💳 Card spending for ${fmtMonth(lm)}</h3>
       <p class="sub">Optional — each card’s statement total. Leave blank to skip a card.</p>
       ${cardLines}
       <div class="ci-spend-rows">${state.cards.length ? '' : spendRow()}</div>
       <button type="button" class="btn small" data-ci="add-card">+ ${state.cards.length ? 'A card not listed' : 'Another card'}</button>
+      <h3>✨ Extra income or one-off costs in ${fmtMonth(lm)}</h3>
+      <p class="sub">Optional — e.g. a bonus or a big one-off purchase. Only used in Cash Flow’s month by month; it doesn’t change any balance (the balances above already include it).</p>
+      <div class="ci-extras">${extraRow()}</div>
+      <button type="button" class="btn small" data-ci="add-extra">+ Another</button>
       <div class="row-actions ci-actions"><button class="btn primary" data-ci="save">Save check-in</button><button class="btn" data-ci="later">Remind me tomorrow</button><button class="btn ghost" data-ci="skip">Skip this month</button></div>
       <p class="form-error" role="alert"></p>`;
-    openSheet(`Monthly check-in — ${fmtMonth(t.slice(0, 7))}`, html, (e) => {
+    openSheet(`Monthly check-in — ${fmtDate(Calc.checkinDate(state, t))}`, html, (e) => {
       const b = e.target.closest('[data-ci]');
       if (!b) return;
       const box = dialog();
       const action = b.dataset.ci;
       if (action === 'add-card') { $('.ci-spend-rows', box).insertAdjacentHTML('beforeend', spendRow()); return; }
+      if (action === 'add-extra') { $('.ci-extras', box).insertAdjacentHTML('beforeend', extraRow()); return; }
       if (action === 'later') { dialog().close(); return; }
       if (action === 'skip') { Calc.recordCheckin(state, t, true, Date.now()); dialog().close(); commit(); return; }
       // save: validate card rows first
       const cards = [...box.querySelectorAll('.ci-spend')].map((r) => ({ platform: $('.ci-card', r).value.trim(), amount: $('.ci-amt', r).value, currency: $('.ci-cur', r).value.trim().toUpperCase() })).filter((c) => c.amount !== '');
       const known = [...box.querySelectorAll('input[data-card]')].filter((i) => i.value !== '').map((i) => ({ cardId: i.dataset.card, amount: i.value }));
       for (const c of known) if (!isFinite(+c.amount)) return ($('.form-error', box).textContent = 'Card amounts must be numbers.');
+      const extras = [...box.querySelectorAll('.ci-extra')].map((r) => ({ kind: $('.ci-x-kind', r).value, name: $('.ci-x-name', r).value.trim(), amount: $('.ci-x-amt', r).value, currency: $('.ci-x-cur', r).value.trim().toUpperCase() })).filter((x) => x.amount !== '');
+      for (const x of extras) {
+        if (!(+x.amount > 0)) return ($('.form-error', box).textContent = 'Extra amounts must be numbers above 0.');
+        if (!/^[A-Z]{3}$/.test(x.currency)) return ($('.form-error', box).textContent = 'Currency must be a 3-letter code like HKD or GBP.');
+      }
       for (const c of cards) {
         if (!c.platform) return ($('.form-error', box).textContent = 'Give the new card a name.');
         if (!isFinite(+c.amount)) return ($('.form-error', box).textContent = 'Card amounts must be numbers.');
@@ -2568,10 +2614,23 @@
         state.cards.push(card);
         state.spending.push({ id: uid(), cardId: card.id, month: lm, platform: card.name, amount: +c.amount, currency: c.currency, note: '', _mt: now });
       }
+      // Ticked payments are already in the balances: mark them done without changing anything.
+      let handled = 0;
+      for (const cb of box.querySelectorAll('input[data-pay-key]')) {
+        if (!cb.checked) continue;
+        const p = Calc.pendingPayments(state, t).find((x) => x.key === cb.dataset.payKey);
+        if (p) { Calc.resolvePayment(state, p, false, p.amount, now); handled++; }
+      }
+      // Extras are one-off Cash Flow items dated in that month (no account, so no balance change).
+      const lmEnd = Calc.toISO(Calc.addDays(Calc.addMonths(Calc.parseDate(`${lm}-01`), 1), -1));
+      for (const x of extras) {
+        state.cashflows.push({ id: uid(), name: x.name || (x.kind === 'income' ? 'Extra income' : 'One-off cost'), kind: x.kind, category: 'One-off', amount: +x.amount, currency: x.currency, frequency: 'once', nextDate: lmEnd, active: true, _mt: now });
+      }
       Calc.recordCheckin(state, t, false, now);
       dialog().close();
       commit();
-      toast(`Check-in saved — ${plural(changed, 'balance')} updated${known.length + cards.length ? `, ${plural(known.length + cards.length, 'card statement')} recorded` : ''}`);
+      const parts = [`${plural(changed, 'balance')} updated`, known.length + cards.length ? `${plural(known.length + cards.length, 'card statement')} recorded` : '', handled ? `${plural(handled, 'payment')} marked done` : '', extras.length ? `${plural(extras.length, 'extra')} added` : ''].filter(Boolean);
+      toast(`Check-in saved — ${parts.join(', ')}`);
     });
   }
 
@@ -2586,8 +2645,9 @@
     const due = Calc.checkinDue(state, t);
     if (!pending && !due) return;
     try { localStorage.setItem(PROMPT_KEY, t); } catch (e) { /* storage unavailable */ }
-    if (pending) reviewPayments({ thenCheckin: due });
-    else openCheckin();
+    // The check-in includes the payments due so far, so it comes first when it's due.
+    if (due) openCheckin();
+    else reviewPayments();
   }
 
   // ---------------------------------------------------------------- transfers
@@ -3028,6 +3088,8 @@
       // Quarterly and yearly bills are averaged per month.
       { id: uid(), name: 'Electricity', kind: 'expense', category: 'Utilities', amount: 1800, currency: 'HKD', frequency: 'quarterly', nextDate: d(20), active: true },
       { id: uid(), name: 'Home insurance', kind: 'expense', category: 'Insurance', amount: 3600, currency: 'HKD', frequency: 'yearly', nextDate: m(5), active: true },
+      // A one-off: counts in its own month in Month by month, never in the regular plan.
+      { id: uid(), name: 'Bonus', kind: 'income', category: 'One-off', amount: 30000, currency: 'HKD', frequency: 'once', nextDate: Calc.toISO(Calc.addDays(Calc.addMonths(t, -2), -3)), active: true },
       { id: uid(), name: 'Gym (paused)', kind: 'subscription', category: 'Health', amount: 480, currency: 'HKD', frequency: 'monthly', nextDate: d(4), active: false },
     ];
     const ym = (k) => Calc.toISO(Calc.addMonths(t, -k)).slice(0, 7);
@@ -3194,7 +3256,7 @@
     const newBase = f.baseCurrency.value.trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(newBase)) return toast('Base currency must be a 3-letter code like HKD or GBP.', 'error');
     const baseChanged = newBase !== state.settings.baseCurrency;
-    state.settings = { ...state.settings, baseCurrency: newBase, finnhubKey: f.finnhubKey.value.trim(), refreshSec: Math.max(15, +f.refreshSec.value || 60), theme: f.theme.value };
+    state.settings = { ...state.settings, baseCurrency: newBase, finnhubKey: f.finnhubKey.value.trim(), refreshSec: Math.max(15, +f.refreshSec.value || 60), theme: f.theme.value, checkinDay: Math.min(31, Math.max(1, Math.round(+f.checkinDay.value) || 1)) };
     state.settingsMt = Date.now();
     save();
     schedule();

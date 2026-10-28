@@ -559,3 +559,7 @@ table.legend a:hover { text-decoration: underline; }
 .note-actions { display: flex; gap: 6px; margin-left: auto; }
 .hist-month .sub { font-size: 0.75rem; }
 .loan-notes li .grow { flex: 1 1 240px; }
+.ci-pay { display: flex; flex-direction: row; gap: 10px; align-items: flex-start; color: var(--text); padding: 8px 0; border-bottom: 1px solid var(--border); }
+.ci-pay input { margin-top: 4px; }
+.ci-extra { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
+.ci-card-line { grid-template-columns: minmax(90px, 40%) minmax(0, 1fr); }

@@ -711,3 +711,26 @@ test('buy & sell: average cost, realised profit and the cash account', () => {
   C.applyTrade(state, { id: 'b4', side: 'buy', section: 'crypto', holdingId: 'btc', newHolding: { coinId: 'bitcoin', symbol: 'BTC', currency: 'USD', source: 'live' }, quantity: 0.01, price: 60000, date: '2026-10-06' }, 7);
   assert.deepEqual([state.crypto[0].quantity, state.crypto[0].avgCost], [0.01, 60000]);
 });
+
+test('check-in day: any day 1–31, falling back to the last day in shorter months', () => {
+  const st = (day) => ({ settings: { checkinDay: day }, accounts: [{ id: 'a' }], activity: [] });
+  assert.equal(C.checkinDate(st(31), '2026-02-27'), '2026-01-31'); // Feb's isn't until the 28th
+  assert.equal(C.checkinDate(st(31), '2026-02-28'), '2026-02-28');
+  assert.equal(C.checkinDate(st(31), '2028-02-29'), '2028-02-29'); // leap year
+  assert.equal(C.checkinDate(st(30), '2026-04-30'), '2026-04-30');
+  assert.equal(C.checkinDate(st(25), '2026-01-10'), '2025-12-25'); // across the year end
+  assert.equal(C.checkinDate({ settings: {} }, '2026-10-28'), '2026-10-01'); // default: the 1st
+  const s = st(25);
+  assert.equal(C.checkinDue(s, '2026-10-24'), true); // September's (25 Sep) not done yet
+  C.recordCheckin(s, '2026-10-24', false, 1);
+  assert.equal(C.checkinDue(s, '2026-10-24'), false);
+  assert.equal(C.checkinDue(s, '2026-10-25'), true); // October's is now due
+});
+
+test('changing the check-in day right after a check-in does not ask again', () => {
+  const s = { settings: { checkinDay: 1 }, accounts: [{ id: 'a' }], activity: [] };
+  C.recordCheckin(s, '2026-10-28', false, 1);
+  s.settings.checkinDay = 31; // the period is now 30 Sep, before the check-in
+  assert.equal(C.checkinDue(s, '2026-10-28'), false);
+  assert.equal(C.checkinDue(s, '2026-10-31'), true);
+});

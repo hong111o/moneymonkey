@@ -960,12 +960,24 @@
     return entry;
   }
 
-  const checkinId = (today) => `checkin-${today.slice(0, 7)}`;
+  // The monthly check-in falls on `settings.checkinDay` (1–31; the last day in shorter months).
+  // Returns the date of the latest check-in on or before today — the one that's due if not done.
+  function checkinDate(state, today) {
+    const day = Math.min(31, Math.max(1, Math.round(+((state.settings || {}).checkinDay) || 1)));
+    const d = parseDate(today);
+    const inMonth = (y, m) => new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()));
+    let due = inMonth(d.getFullYear(), d.getMonth());
+    if (d < due) due = inMonth(d.getFullYear(), d.getMonth() - 1);
+    return toISO(due);
+  }
+  const checkinId = (state, today) => `checkin-${checkinDate(state, today).slice(0, 7)}`;
   function checkinDue(state, today) {
-    return (state.accounts || []).length > 0 && !(state.activity || []).some((e) => e.id === checkinId(today));
+    // Any check-in on or after the due date counts (also after the check-in day is changed).
+    const due = checkinDate(state, today);
+    return (state.accounts || []).length > 0 && !(state.activity || []).some((e) => e.kind === 'checkin' && e.date >= due);
   }
   function recordCheckin(state, today, skipped, nowMs) {
-    const entry = { id: checkinId(today), date: today, kind: 'checkin', skipped: !!skipped, _mt: nowMs };
+    const entry = { id: checkinId(state, today), date: today, kind: 'checkin', skipped: !!skipped, _mt: nowMs };
     state.activity = [entry, ...(state.activity || []).filter((x) => x.id !== entry.id)].slice(0, 200);
   }
 
@@ -1144,6 +1156,6 @@
     itemValue, itemParts, migratePlatforms, platformBreakdown,
     accountBalances, migrateAccounts, cashByCurrency, accountForPlatform, linkDeposits,
     unpaidCardBills, cardDueDate, linkCards,
-    balanceValue, adjustLine, pendingPayments, resolvePayment, paymentCurrency, shortfall, applyTrade, realisedProfit, transfer, checkinDue, recordCheckin,
+    balanceValue, adjustLine, pendingPayments, resolvePayment, paymentCurrency, shortfall, applyTrade, realisedProfit, transfer, checkinDate, checkinDue, recordCheckin,
   };
 });
