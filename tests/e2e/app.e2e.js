@@ -211,10 +211,12 @@ test('month by month keeps past months when a bill changes; search; reports expo
   const rows = () => page.$$eval('.hist-row', (e) => e.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).join('|'));
   const before = await rows();
   const rent = (await state()).cashflows.find((c) => c.name === 'Rent (HK)');
-  await page.evaluate((id) => document.querySelector(`[data-action=edit][data-sec=cashflows][data-id="${id}"]`).click(), rent.id);
+  await page.click('[data-tab=items]');
+  await page.click(`.flow-lines [data-id="${rent.id}"]`);
   await page.fill('[name=amount]', '20000');
   await page.click('dialog button[type=submit]');
   await page.waitForTimeout(300);
+  await page.click('[data-tab=overview]');
   await page.click('[data-action=month-range][data-range="6"]');
   assert.equal(await rows(), before);
   await page.click('[data-action=search]');

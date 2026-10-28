@@ -79,7 +79,7 @@ Every asset and loan has a **Platform** (HSBC HK, ZA Bank, Futu, Monzo, Trading 
 
 ### Analysing your cash flow
 
-The Cash Flow page starts with:
+The Cash Flow page has three tabs: **Overview** (the plan and month by month), **Cards & spending** (cards and statements, latest 3 months with "Show all") and **Items** (every income, bill, subscription, saving and transfer in folding groups; one-offs and paused items start folded). Overview starts with:
 
 - **Where your income goes:** one bar splitting a typical month's income into bank bills, card spending, loan repayments and planned saving, and what's **free** (or how much you're over). Tap any part for the items behind it.
 - **Month by month:** income against spending for the months you've recorded card statements, with what was left over. Choose **Last month**, **Quarter** (the default), **6M**, or **By year** (one row per year, covering every recorded month). Income and fixed costs here are your regular amounts **as they were that month**. The app saves them every day, so a pay rise, a new bill or a cancelled subscription doesn't change earlier months. Months from before the app saved them use today's amounts. Each month also adds any extras (from the check-in, or one-off items in Cash Flow). One-off items count only in their own month, never in the regular plan.
