@@ -463,10 +463,12 @@
     liabilities: {
       title: 'Loans & Debts',
       singular: 'loan',
-      intro: 'Mortgages, car loans, credit cards. “Auto” lets the balance fall each month from the repayment schedule; “Manual” lets you type the balance yourself.',
+      intro: 'Mortgages, car and personal loans. “Auto” lets the balance fall each month from the repayment schedule; “Manual” lets you type the balance yourself. Credit cards are in Cash Flow → Credit cards.',
       fields: [
         { key: 'name', label: 'Name', required: true, placeholder: 'e.g. Home mortgage' },
-        { key: 'type', label: 'Type', type: 'select', options: LOAN_TYPES },
+        // Credit cards are tracked with their statements (Cash Flow → Credit cards); the old
+        // "Credit card" loan type is only offered for loans that already use it.
+        { key: 'type', label: 'Type', type: 'select', options: (v) => LOAN_TYPES.filter((o) => o.value !== 'credit' || v.type === 'credit'), help: 'Credit cards: add them in Cash Flow → Credit cards, so each bill counts as debt once, until it’s paid.' },
         platformField('Lender / platform', 'e.g. HSBC UK'),
         currencyField,
         { key: 'mode', label: 'Balance tracking', type: 'select', options: opt([['amortizing', 'Auto — from repayment schedule'], ['manual', 'Manual — I’ll enter the balance']]) },
@@ -973,7 +975,8 @@
   }
 
   function filteredHistory() {
-    const pts = state.history.map((h) => ({ date: h.date, value: h.netWorth }));
+    // Days saved while the base currency was different are converted at today's rate.
+    const pts = state.history.map((h) => ({ date: h.date, value: !h.currency || h.currency === base() ? h.netWorth : Calc.convert(h.netWorth, h.currency, base(), state.fx) })).filter((p) => isFinite(p.value));
     if (historyRange === 'all') return pts;
     const from = Calc.toISO(Calc.addDays(new Date(), -+historyRange));
     return pts.filter((p) => p.date >= from);
@@ -1148,7 +1151,10 @@
     }).join('');
     const ACTIVITY_KINDS = ['deposit-cash', 'deposit-renew', 'payment', 'transfer'];
     const history = [...state.activity.filter((e) => ACTIVITY_KINDS.includes(e.kind) && (e.accountId === a.id || e.heldIn === a.id || e.toAccountId === a.id)), ...state.trades.filter((e) => e.accountId === a.id).map((e) => ({ ...e, kind: 'trade' }))]
-      .sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : (y._mt || 0) - (x._mt || 0))).slice(0, 15);
+      .sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : (y._mt || 0) - (x._mt || 0)));
+    const showAll = filters.activityAll === a.id;
+    const moreActivity = showAll ? 0 : Math.max(0, history.length - 15);
+    if (!showAll) history.length = Math.min(history.length, 15);
     const meta = [a.platform ? `<a href="#platform/${encodeURIComponent(a.platform)}">${esc(a.platform)}</a>` : '', esc(labelOf(ACCOUNT_TYPES, a.type)), esc(a.note || '')].filter(Boolean).join(' · ');
     return `<a class="back" href="#accounts">‹ Cash &amp; Bank</a>
       <div class="page-head">
@@ -1168,7 +1174,7 @@
       </div>
       <div class="section-head"><h2>Fixed deposits &amp; savers</h2><span class="row-actions"><button class="btn small" data-action="add" data-sec="deposits" data-kind="regular" data-account="${esc(a.id)}">+ Regular saver</button><button class="btn small primary" data-action="add" data-sec="deposits" data-account="${esc(a.id)}">+ Fixed deposit</button></span></div>
       ${deps.length ? renderItemsTable('deposits', deps) : '<div class="card"><p class="sub">No fixed deposits or regular savers in this account.</p></div>'}
-      ${history.length ? `<div class="section-head"><h2>Activity</h2></div><div class="card"><ul class="events">${history.map((e) => `<li><span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${activityText(e)}</span>${e.kind === 'payment' ? `<button class="btn small ghost" data-action="undo-payment" data-id="${esc(e.id)}">Undo</button>` : '<span></span>'}</li>`).join('')}</ul></div>` : ''}`;
+      ${history.length ? `<div class="section-head"><h2>Activity</h2></div><div class="card"><ul class="events">${history.map((e) => `<li><span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${activityText(e)}</span>${e.kind === 'payment' ? `<button class="btn small ghost" data-action="undo-payment" data-id="${esc(e.id)}">Undo</button>` : '<span></span>'}</li>`).join('')}</ul>${moreActivity ? `<button class="btn small" data-action="activity-all" data-id="${esc(a.id)}">Show all (${moreActivity} more)</button>` : ''}</div>` : ''}`;
   }
 
   // Each currency's total across accounts, as a stacked bar split by account plus a legend list.
@@ -2902,6 +2908,7 @@
     for (const h of state.history) {
       if (h.demo == null) continue;
       h.netWorth = round2(s.netWorth * h.demo);
+      h.currency = base();
       h.liabilities = round2(s.liabilities);
       h.assets = round2(h.netWorth + s.liabilities);
       // The demo's past plans are filled in once, then kept like real saved months.
@@ -3230,7 +3237,6 @@
     ];
     s.liabilities = [
       { id: uid(), name: 'Buy-to-let mortgage', type: 'mortgage', platform: 'Nationwide', currency: 'GBP', mode: 'amortizing', principal: 180000, startDate: m(-40), rate: 4.4, payment: 990 },
-      { id: uid(), name: 'Credit card', type: 'credit', platform: 'HSBC HK', currency: 'HKD', mode: 'manual', balance: 6200, rate: 0, payment: 6200 },
     ];
     s.cashflows = [
       { id: uid(), name: 'Salary', kind: 'income', category: 'Work', amount: 62000, currency: 'HKD', frequency: 'monthly', nextDate: d(9), active: true },
@@ -3335,6 +3341,7 @@
       case 'open-card': location.hash = `#card/${encodeURIComponent(id)}`; return;
       case 'pay-card': return payCardBill(id);
       case 'open-event': return openEvent(b.dataset);
+      case 'activity-all': filters.activityAll = id; return render();
       case 'undo-payment': {
         const entry = state.activity.find((x) => x.id === id);
         if (!entry || !confirm(`Undo “${entry.name}”? Any balance change is reversed and you’ll be asked about it again.`)) return;

@@ -11,6 +11,8 @@
   'use strict';
 
   const DAY_MS = 86400000;
+  // Activity (payments, transfers, maturities…) kept per device and in sync: ~10 years of use.
+  const ACTIVITY_MAX = 3000;
 
   // ---------- dates (YYYY-MM-DD strings, interpreted as local dates) ----------
 
@@ -271,7 +273,7 @@
     }
     if (created.length) {
       const ids = new Set(created.map((e) => e.id));
-      state.activity = [...created, ...(state.activity || []).filter((e) => !ids.has(e.id))].slice(0, 200);
+      state.activity = [...created, ...(state.activity || []).filter((e) => !ids.has(e.id))].slice(0, ACTIVITY_MAX);
     }
     return created;
   }
@@ -531,6 +533,12 @@
       }
     }
     liabilities += cardOwed;
+    // An old-style "Credit card" loan next to card statements is probably the same debt twice.
+    if ((state.cards || []).length) {
+      for (const l of state.liabilities || []) {
+        if (l.type === 'credit' && loanBalance(l, today).balance > 0) alerts.push({ level: 'warn', text: `“${l.name}” is a credit-card loan, but card bills are also tracked under Credit cards — if it’s the same card, delete the loan so the debt isn’t counted twice.` });
+      }
+    }
 
     // Loan repayments are part of monthly spending. A bill that is the same payment (linked, or
     // auto-matched by currency + amount) is counted once, as the loan repayment.
@@ -869,7 +877,7 @@
       accountId: named ? named.id : null, accountName: named ? named.name : null, prev, _mt: nowMs,
     };
     if (applied && other) { entry.paidCurrency = other.currency; entry.paidAmount = round2(+other.amount); }
-    state.activity = [entry, ...(state.activity || []).filter((x) => x.id !== entry.id)].slice(0, 200);
+    state.activity = [entry, ...(state.activity || []).filter((x) => x.id !== entry.id)].slice(0, ACTIVITY_MAX);
     return entry;
   }
 
@@ -1015,7 +1023,7 @@
     from._mt = nowMs;
     to._mt = nowMs;
     const entry = { id: t.id, date: t.date, kind: 'transfer', amount: round2(t.amount), currency: t.fromCurrency, received: round2(t.received), toCurrency: t.toCurrency, accountId: from.id, accountName: from.name, toAccountId: to.id, toAccountName: to.name, note: t.note || '', _mt: nowMs };
-    state.activity = [entry, ...(state.activity || [])].slice(0, 200);
+    state.activity = [entry, ...(state.activity || [])].slice(0, ACTIVITY_MAX);
     return entry;
   }
 
@@ -1037,7 +1045,7 @@
   }
   function recordCheckin(state, today, skipped, nowMs) {
     const entry = { id: checkinId(state, today), date: today, kind: 'checkin', skipped: !!skipped, _mt: nowMs };
-    state.activity = [entry, ...(state.activity || []).filter((x) => x.id !== entry.id)].slice(0, 200);
+    state.activity = [entry, ...(state.activity || []).filter((x) => x.id !== entry.id)].slice(0, ACTIVITY_MAX);
   }
 
   // An account on `platform` (preferring one that holds `currency`), creating

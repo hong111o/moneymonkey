@@ -776,3 +776,9 @@ test('undoing an answer reverses it and asks again', () => {
   C.resolvePayment(state, C.pendingPayments(state, today).find((x) => x.key === 'cf:r:2026-09-21'), true, 18000, 11);
   assert.ok(!keys().includes('cf:r:2026-09-21'));
 });
+
+test('a credit-card loan next to card statements is flagged as possibly counted twice', () => {
+  const base = { settings: { baseCurrency: 'HKD' }, fx: { base: 'HKD', rates: { HKD: 1 } }, liabilities: [{ id: 'c', name: 'Credit card', type: 'credit', mode: 'manual', balance: 6200, currency: 'HKD' }] };
+  assert.equal(C.summarize(base, '2026-10-28').alerts.filter((a) => /counted twice/.test(a.text)).length, 0);
+  assert.equal(C.summarize({ ...base, cards: [{ id: 'k', name: 'HSBC Red' }] }, '2026-10-28').alerts.filter((a) => /counted twice/.test(a.text)).length, 1);
+});
