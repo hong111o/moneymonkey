@@ -379,7 +379,7 @@ test('pending payments: linked, non-card items from their tracking date; card bi
   assert.deepEqual(C.pendingPayments(state, '2026-02-20'), []);
   assert.equal(state.cashflows[0].lastHandled, '2026-02-01');
   assert.equal(state.spending[0].paidOn, '2026-02-20');
-  assert.deepEqual(state.activity.map((a) => [a.kind, a.amount]), [['payment', -8950], ['payment', 60000]]);
+  assert.deepEqual(state.activity.map((a) => [a.outcome, a.amount]), [['applied', -8950], ['included', -0], ['applied', 60000]]);
   assert.deepEqual(C.pendingPayments(state, '2026-03-01').map((x) => x.key), ['cf:pay:2026-02-25', 'cf:rent:2026-03-01']); // next ones come back
 });
 
@@ -733,4 +733,46 @@ test('changing the check-in day right after a check-in does not ask again', () =
   s.settings.checkinDay = 31; // the period is now 30 Sep, before the check-in
   assert.equal(C.checkinDue(s, '2026-10-28'), false);
   assert.equal(C.checkinDue(s, '2026-10-31'), true);
+});
+
+test('undoing an answer reverses it and asks again', () => {
+  const state = {
+    accounts: [{ id: 'h', name: 'HSBC', balances: [{ currency: 'HKD', amount: 50000 }] }, { id: 'm', name: 'Monzo', balances: [{ currency: 'GBP', amount: 1000 }] }],
+    cashflows: [{ id: 'r', name: 'Rent', kind: 'expense', amount: 18000, currency: 'HKD', frequency: 'monthly', nextDate: '2026-09-21', trackFrom: '2026-09-21', accountId: 'h' }],
+    deposits: [{ id: 'rs', kind: 'regular', currency: 'GBP', monthlyAmount: 300, rate: 6, startDate: '2026-09-10', termMonths: 12, trackFrom: '2026-09-10', payFromAccountId: 'm' }],
+    spending: [{ id: 'b', amount: 500, currency: 'GBP', dueDate: '2026-10-15', payFromAccountId: 'h' }],
+    activity: [],
+  };
+  const today = '2026-10-22';
+  const keys = () => C.pendingPayments(state, today).map((p) => p.key);
+  const p = Object.fromEntries(C.pendingPayments(state, today).map((x) => [x.key, x]));
+  C.resolvePayment(state, p['cf:r:2026-09-21'], true, 18000, 1);
+  C.resolvePayment(state, p['cf:r:2026-10-21'], false, 18000, 2); // "already included" by mistake
+  C.resolvePayment(state, p['rs:rs:2026-09-10'], true, 300, 3);
+  C.resolvePayment(state, { ...p['rs:rs:2026-10-10'], paidIn: false }, false, 300, 4); // "not paid" by mistake
+  C.resolvePayment(state, p['card:b'], true, 500, 5, { currency: 'HKD', amount: 5000 });
+  assert.deepEqual(keys(), []);
+  assert.equal(state.accounts[0].balances[0].amount, 50000 - 18000 - 5000);
+  // Undo the latest rent answer: asked again, balance untouched (nothing was deducted).
+  assert.equal(C.undoPayment(state, 'pay-cf:r:2026-10-21', 6), 'cf:r:2026-10-21');
+  assert.deepEqual(keys(), ['cf:r:2026-10-21']);
+  // Undo the earlier September rent: deduction reversed, September asked again too.
+  C.undoPayment(state, 'pay-cf:r:2026-09-21', 7);
+  assert.deepEqual(keys(), ['cf:r:2026-09-21', 'cf:r:2026-10-21']);
+  assert.equal(state.accounts[0].balances[0].amount, 50000 - 5000);
+  // Saver: undo "not paid" → asked again; undo "pay in" → £300 back in Monzo and asked again.
+  C.undoPayment(state, 'pay-rs:rs:2026-10-10', 8);
+  C.undoPayment(state, 'pay-rs:rs:2026-09-10', 9);
+  assert.equal(state.accounts[1].balances[0].amount, 1000);
+  assert.deepEqual(keys().filter((k) => k.startsWith('rs')), ['rs:rs:2026-09-10', 'rs:rs:2026-10-10']);
+  assert.equal(C.regularSaverValue(state.deposits[0], today).paidIn, 0);
+  // Card bill paid from HKD: HK$5,000 back, bill owed again.
+  C.undoPayment(state, 'pay-card:b', 10);
+  assert.equal(state.accounts[0].balances[0].amount, 50000);
+  assert.ok(!state.spending[0].paidOn);
+  assert.equal(state.activity.length, 0);
+  assert.ok(state.deleted['pay-card:b']);
+  // Answering again works as normal.
+  C.resolvePayment(state, C.pendingPayments(state, today).find((x) => x.key === 'cf:r:2026-09-21'), true, 18000, 11);
+  assert.ok(!keys().includes('cf:r:2026-09-21'));
 });

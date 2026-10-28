@@ -563,3 +563,7 @@ table.legend a:hover { text-decoration: underline; }
 .ci-pay input { margin-top: 4px; }
 .ci-extra { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
 .ci-card-line { grid-template-columns: minmax(90px, 40%) minmax(0, 1fr); }
+.toast-undo { display: flex; align-items: center; gap: 10px; }
+.toast-undo .btn { background: transparent; color: inherit; border-color: currentColor; }
+.toast.in-dialog { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 10; max-width: 480px; margin: 0 auto; }
+.saver-pays { margin-top: 10px; }

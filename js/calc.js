@@ -786,8 +786,9 @@
     for (const dep of state.deposits || []) {
       if (dep.kind !== 'regular' || !(+dep.monthlyAmount > 0)) continue;
       const { payDates } = regularSaverSchedule(dep, today);
+      const reask = new Set(dep.reask || []);
       for (const date of payDates) {
-        if (date > today || (dep.trackFrom && date < dep.trackFrom) || (dep.lastHandled && date <= dep.lastHandled)) continue;
+        if (date > today || (dep.trackFrom && date < dep.trackFrom && !reask.has(date)) || (dep.lastHandled && date <= dep.lastHandled && !reask.has(date))) continue;
         if (dep.paid && dep.paid[date] != null) continue;
         out.push({ key: `rs:${dep.id}:${date}`, type: 'saver', id: dep.id, date, name: `Regular saver: ${dep.platform || dep.name || 'saver'}`, amount: +dep.monthlyAmount, currency: dep.currency, accountId: dep.payFromAccountId || null, sign: -1 });
       }
@@ -797,7 +798,9 @@
       if (cf.onCard && (cf.kind === 'expense' || cf.kind === 'subscription')) continue;
       const after = cf.lastHandled ? toISO(addDays(parseDate(cf.lastHandled), 1)) : null;
       const from = [cf.trackFrom, after].filter(Boolean).sort().pop() || today;
-      for (const date of occurrences(cf, from, today)) {
+      // Dates re-opened by undoing an answer come back too.
+      const dates = [...new Set([...occurrences(cf, from, today), ...(cf.reask || []).filter((d) => d <= today)])].sort();
+      for (const date of dates) {
         out.push({ key: `cf:${cf.id}:${date}`, type: 'cashflow', id: cf.id, date, name: cf.name, amount: +cf.amount || 0, currency: cf.currency, accountId: cf.accountId, sign: OUTGOING[cf.kind] ? -1 : 1 });
       }
     }
@@ -834,27 +837,83 @@
       else adjustLine(acct, p.currency, p.sign * amount, p.date);
       acct._mt = nowMs;
     }
+    const unask = (item) => { if (item.reask) { item.reask = item.reask.filter((d) => d !== p.date); if (!item.reask.length) delete item.reask; } };
+    const prev = {};
     if (p.type === 'saver') {
       const dep = (state.deposits || []).find((d) => d.id === p.id);
       if (dep) {
+        prev.lastHandled = dep.lastHandled || null;
         if (!dep.lastHandled || dep.lastHandled < p.date) dep.lastHandled = p.date;
         if (p.paidIn !== false) dep.paid = { ...(dep.paid || {}), [p.date]: round2(amount) };
+        unask(dep);
         dep._mt = nowMs;
       }
     } else if (p.type === 'cashflow') {
       const cf = (state.cashflows || []).find((c) => c.id === p.id);
-      if (cf && (!cf.lastHandled || cf.lastHandled < p.date)) cf.lastHandled = p.date;
-      if (cf) cf._mt = nowMs;
+      if (cf) {
+        prev.lastHandled = cf.lastHandled || null;
+        if (!cf.lastHandled || cf.lastHandled < p.date) cf.lastHandled = p.date;
+        unask(cf);
+        cf._mt = nowMs;
+      }
     } else {
       const e = (state.spending || []).find((x) => x.id === p.id);
       if (e) { e.paidOn = p.date; e._mt = nowMs; }
     }
-    if (!apply) return { skipped: true };
-    if (!acct) return { paidIn: true };
-    const entry = { id: `pay-${p.key}`, date: p.date, kind: 'payment', name: p.name, amount: round2(p.sign * amount), currency: p.currency, accountId: acct.id, accountName: acct.name, _mt: nowMs };
-    if (other) { entry.paidCurrency = other.currency; entry.paidAmount = round2(+other.amount); }
+    // Every answer is recorded (not only deductions), so it can be undone later.
+    const applied = !!(apply && acct);
+    const outcome = applied ? 'applied' : p.type === 'saver' && p.paidIn === false ? 'notpaid' : 'included';
+    const named = acct || (state.accounts || []).find((a) => a.id === p.accountId);
+    const entry = {
+      id: `pay-${p.key}`, date: p.date, kind: 'payment', name: p.name, outcome, applied, amount: round2(p.sign * amount), currency: p.currency,
+      accountId: named ? named.id : null, accountName: named ? named.name : null, prev, _mt: nowMs,
+    };
+    if (applied && other) { entry.paidCurrency = other.currency; entry.paidAmount = round2(+other.amount); }
     state.activity = [entry, ...(state.activity || []).filter((x) => x.id !== entry.id)].slice(0, 200);
     return entry;
+  }
+
+  // Undoes a recorded answer to a payment: reverses any balance change and puts the payment back
+  // in the "to confirm" list, so it can be answered again. Returns the payment's key.
+  function undoPayment(state, entryId, nowMs) {
+    const entry = (state.activity || []).find((e) => e.id === entryId && e.kind === 'payment');
+    if (!entry) return null;
+    const key = entry.id.replace(/^pay-/, '');
+    const [type, id, date] = key.split(':');
+    const applied = entry.applied ?? !!entry.accountId; // older entries were only recorded when applied
+    if (applied) {
+      const acct = (state.accounts || []).find((a) => a.id === entry.accountId);
+      if (acct) {
+        if (entry.paidCurrency) adjustLine(acct, entry.paidCurrency, entry.amount < 0 ? +entry.paidAmount : -entry.paidAmount, entry.date);
+        else adjustLine(acct, entry.currency, -entry.amount, entry.date);
+        acct._mt = nowMs;
+      }
+    }
+    const reopen = (item) => {
+      // The latest answer: step back. An earlier one: ask about that date again.
+      if (item.lastHandled === date && entry.prev && 'lastHandled' in entry.prev) {
+        if (entry.prev.lastHandled) item.lastHandled = entry.prev.lastHandled;
+        else delete item.lastHandled;
+        if (item.trackFrom && date < item.trackFrom) item.reask = [...new Set([...(item.reask || []), date])];
+      } else item.reask = [...new Set([...(item.reask || []), date])].sort();
+      item._mt = nowMs;
+    };
+    if (type === 'cf') {
+      const cf = (state.cashflows || []).find((c) => c.id === id);
+      if (cf) reopen(cf);
+    } else if (type === 'rs') {
+      const dep = (state.deposits || []).find((d) => d.id === id);
+      if (dep) {
+        if (dep.paid) { dep.paid = { ...dep.paid }; delete dep.paid[date]; }
+        reopen(dep);
+      }
+    } else if (type === 'card') {
+      const e = (state.spending || []).find((x) => x.id === id);
+      if (e) { delete e.paidOn; e._mt = nowMs; }
+    }
+    state.activity = state.activity.filter((e) => e.id !== entry.id);
+    state.deleted = { ...(state.deleted || {}), [entry.id]: nowMs };
+    return key;
   }
 
   // "Saving" cash-flow items that are a regular saver's monthly payment (linked with `saverId`, or
@@ -1156,6 +1215,6 @@
     itemValue, itemParts, migratePlatforms, platformBreakdown,
     accountBalances, migrateAccounts, cashByCurrency, accountForPlatform, linkDeposits,
     unpaidCardBills, cardDueDate, linkCards,
-    balanceValue, adjustLine, pendingPayments, resolvePayment, paymentCurrency, shortfall, applyTrade, realisedProfit, transfer, checkinDate, checkinDue, recordCheckin,
+    balanceValue, adjustLine, pendingPayments, resolvePayment, undoPayment, paymentCurrency, regularSaverSchedule, regularPaid, shortfall, applyTrade, realisedProfit, transfer, checkinDate, checkinDue, recordCheckin,
   };
 });

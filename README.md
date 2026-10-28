@@ -61,6 +61,12 @@ MoneyMonkey never changes a bank balance on its own; you always confirm:
 
 The boxes pop up at most once a day per device, and alerts on the dashboard stay until you deal with them.
 
+**Chose the wrong option?**
+- **Straight away:** for 5 seconds after any answer or check-in save, an **Undo** button appears. It puts everything back exactly as it was: balances, paid marks and saver payments. Then it asks again. The payment returns to the box, or the check-in reopens with everything you typed still filled in.
+- **Later:** every answer ("Deduct", "Already included", "Not paid", and items ticked in a check-in) is listed in the account's **Activity** with an **Undo** button. It reverses any balance change and puts the payment back in the "to confirm" list.
+- **Regular saver:** edit the saver to see each month's payment. You can undo an answer, or switch a month between paid and not paid.
+- **Card bills** can also be marked paid or unpaid in the statement's form.
+
 ### Multi-currency accounts
 
 Add one line per currency inside an account (**+ Add currency** in the form). The account card shows each balance plus the converted total. On the Cash & Bank page, **Cash by currency** shows every currency's total across all accounts as a bar split by account. Tap a currency, or use the currency filter, to list only the accounts holding it. When a fixed deposit matures, the money is added to the matching currency in the payout account. If that account doesn't hold the currency yet, a new balance line is created, with no conversion. Older single-currency accounts are converted automatically.

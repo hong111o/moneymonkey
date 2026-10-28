@@ -699,7 +699,23 @@
     return `<strong>${fmtDate(r.startDate)} → ${fmtDate(r.maturityDate)}</strong> (${termText(r)}).<br>
       ${plural(n, 'payment')} of ${money(v.monthlyAmount, cur)} = ${money(r.plannedIn, cur)}, about ${money(r.maturityInterest, cur)} interest at ${num(+v.rate, 2)}% AER (${num(r.grossRate, 2)}% gross, paid monthly) — about <strong>${money(r.maturityValue, cur)}</strong> at the end.${past}
       ${r.paidIn > 0 ? `<br>Now: ${money(r.paidIn, cur)} paid in + ${money(r.interest, cur)} interest = <strong>${money(r.value, cur)}</strong>${r.interestThisPeriod > 0.005 ? ` (incl. ${money(r.interestThisPeriod, cur)} building up this month)` : ''}.` : ''}
-      ${hist ? `<ul class="events">${hist}</ul>` : ''}`;
+      ${hist ? `<ul class="events">${hist}</ul>` : ''}
+      ${v.id ? saverPaymentList(dep, t, cur) : ''}`;
+  }
+
+  // A saved regular saver's payments so far, each correctable: "Undo" for an answer given in a
+  // payment box or check-in (reverses it and asks again), otherwise a plain paid / not-paid switch.
+  function saverPaymentList(dep, t, cur) {
+    const { payDates } = Calc.regularSaverSchedule(dep, t);
+    const rows = payDates.filter((d) => d <= t).reverse().map((date) => {
+      const answered = state.activity.find((x) => x.id === `pay-rs:${dep.id}:${date}`);
+      const amt = Calc.regularPaid(dep, date, false);
+      const waiting = Calc.pendingPayments(state, t).some((p) => p.key === `rs:${dep.id}:${date}`);
+      const status = waiting ? '<span class="sub">waiting to confirm</span>' : amt > 0 ? `paid ${money(amt, cur)}` : '<span class="sub">not paid</span>';
+      const btn = waiting ? '' : `<button type="button" class="btn small ghost" data-action="saver-toggle" data-id="${esc(dep.id)}" data-date="${date}">${answered ? 'Undo' : amt > 0 ? 'Mark not paid' : 'Mark paid'}</button>`;
+      return `<li><span class="ev-date">${fmtDate(date)}</span><span class="ev-label">${status}</span>${btn}</li>`;
+    }).join('');
+    return rows ? `<div class="saver-pays"><strong>Payments</strong> <span class="sub">— correct any month here. “Undo” reverses what you confirmed and asks again; “Mark paid / not paid” only changes the saver’s record.</span><ul class="events">${rows}</ul></div>` : '';
   }
 
   // ================================================================== views
@@ -821,7 +837,12 @@
     const ref = e.ref ? ` (${esc(e.ref)})` : '';
     if (e.kind === 'deposit-cash') return `${e.saver ? 'Regular saver' : 'Fixed deposit'} at ${esc(e.platform)}${ref} matured — ${money(e.amount, e.currency)} incl. ${money(e.interest, e.currency)} interest moved to “${esc(e.accountName)}”.`;
     if (e.kind === 'deposit-renew') return `Fixed deposit at ${esc(e.platform)}${ref} matured and renewed with ${money(e.amount, e.currency)} (incl. ${money(e.interest, e.currency)} interest).`;
-    if (e.kind === 'payment') return `${esc(e.name)}: ${money(Math.abs(e.amount), e.currency)} ${e.amount < 0 ? 'paid from' : 'received into'} “${esc(e.accountName)}”${e.paidAmount != null ? ` (${money(e.paidAmount, e.paidCurrency)})` : ''}.`;
+    if (e.kind === 'payment') {
+      const name = esc(e.name).replace(/\((\d{4}-\d{2})\)/, (_, m) => `(${fmtMonth(m)})`);
+      if (e.outcome === 'notpaid') return `${name}: marked as not paid.`;
+      if (e.outcome === 'included') return `${name}: ${money(Math.abs(e.amount), e.currency)} marked as already in the balance${e.accountName ? ` of “${esc(e.accountName)}”` : ''} — nothing changed.`;
+      return `${name}: ${money(Math.abs(e.amount), e.currency)} ${e.amount < 0 ? 'paid from' : 'received into'} “${esc(e.accountName)}”${e.paidAmount != null ? ` (${money(e.paidAmount, e.paidCurrency)})` : ''}.`;
+    }
     if (e.kind === 'trade') return `${e.side === 'buy' ? 'Bought' : 'Sold'} ${num(e.quantity, 8)} ${esc(e.symbol)} at ${money(e.price, e.currency)}${e.fee ? ` (fee ${money(e.fee, e.currency)})` : ''} — ${e.side === 'buy' ? '−' : '+'}${money(e.cashAmount, e.cashCurrency)}${e.side === 'sell' && e.realised != null ? `, profit ${signed(e.realised, e.currency)}` : ''}.`;
     if (e.kind === 'transfer') return `Transferred ${money(e.amount, e.currency)} from “${esc(e.accountName)}” to “${esc(e.toAccountName)}”${e.toCurrency !== e.currency ? ` (received ${money(e.received, e.toCurrency)})` : ''}${e.note ? ` — ${esc(e.note)}` : ''}.`;
     return esc(e.text || '');
@@ -1145,7 +1166,7 @@
       </div>
       <div class="section-head"><h2>Fixed deposits &amp; savers</h2><span class="row-actions"><button class="btn small" data-action="add" data-sec="deposits" data-kind="regular" data-account="${esc(a.id)}">+ Regular saver</button><button class="btn small primary" data-action="add" data-sec="deposits" data-account="${esc(a.id)}">+ Fixed deposit</button></span></div>
       ${deps.length ? renderItemsTable('deposits', deps) : '<div class="card"><p class="sub">No fixed deposits or regular savers in this account.</p></div>'}
-      ${history.length ? `<div class="section-head"><h2>Activity</h2></div><div class="card"><ul class="events">${history.map((e) => `<li><span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${activityText(e)}</span><span></span></li>`).join('')}</ul></div>` : ''}`;
+      ${history.length ? `<div class="section-head"><h2>Activity</h2></div><div class="card"><ul class="events">${history.map((e) => `<li><span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${activityText(e)}</span>${e.kind === 'payment' ? `<button class="btn small ghost" data-action="undo-payment" data-id="${esc(e.id)}">Undo</button>` : '<span></span>'}</li>`).join('')}</ul></div>` : ''}`;
   }
 
   // Each currency's total across accounts, as a stacked bar split by account plus a legend list.
@@ -2497,10 +2518,15 @@
           const left = Calc.shortfall(acct, cur, from ? from.amount : amt, p.date);
           if (left > 0 && !confirm(`“${acct.name}” only has ${money((from ? from.amount : amt) - left, cur)} in ${cur} in the app — this would leave it at ${money(-left, cur)}. If its real balance is higher, update it first. Deduct anyway?`)) return;
         }
+        const snap = JSON.stringify(state);
         const res = Calc.resolvePayment(state, none ? { ...p, paidIn: false } : p, apply, amt, Date.now(), from);
         commit();
         const used = res && res.paidAmount != null ? ` (${money(res.paidAmount, res.paidCurrency)})` : '';
-        toast(none ? `${p.name}: not paid this month` : apply ? `${p.name}: balance updated${used}` : p.type === 'saver' ? `${p.name}: ${money(amt, p.currency)} recorded` : `${p.name}: marked as already included`);
+        const nm = p.name.replace(/\((\d{4}-\d{2})\)/, (_, m) => `(${fmtMonth(m)})`);
+        const msg = none ? `${nm}: not paid this month` : apply ? `${nm}: balance updated${used}` : p.type === 'saver' ? `${nm}: ${money(amt, p.currency)} recorded` : `${nm}: marked as already included`;
+        paymentSheet(getList, onEmpty);
+        undoToast(msg, () => { restoreSnapshot(snap); paymentSheet(getList, onEmpty); });
+        return;
       }
       paymentSheet(getList, onEmpty);
     });
@@ -2517,7 +2543,8 @@
 
   // ---------------------------------------------------------------- monthly check-in
 
-  function openCheckin() {
+  // `prefill` (after an Undo) puts back what was typed: extra rows added, then every field's value.
+  function openCheckin(prefill) {
     if (!state.accounts.length) return toast('Add a bank account first.');
     const t = todayISO();
     const lm = lastMonth();
@@ -2561,6 +2588,17 @@
       <button type="button" class="btn small" data-ci="add-extra">+ Another</button>
       <div class="row-actions ci-actions"><button class="btn primary" data-ci="save">Save check-in</button><button class="btn" data-ci="later">Remind me tomorrow</button><button class="btn ghost" data-ci="skip">Skip this month</button></div>
       <p class="form-error" role="alert"></p>`;
+    const fill = () => {
+      if (!prefill) return;
+      const box = dialog();
+      for (let i = 0; i < prefill.cards; i++) $('.ci-spend-rows', box).insertAdjacentHTML('beforeend', spendRow());
+      for (let i = 0; i < prefill.extras; i++) $('.ci-extras', box).insertAdjacentHTML('beforeend', extraRow());
+      [...box.querySelectorAll('.modal-body input, .modal-body select')].forEach((el, i) => {
+        if (i >= prefill.values.length) return;
+        if (el.type === 'checkbox') el.checked = prefill.values[i];
+        else el.value = prefill.values[i];
+      });
+    };
     openSheet(`Monthly check-in — ${fmtDate(Calc.checkinDate(state, t))}`, html, (e) => {
       const b = e.target.closest('[data-ci]');
       if (!b) return;
@@ -2569,7 +2607,14 @@
       if (action === 'add-card') { $('.ci-spend-rows', box).insertAdjacentHTML('beforeend', spendRow()); return; }
       if (action === 'add-extra') { $('.ci-extras', box).insertAdjacentHTML('beforeend', extraRow()); return; }
       if (action === 'later') { dialog().close(); return; }
-      if (action === 'skip') { Calc.recordCheckin(state, t, true, Date.now()); dialog().close(); commit(); return; }
+      if (action === 'skip') {
+        const snap = JSON.stringify(state);
+        Calc.recordCheckin(state, t, true, Date.now());
+        dialog().close();
+        commit();
+        undoToast('Check-in skipped this month', () => { restoreSnapshot(snap); openCheckin(); });
+        return;
+      }
       // save: validate card rows first
       const cards = [...box.querySelectorAll('.ci-spend')].map((r) => ({ platform: $('.ci-card', r).value.trim(), amount: $('.ci-amt', r).value, currency: $('.ci-cur', r).value.trim().toUpperCase() })).filter((c) => c.amount !== '');
       const known = [...box.querySelectorAll('input[data-card]')].filter((i) => i.value !== '').map((i) => ({ cardId: i.dataset.card, amount: i.value }));
@@ -2585,6 +2630,12 @@
         if (!/^[A-Z]{3}$/.test(c.currency)) return ($('.form-error', box).textContent = 'Card currency must be a 3-letter code like HKD or GBP.');
       }
       const now = Date.now();
+      const snap = JSON.stringify(state);
+      const typed = {
+        cards: box.querySelectorAll('.ci-spend').length - (state.cards.length ? 0 : 1),
+        extras: box.querySelectorAll('.ci-extra').length - 1,
+        values: [...box.querySelectorAll('.modal-body input, .modal-body select')].map((el) => (el.type === 'checkbox' ? el.checked : el.value)),
+      };
       let changed = 0;
       for (const el of box.querySelectorAll('.ci-acct')) {
         const acct = state.accounts.find((a) => a.id === el.dataset.id);
@@ -2630,8 +2681,9 @@
       dialog().close();
       commit();
       const parts = [`${plural(changed, 'balance')} updated`, known.length + cards.length ? `${plural(known.length + cards.length, 'card statement')} recorded` : '', handled ? `${plural(handled, 'payment')} marked done` : '', extras.length ? `${plural(extras.length, 'extra')} added` : ''].filter(Boolean);
-      toast(`Check-in saved — ${parts.join(', ')}`);
+      undoToast(`Check-in saved — ${parts.join(', ')}`, () => { restoreSnapshot(snap); openCheckin(typed); });
     });
+    fill();
   }
 
   // Pops up the confirm box / check-in at most once a day on this device.
@@ -2998,6 +3050,42 @@
     setTimeout(() => el.remove(), 4000);
   }
 
+  // A message with an Undo button for 5 seconds. Shown inside an open box, so it can be tapped.
+  function undoToast(msg, onUndo) {
+    const inBox = dialog().open;
+    const el = document.createElement('div');
+    el.className = `toast toast-undo${inBox ? ' in-dialog' : ''}`;
+    el.innerHTML = `<span class="grow">${esc(msg)}</span><button type="button" class="btn small">Undo</button>`;
+    (inBox ? dialog() : $('#toasts')).appendChild(el);
+    const timer = setTimeout(() => el.remove(), 5000);
+    el.querySelector('button').addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearTimeout(timer);
+      el.remove();
+      onUndo();
+    });
+  }
+
+  // Puts the data back as it was in `snap` (a JSON copy taken just before an action). Restored
+  // items get a fresh edit time and items the action created are deleted, so sync keeps the undo.
+  function restoreSnapshot(snap) {
+    const old = JSON.parse(snap);
+    const now = Date.now();
+    old.deleted = { ...(old.deleted || {}) };
+    for (const sec of Sync.SECTIONS) {
+      const cur = new Map((state[sec] || []).map((x) => [x.id, x]));
+      const before = new Set();
+      for (const item of old[sec] || []) {
+        before.add(item.id);
+        const c = cur.get(item.id);
+        if (!c || JSON.stringify(c) !== JSON.stringify(item)) { item._mt = now; delete old.deleted[item.id]; }
+      }
+      for (const id of cur.keys()) if (!before.has(id)) old.deleted[id] = now;
+    }
+    state = normalize(old);
+    commit();
+  }
+
   function download(name, text, type) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type }));
@@ -3173,6 +3261,31 @@
       case 'open-region': location.hash = `#region/${encodeURIComponent(b.dataset.name)}`; return;
       case 'open-card': location.hash = `#card/${encodeURIComponent(id)}`; return;
       case 'pay-card': return payCardBill(id);
+      case 'undo-payment': {
+        const entry = state.activity.find((x) => x.id === id);
+        if (!entry || !confirm(`Undo “${entry.name}”? Any balance change is reversed and you’ll be asked about it again.`)) return;
+        const key = Calc.undoPayment(state, id, Date.now());
+        commit();
+        toast('Undone — answer it again');
+        if (key && Calc.pendingPayments(state, todayISO()).some((p) => p.key === key)) reviewPayments();
+        return;
+      }
+      case 'saver-toggle': {
+        const dep = state.deposits.find((d) => d.id === id);
+        const date = b.dataset.date;
+        if (!dep) return;
+        const entryId = `pay-rs:${dep.id}:${date}`;
+        if (state.activity.some((x) => x.id === entryId)) Calc.undoPayment(state, entryId, Date.now());
+        else {
+          const paid = Calc.regularPaid(dep, date, false) > 0;
+          dep.paid = { ...(dep.paid || {}), [date]: paid ? 0 : +dep.monthlyAmount };
+          if (dep.reask) dep.reask = dep.reask.filter((x) => x !== date);
+          dep._mt = Date.now();
+        }
+        commit();
+        editItem('deposits', dep.id);
+        return;
+      }
       case 'trade-buy': return openTrade(sec, id, 'buy');
       case 'trade-sell': return openTrade(sec, id, 'sell');
       case 'match-confirm': {
