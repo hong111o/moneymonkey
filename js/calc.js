@@ -492,13 +492,13 @@
       const fdMonthly = toBase(v.monthlyInterest, d.currency);
       depositMonthly += fdMonthly;
       if (d.kind === 'regular' && !v.matured && v.nextPayment && v.nextPayment <= horizon) {
-        events.push({ date: v.nextPayment, label: `Pay into regular saver: ${d.platform || d.name || 'saver'}`, amount: toBase(d.monthlyAmount, d.currency), kind: 'saver' });
+        events.push({ date: v.nextPayment, label: `Pay into regular saver: ${d.platform || d.name || 'saver'}`, amount: toBase(d.monthlyAmount, d.currency), kind: 'saver', ref: d.id, orig: +d.monthlyAmount, currency: d.currency });
       }
       if (d.onMaturity === 'renew') fdInterestRenew += fdMonthly;
       else fdInterestCash += fdMonthly;
       depositInterest += toBase(v.interest, d.currency);
       if (v.maturityDate >= today && v.maturityDate <= horizon) {
-        events.push({ date: v.maturityDate, label: `Fixed deposit matures: ${d.bank || d.name || 'FD'}`, amount: toBase(v.maturityValue, d.currency), kind: 'deposit' });
+        events.push({ date: v.maturityDate, label: `Fixed deposit matures: ${d.bank || d.name || 'FD'}`, amount: toBase(v.maturityValue, d.currency), kind: 'deposit', ref: d.id, accountId: d.accountId, orig: v.maturityValue, currency: d.currency });
       } else if (v.matured) {
         alerts.push({ level: 'info', text: `Fixed deposit at ${d.bank || 'bank'} matured on ${v.maturityDate} — renew it or move it to cash.` });
       }
@@ -510,7 +510,7 @@
       totals.property += toBase(v.value, p.currency);
       rentMonthly += toBase(p.monthlyRent, p.currency);
       if (v.stale) alerts.push({ level: 'warn', text: `"${p.name}" value was last updated ${v.lastDate || 'never'} — it is due a ${p.updateFrequency || 'monthly'} update.` });
-      else if (v.nextUpdate <= horizon) events.push({ date: v.nextUpdate, label: `Update value: ${p.name}`, amount: null, kind: 'property' });
+      else if (v.nextUpdate <= horizon) events.push({ date: v.nextUpdate, label: `Update value: ${p.name}`, amount: null, kind: 'property', ref: p.id });
     }
 
     for (const o of state.others || []) totals.other += toBase(otherAssetValue(o, today), o.currency);
@@ -527,7 +527,7 @@
       cardOwed += toBase(e.amount, e.currency);
       if (e.dueDate <= horizon) {
         const overdue = e.dueDate < today;
-        events.push({ date: e.dueDate, label: `${e.platform || 'Card'} bill`, amount: toBase(e.amount, e.currency), kind: 'card', overdue, cardId: e.cardId });
+        events.push({ date: e.dueDate, label: `${e.platform || 'Card'} bill`, amount: toBase(e.amount, e.currency), kind: 'card', overdue, cardId: e.cardId, ref: e.id, orig: +e.amount, currency: e.currency });
       }
     }
     liabilities += cardOwed;
@@ -590,7 +590,7 @@
         if (isBill && cf.onCard) cardPaidBills += monthly;
       }
       for (const date of occurrences(cf, today, horizon)) {
-        events.push({ date, label: cf.name, amount: toBase(cf.amount, cf.currency), kind: cf.kind });
+        events.push({ date, label: cf.name, amount: toBase(cf.amount, cf.currency), kind: cf.kind, ref: cf.id, orig: +cf.amount, currency: cf.currency });
       }
     }
     // Overdue card bills first, then by date.

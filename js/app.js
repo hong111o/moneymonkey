@@ -162,7 +162,7 @@
   const OTHER_CATS = opt([['vehicle', 'Vehicle'], ['gold', 'Gold / precious metals'], ['retirement', 'Retirement / pension (MPF, SIPP…)'], ['insurance', 'Insurance cash value'], ['business', 'Business stake'], ['receivable', 'Money owed to me'], ['collectible', 'Collectibles'], ['other', 'Other']]);
   const LOAN_TYPES = opt([['mortgage', 'Mortgage'], ['car', 'Car loan'], ['personal', 'Personal loan'], ['credit', 'Credit card'], ['student', 'Student loan'], ['other', 'Other']]);
   const ON_MATURITY = opt([['cash', 'Move capital + interest to cash'], ['renew', 'Renew automatically (same term & rate)'], ['keep', 'Do nothing — I’ll update it myself']]);
-  const EVENT_LABELS = { income: 'Income', expense: 'Expense', subscription: 'Subscription', saving: 'Saving', deposit: 'Deposit', property: 'Property', card: 'Card bill' };
+  const EVENT_LABELS = { income: 'Income', expense: 'Expense', subscription: 'Subscription', saving: 'Saving', deposit: 'Deposit', property: 'Property', card: 'Card bill', saver: 'Saver' };
   const CATEGORY_COLORS = { cash: 'var(--series-1)', stocks: 'var(--series-2)', crypto: 'var(--series-3)', deposits: 'var(--series-4)', property: 'var(--series-5)', other: 'var(--series-6)' };
   const CATEGORY_LABELS = { cash: 'Cash & bank', stocks: 'Stocks & ETFs', crypto: 'Crypto', deposits: 'Fixed deposits', property: 'Property', other: 'Other assets' };
   const CATEGORY_VIEW = { cash: 'accounts', stocks: 'stocks', crypto: 'crypto', deposits: 'deposits', property: 'properties', other: 'others' };
@@ -876,8 +876,10 @@
 
     const events = s.events.slice(0, 12).map((e) => {
       const label = `<span class="badge kind-${esc(e.kind)}">${esc(EVENT_LABELS[e.kind] || e.kind)}</span> ${esc(e.label)}${e.overdue ? ' <span class="badge overdue">overdue</span>' : ''}`;
-      const inner = `<span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${label}</span><span class="num">${e.amount != null ? money(e.amount) : ''}</span>`;
-      return e.kind === 'card' ? `<li class="clickable" data-action="open-card" data-id="${esc(e.cardId)}" tabindex="0">${inner}</li>` : `<li>${inner}</li>`;
+      // Its own currency first (as on your statement), the converted amount underneath.
+      const amt = e.amount == null ? '' : e.currency && e.currency !== base() && e.orig != null ? `${money(e.orig, e.currency)}<div class="sub">≈ ${money(e.amount)}</div>` : money(e.amount);
+      const inner = `<span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${label}</span><span class="num">${amt}</span>`;
+      return e.ref ? `<li class="clickable has-chev" data-action="open-event" data-kind="${esc(e.kind)}" data-id="${esc(e.ref)}" data-date="${esc(e.date)}" data-account="${esc(e.accountId || '')}" data-card="${esc(e.cardId || '')}" tabindex="0">${inner}<span class="chev" aria-hidden="true">›</span></li>` : `<li>${inner}</li>`;
     }).join('');
     const recent = state.activity.filter((e) => String(e.kind).startsWith('deposit-') && Calc.daysBetween(e.date, todayISO()) <= 14).slice(0, 3);
     const alerts = [...recent.map((e) => ({ level: 'good', html: activityText(e) })), ...s.alerts, ...setupAlerts()]
@@ -1730,6 +1732,18 @@
     });
   }
 
+  // A tap on a "Next 30 days" row: the payment box when it's due today (or overdue), else the item.
+  function openEvent({ kind, id, date, account, card }) {
+    const t = todayISO();
+    const due = (key) => Calc.pendingPayments(state, t).some((p) => p.key === key);
+    const payBox = (key) => paymentSheet(() => Calc.pendingPayments(state, todayISO()).filter((p) => p.key === key));
+    if (kind === 'card') return date <= t ? payCardBill(id) : (location.hash = `#card/${encodeURIComponent(card)}`);
+    if (kind === 'saver') return due(`rs:${id}:${date}`) ? payBox(`rs:${id}:${date}`) : editItem('deposits', id);
+    if (kind === 'deposit') return (location.hash = `#account/${encodeURIComponent(account)}`);
+    if (kind === 'property') return editItem('properties', id);
+    return due(`cf:${id}:${date}`) ? payBox(`cf:${id}:${date}`) : editItem('cashflows', id);
+  }
+
   // Paying a bill before its due date: the same confirm box as when it's due.
   function payCardBill(id) {
     const billOf = () => {
@@ -2468,8 +2482,13 @@
   const payName = (p) => esc(p.name).replace(/\((\d{4}-\d{2})\)/, (_, m) => `(${fmtMonth(m)})`);
 
   // One box per payment; `getList` is re-read after each tap (another device may have handled one).
-  function paymentSheet(getList, onEmpty) {
-    const list = getList();
+  // `ui` keeps what the person changed in the box between redraws: another account for a payment
+  // (`acct`), whether to always use it (`always`), the typed amount (`amt`), open account pickers.
+  function paymentSheet(getList, onEmpty, ui = { acct: new Map(), always: new Map(), amt: new Map(), open: new Set() }) {
+    const withUi = (p) => (ui.acct.has(p.key) ? { ...p, accountId: ui.acct.get(p.key) || null } : p);
+    const current = () => getList().map(withUi);
+    const redraw = () => paymentSheet(getList, onEmpty, ui);
+    const list = current();
     if (!list.length) {
       if (dialog().open) dialog().close();
       if (onEmpty) onEmpty();
@@ -2488,22 +2507,36 @@
             <input class="pay-conv" type="number" step="any" inputmode="decimal" value="${convertedPay(p.amount, p.currency, fromCur)}" aria-label="Amount in the account's currency">
           </div>
         </div>` : '';
-      const amtInput = `<input class="pay-amt" type="number" step="any" inputmode="decimal" value="${p.amount}" aria-label="Amount in ${esc(p.currency)}">${cross ? `<span class="cur-tag">${esc(p.currency)}</span>` : ''}`;
+      const amtInput = `<input class="pay-amt" type="number" step="any" inputmode="decimal" value="${ui.amt.get(p.key) ?? p.amount}" aria-label="Amount in ${esc(p.currency)}">${cross ? `<span class="cur-tag">${esc(p.currency)}</span>` : ''}`;
+      const dir = p.sign > 0 ? 'Into' : 'From';
+      // "Change": pick another account for this payment (and optionally from now on).
+      const picker = ui.open.has(p.key) ? `<div class="pay-row pay-pick">
+          <select class="pay-acct" aria-label="${dir} account"><option value="">No account — just mark it</option>${state.accounts.map((a) => `<option value="${esc(a.id)}" ${a.id === p.accountId ? 'selected' : ''}>${dir} ${esc(a.name)}${a.platform ? ` · ${esc(a.platform)}` : ''}</option>`).join('')}</select>
+          <label class="check"><input type="checkbox" class="pay-always" ${ui.always.get(p.key) ? 'checked' : ''}> Always ${p.sign > 0 ? 'receive this into' : 'pay this from'} here</label>
+        </div>` : '';
+      const change = ui.open.has(p.key) ? '' : ` <button type="button" class="linklike" data-pay-change>Change</button>`;
       const buttons = p.type === 'saver'
         ? `${acct ? '<button class="btn primary small" data-pay="apply">Pay in</button>' : ''}<button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already moved' : 'Paid in'}</button><button class="btn small ghost" data-pay="none">Not paid</button>`
         : `${acct ? `<button class="btn primary small" data-pay="apply">${p.sign > 0 ? 'Add' : 'Deduct'}</button>` : ''}<button class="btn small ${acct ? '' : 'primary'}" data-pay="skip">${acct ? 'Already included' : p.type === 'card' ? 'Mark paid' : 'Dismiss'}</button>`;
       return `<div class="pay-item" data-key="${esc(p.key)}" data-cur="${esc(p.currency)}">
         <div class="pay-head"><span class="badge ${p.sign > 0 ? 'kind-income' : 'kind-expense'}">${p.sign > 0 ? 'In' : 'Out'}</span><strong class="grow">${payName(p)}</strong><span class="sub">${fmtDate(p.date)}</span></div>
-        <div class="sub">${acct ? `${p.sign > 0 ? 'Into' : 'From'} <strong>${esc(acct.name)}</strong>${acct.platform ? ` · ${esc(acct.platform)}` : ''}${p.type === 'saver' ? ' into the saver' : ''}` : p.accountId ? 'From <span class="neg">an account that was deleted</span>' : p.type === 'saver' ? 'No paying account linked — this just records it in the saver' : 'No paying account linked — this just marks it paid'} · ${esc(p.currency)}</div>
+        <div class="sub">${acct ? `${dir} <strong>${esc(acct.name)}</strong>${acct.platform ? ` · ${esc(acct.platform)}` : ''}${p.type === 'saver' ? ' into the saver' : ''}` : p.accountId ? 'From <span class="neg">an account that was deleted</span>' : p.type === 'saver' ? 'No paying account linked — this just records it in the saver' : 'No account linked — this just marks it paid'} · ${esc(p.currency)}${change}</div>
+        ${picker}
         ${confirmedAfter ? `<div class="hint">You updated this balance on ${fmtDate(acct.updatedAt)}, so it may already include this.</div>` : ''}
         ${cross ? `<div class="pay-row">${amtInput}</div>${cross}<div class="pay-row">${buttons}</div>` : `<div class="pay-row">${amtInput}${buttons}</div>`}
       </div>`;
     }).join('');
-    openSheet(list.length === 1 ? 'Confirm payment' : `Confirm ${plural(list.length, 'payment')}`, `<p class="sub">Nothing changes until you tap. Change the amount first if it was different. “Already included” means the balance you entered already reflects it.</p><div class="pay-list">${items}</div>`, (e) => {
+    const keepAmounts = () => { for (const box of dialog().querySelectorAll('.pay-item')) ui.amt.set(box.dataset.key, $('.pay-amt', box).value); };
+    openSheet(list.length === 1 ? 'Confirm payment' : `Confirm ${plural(list.length, 'payment')}`, `<p class="sub">Nothing changes until you tap. Change the amount or account first if it was different. “Already included” means the balance you entered already reflects it.</p><div class="pay-list">${items}</div>`, (e) => {
+      if (e.target.closest('[data-pay-change]')) {
+        keepAmounts();
+        ui.open.add(e.target.closest('.pay-item').dataset.key);
+        return redraw();
+      }
       const b = e.target.closest('[data-pay]');
       if (!b) return;
       const box = b.closest('.pay-item');
-      const p = getList().find((x) => x.key === box.dataset.key);
+      const p = current().find((x) => x.key === box.dataset.key);
       if (p) {
         const apply = b.dataset.pay === 'apply';
         const none = b.dataset.pay === 'none';
@@ -2520,24 +2553,49 @@
         }
         const snap = JSON.stringify(state);
         const res = Calc.resolvePayment(state, none ? { ...p, paidIn: false } : p, apply, amt, Date.now(), from);
+        if (ui.always.get(p.key) && ui.acct.has(p.key)) setPayingAccount(p, p.accountId || '');
+        ui.acct.delete(p.key); ui.amt.delete(p.key); ui.open.delete(p.key); ui.always.delete(p.key);
         commit();
         const used = res && res.paidAmount != null ? ` (${money(res.paidAmount, res.paidCurrency)})` : '';
         const nm = p.name.replace(/\((\d{4}-\d{2})\)/, (_, m) => `(${fmtMonth(m)})`);
         const msg = none ? `${nm}: not paid this month` : apply ? `${nm}: balance updated${used}` : p.type === 'saver' ? `${nm}: ${money(amt, p.currency)} recorded` : `${nm}: marked as already included`;
-        paymentSheet(getList, onEmpty);
-        undoToast(msg, () => { restoreSnapshot(snap); paymentSheet(getList, onEmpty); });
+        redraw();
+        undoToast(msg, () => { restoreSnapshot(snap); redraw(); });
         return;
       }
-      paymentSheet(getList, onEmpty);
+      redraw();
     });
     // Keep the converted amount in step with the amount and the chosen balance.
     const listEl = $('.pay-list', dialog());
     if (listEl) {
       listEl.oninput = listEl.onchange = (e) => {
         const box = e.target.closest('.pay-item');
+        if (box && e.type === 'change' && e.target.classList.contains('pay-acct')) {
+          keepAmounts();
+          ui.acct.set(box.dataset.key, e.target.value);
+          return redraw();
+        }
+        if (box && e.target.classList.contains('pay-always')) { ui.always.set(box.dataset.key, e.target.checked); return; }
         if (!box || !$('.pay-from', box) || e.target.classList.contains('pay-conv')) return;
         $('.pay-conv', box).value = convertedPay($('.pay-amt', box).value, box.dataset.cur, $('.pay-from', box).value);
       };
+    }
+  }
+
+  // "Always pay this from here": make the chosen account the usual one for that bill / card / saver.
+  function setPayingAccount(p, accountId) {
+    const now = Date.now();
+    if (p.type === 'cashflow') {
+      const cf = state.cashflows.find((c) => c.id === p.id);
+      if (cf) { cf.accountId = accountId; cf._mt = now; }
+    } else if (p.type === 'saver') {
+      const dep = state.deposits.find((d) => d.id === p.id);
+      if (dep) { dep.payFromAccountId = accountId || undefined; dep._mt = now; }
+    } else if (p.type === 'card') {
+      const e = state.spending.find((x) => x.id === p.id);
+      const card = e && cardById(e.cardId);
+      if (card) { card.payFromAccountId = accountId; card._mt = now; }
+      if (e) { delete e.payFromAccountId; e._mt = now; }
     }
   }
 
@@ -3261,6 +3319,7 @@
       case 'open-region': location.hash = `#region/${encodeURIComponent(b.dataset.name)}`; return;
       case 'open-card': location.hash = `#card/${encodeURIComponent(id)}`; return;
       case 'pay-card': return payCardBill(id);
+      case 'open-event': return openEvent(b.dataset);
       case 'undo-payment': {
         const entry = state.activity.find((x) => x.id === id);
         if (!entry || !confirm(`Undo “${entry.name}”? Any balance change is reversed and you’ll be asked about it again.`)) return;

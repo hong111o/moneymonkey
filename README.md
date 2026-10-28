@@ -61,6 +61,8 @@ MoneyMonkey never changes a bank balance on its own; you always confirm:
 
 The boxes pop up at most once a day per device, and alerts on the dashboard stay until you deal with them.
 
+**Paid from a different account?** Tap **Change** next to the account in any payment box to pick another one for that payment. Tick **"Always pay this from here"** to make it the usual account for that bill, card, income or saver. If the account doesn't hold the payment's currency, you choose which balance it came from, as usual.
+
 **Chose the wrong option?**
 - **Straight away:** for 5 seconds after any answer or check-in save, an **Undo** button appears. It puts everything back exactly as it was: balances, paid marks and saver payments. Then it asks again. The payment returns to the box, or the check-in reopens with everything you typed still filled in.
 - **Later:** every answer ("Deduct", "Already included", "Not paid", and items ticked in a check-in) is listed in the account's **Activity** with an **Undo** button. It reverses any balance change and puts the payment back in the "to confirm" list.
@@ -133,7 +135,7 @@ If part of a broker or exchange account is uninvested cash, add it with **+ Cash
 - **Interest earned today**, ticking every second
 - Investment P&L, today's market move, net cash flow, savings rate, passive income, emergency runway, subscriptions
 - Allocation donut, **by region & platform** breakdown, net-worth history chart (one snapshot per day)
-- The next 30 days: bills, pay days, deposit maturities, property updates due
+- The next 30 days: bills, pay days, deposit maturities, property updates due. Amounts show in their own currency with the converted amount underneath. Tap a row to open it. If it's due or overdue, the payment box opens.
 - Alerts: matured deposits that were moved to cash, stale property values, spending to record
 
 ### Tappable boxes on other pages
