@@ -28,3 +28,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 13 | 2026-10-28 | `82a7cae` | Check-in day setting; due payments and extras inside the check-in; one-offs in Month by month |
 | 14 | 2026-10-28 | `b58eba1` | Undo for payment answers and check-ins (5-second Undo + Undo in history); editable regular saver history |
 | 15 | 2026-10-28 | `2a9d32a` | Change the paying account in the payment box; tappable Next 30 days with original currencies |
+| 16 | 2026-10-28 | `e392042` | Month by month uses each month's own regular income and fixed costs |
