@@ -234,6 +234,7 @@ npm start       # serve on http://localhost:8080
 | `js/sync.js` | Encryption, item-level merge, GitHub Gist API |
 | `js/prices.js` | FX, stock and crypto price fetching |
 | `js/charts.js` | Dependency-free SVG charts |
-| `js/app.js` | UI, state, forms, live updates, sync loop |
+| `js/icons.js` | Line icons |
+| `js/app/*.js` | The app, one file per area, loaded in order and sharing one scope: `00-core` (state, formatting) · `01-sections` (forms & columns) · `02-dashboard` · `03-lists` (lists, accounts, platforms) · `04-cashflow` · `05-trading` · `06-reports` (reports, search, goals, settings) · `07-forms` (forms & breakdowns) · `08-payments` (payments, check-in, transfers) · `09-data` (prices & sync) · `10-ui` (menus, demo) · `11-main` (events & start-up) |
 | `sw.js`, `manifest.webmanifest`, `icons/` | Installable app + offline support |
 | `tests/` | Tests |
