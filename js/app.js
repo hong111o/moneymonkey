@@ -1428,29 +1428,38 @@
     if (!months.length) {
       return `<div class="card"><h2>Month by month</h2><p class="sub">Record your monthly card statements (Credit cards &amp; monthly spending, below) to see how each month compares with your income.</p></div>`;
     }
-    const fixed = s.split.bills + s.loanRepayments;
+    // Each month's regular income and fixed costs as saved that month (the last day recorded);
+    // months from before these were saved use today's amounts.
+    const today = { income: s.incomeTotal, fixed: s.split.bills + s.loanRepayments, cardFixed: s.cardPaidBills };
+    const saved = new Map();
+    for (const h of state.history) if (h.income != null && (h.currency || base()) === base()) saved.set(h.date.slice(0, 7), h);
+    const planOf = (month) => saved.get(month) || (month === thisMonth ? today : null);
+    let usedToday = 0;
+    const plan = (month) => { const p = planOf(month); if (!p) usedToday++; return p || today; };
     const byYear = monthRange === 'year';
     let h;
     if (byYear) {
       const years = new Map();
       for (const m of months) {
         const y = m.month.slice(0, 4);
-        const r = years.get(y) || { label: y, n: 0, card: 0, xin: 0, xout: 0 };
-        r.n += 1; r.card += m.total ?? s.cardPaidBills; r.xin += m.extra.in; r.xout += m.extra.out;
+        const r = years.get(y) || { label: y, n: 0, card: 0, xin: 0, xout: 0, regular: 0, fixed: 0 };
+        const pl = plan(m.month);
+        r.n += 1; r.card += m.total ?? pl.cardFixed; r.xin += m.extra.in; r.xout += m.extra.out; r.regular += pl.income; r.fixed += pl.fixed;
         years.set(y, r);
       }
       h = [...years.values()].sort((x, y) => (x.label < y.label ? -1 : 1)).map((r) => {
-        const spending = r.card + fixed * r.n + r.xout;
-        const income = s.incomeTotal * r.n + r.xin;
-        return { label: `${r.label}`, sub: plural(r.n, 'month'), regular: s.incomeTotal * r.n, xin: r.xin, xout: r.xout, income, card: r.card, spending, net: income - spending };
+        const spending = r.card + r.fixed + r.xout;
+        const income = r.regular + r.xin;
+        return { label: `${r.label}`, sub: plural(r.n, 'month'), regular: r.regular, xin: r.xin, xout: r.xout, income, card: r.card, spending, net: income - spending };
       });
     } else {
       h = months.slice(0, +monthRange).reverse().map((m) => {
         // A month with only a one-off and no statement: assume just the fixed bills charged to cards.
-        const card = m.total ?? s.cardPaidBills;
-        const spending = card + fixed + m.extra.out;
-        const income = s.incomeTotal + m.extra.in;
-        return { label: fmtMonth(m.month), month: m.month, noStatement: m.total == null, regular: s.incomeTotal, xin: m.extra.in, xout: m.extra.out, names: m.extra.names, income, card, spending, net: income - spending };
+        const pl = plan(m.month);
+        const card = m.total ?? pl.cardFixed;
+        const spending = card + pl.fixed + m.extra.out;
+        const income = pl.income + m.extra.in;
+        return { label: fmtMonth(m.month), month: m.month, noStatement: m.total == null, regular: pl.income, xin: m.extra.in, xout: m.extra.out, names: m.extra.names, income, card, spending, net: income - spending };
       });
     }
     const extraSub = (m) => [m.xin ? `<span class="pos">+${money(m.xin, base(), 0)} extra</span>` : '', m.xout ? `−${money(m.xout, base(), 0)} one-off` : '', m.noStatement ? 'no card statement' : ''].filter(Boolean).join(' · ');
@@ -1474,7 +1483,7 @@
       <div class="card-head"><h2>Month by month</h2>${seg}</div>
       <p class="sub legend-inline"><span class="swatch" style="background:var(--series-1)"></span>income <span class="swatch" style="background:var(--series-2)"></span>spent</p>
       ${rows}
-      <p class="sub">Left over ${money(avgNet, base(), 0)} a month on average${byYear ? ` across ${plural(nMonths, 'recorded month')}` : ''} (before planned saving)${best ? ` · best ${best.label}, highest spending ${worst.label}` : ''}.${more} Card spending is what you recorded; income is your regular monthly income (income items, interest, rent and dividends) plus any extras that month, and bills and loan repayments are your regular amounts. Add extras in the monthly check-in or as a one-off item.</p>
+      <p class="sub">Left over ${money(avgNet, base(), 0)} a month on average${byYear ? ` across ${plural(nMonths, 'recorded month')}` : ''} (before planned saving)${best ? ` · best ${best.label}, highest spending ${worst.label}` : ''}.${more} Card spending is what you recorded; income is the regular monthly income (income items, interest, rent and dividends) and the bills and loan repayments as they were that month, plus any extras. Add extras in the monthly check-in or as a one-off item.${usedToday ? ` ${plural(usedToday, 'month')} here ${usedToday === 1 ? 'is' : 'are'} from before the app saved your regular amounts, so ${usedToday === 1 ? 'it uses' : 'they use'} today’s.` : ''}</p>
     </div>`;
   }
 
@@ -2884,7 +2893,10 @@
   function recordSnapshot() {
     const s = Calc.summarize(state, todayISO());
     if (!s.assets && !s.liabilities) return;
-    state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), t: Date.now() }, HISTORY_MAX);
+    // The regular plan of the day is saved too, so Month by month can show each month as it was
+    // (a raise or a cancelled subscription doesn't rewrite earlier months).
+    const plan = { income: round2(s.incomeTotal), fixed: round2(s.split.bills + s.loanRepayments), cardFixed: round2(s.cardPaidBills) };
+    state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), ...plan, t: Date.now() }, HISTORY_MAX);
     // Demo history is stored as a share of today's net worth, so the chart joins up with
     // today's figure whatever prices and exchange rates have loaded.
     for (const h of state.history) {
@@ -2892,6 +2904,8 @@
       h.netWorth = round2(s.netWorth * h.demo);
       h.liabilities = round2(s.liabilities);
       h.assets = round2(h.netWorth + s.liabilities);
+      // The demo's past plans are filled in once, then kept like real saved months.
+      if (h.raise != null && h.income == null) Object.assign(h, plan, { income: round2(plan.income - h.raise) });
     }
   }
 
@@ -3283,10 +3297,11 @@
       { id: `tr-${uid()}`, date: d(-10), kind: 'transfer', amount: 500, currency: 'GBP', received: 500, toCurrency: 'GBP', accountId: hsbcId, accountName: 'HSBC One', toAccountId: monzoId, toAccountName: 'Current account', note: 'Top up for UK bills' },
     ];
     s.fx = state.fx;
-    // Six months of net-worth history for the chart (values filled in when the snapshot is taken).
-    s.history = Array.from({ length: 180 }, (_, i) => {
-      const k = 180 - i;
-      return { date: d(-k), demo: (1 - k * 0.0006) * (1 + 0.012 * Math.sin((i - 179) / 9) + 0.006 * Math.sin((i - 179) / 2.3)), netWorth: 0, assets: 0, liabilities: 0, currency: 'HKD', t: Date.now() };
+    // A year and a half of net-worth history for the chart (values filled in when the snapshot is taken).
+    s.history = Array.from({ length: 560 }, (_, i) => {
+      const k = 560 - i;
+      // Salary was HK$4,000 lower until four months ago, to show Month by month keeping old months.
+      return { date: d(-k), raise: k > 100 ? 4000 : 0, demo: (1 - k * 0.0003) * (1 + 0.012 * Math.sin((i - 559) / 9) + 0.006 * Math.sin((i - 559) / 2.3)), netWorth: 0, assets: 0, liabilities: 0, currency: 'HKD', t: Date.now() };
     });
     return s;
   }
