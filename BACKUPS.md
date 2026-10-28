@@ -30,3 +30,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 15 | 2026-10-28 | `2a9d32a` | Change the paying account in the payment box; tappable Next 30 days with original currencies |
 | 16 | 2026-10-28 | `e392042` | Month by month uses each month's own regular income and fixed costs |
 | 17 | 2026-10-28 | `f985e0a` | Review fixes & features: chart currency, card debt, history limit, one-off button, regular transfers, Needs attention, search, dividends received, yearly report & CSV, stock splits, saved tests; then design (preview first) |
+| 18 | 2026-10-28 | `6935e31` | Design: line icons, colour rules (debts stay red), Cash Flow tabs, quieter messages |
