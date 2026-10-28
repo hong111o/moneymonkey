@@ -4,6 +4,19 @@
 
 // ---------------------------------------------------------------- cash flow
 
+// Cash Flow's summary boxes (also used to show boxes pinned to Home).
+function cashflowTiles() {
+  const s = summary;
+  return `<section class="tiles">
+      ${tile('Income / mo', `<span class="pos">${money(s.incomeTotal)}</span>`, s.incomeTotal - s.flow.income > 0.5 ? `incl. ${money(s.incomeTotal - s.flow.income, base(), 0)} interest, rent & dividends` : '', '', explainAttr('income'))}
+      ${tile('Spending / mo', money(s.spending), `${s.spendingSource === 'actual' ? `actual · avg of last ${plural(s.spendAvgMonths, 'month')}` : 'estimated from your bills'}${s.loanRepayments ? ' · incl. loans' : ''}`, '', explainAttr('spending'))}
+      ${tile('Left over / mo', signed(s.netMonthly), s.incomeTotal ? `Savings rate ${pct(s.savingsRate, false)}` : '', '', explainAttr('cashflow'))}
+      ${tile('Fixed costs / mo', money(s.fixedCosts), s.fixedPct != null ? `${pct(s.fixedPct, false)} of income` : 'bills, subscriptions & loans', '', explainAttr('fixed'))}
+      ${tile('Subscriptions / mo', money(s.flow.subscription), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
+      ${tile('Planned saving / mo', money(s.split.saving), '', '', explainAttr('saving'))}
+    </section>`;
+}
+
 function renderCashflows() {
   const s = summary;
   const byCat = {};
@@ -16,22 +29,15 @@ function renderCashflows() {
   const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
   const max = cats.length ? cats[0][1] : 0;
   const catBars = cats.map(([k, v]) => `<div class="hbar link clickable" data-action="explain" data-what="category" data-cat="${esc(k)}" tabindex="0" role="button"><span class="hbar-label">${esc(k)}</span><span class="hbar-track"><span style="width:${max ? (v / max) * 100 : 0}%"></span></span><span class="num">${money(v, base(), 0)}</span></div>`).join('');
-  const tiles = `<section class="tiles">
-      ${tile('Income / mo', `<span class="pos">${money(s.incomeTotal)}</span>`, s.incomeTotal - s.flow.income > 0.5 ? `incl. ${money(s.incomeTotal - s.flow.income, base(), 0)} interest, rent & dividends` : '', '', explainAttr('income'))}
-      ${tile('Spending / mo', money(s.spending), `${s.spendingSource === 'actual' ? `actual · avg of last ${plural(s.spendAvgMonths, 'month')}` : 'estimated from your bills'}${s.loanRepayments ? ' · incl. loans' : ''}`, '', explainAttr('spending'))}
-      ${tile('Left over / mo', signed(s.netMonthly), s.incomeTotal ? `Savings rate ${pct(s.savingsRate, false)}` : '', '', explainAttr('cashflow'))}
-      ${tile('Fixed costs / mo', money(s.fixedCosts), s.fixedPct != null ? `${pct(s.fixedPct, false)} of income` : 'bills, subscriptions & loans', '', explainAttr('fixed'))}
-      ${tile('Subscriptions / mo', money(s.flow.subscription), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
-      ${tile('Planned saving / mo', money(s.split.saving), '', '', explainAttr('saving'))}
-    </section>`;
+  const tiles = cashflowTiles();
   // Three tabs keep the page short: the plan and history, cards & statements, and the item list.
   const tabs = [['overview', 'Overview'], ['cards', 'Cards & spending'], ['items', `Items (${state.cashflows.length})`]];
   const tabBar = `<div class="seg tabs" role="tablist" aria-label="Cash flow">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${cfTab === k}" data-action="cf-tab" data-tab="${k}" class="${cfTab === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   if (cfTab === 'cards') return renderSection('cashflows', { tiles: tabBar, before: renderCardsCard(), list: '' });
   if (cfTab === 'items') return renderSection('cashflows', { tiles: tabBar, before: '', list: renderFlowGroups() });
-  const before = renderIncomeSplit()
-    + renderHistory()
-    + (cats.length ? `<div class="card"><h2>Fixed bills by category</h2><div class="hbars" style="${barValueWidth(cats.map(([, v]) => money(v, base(), 0)))}">${catBars}</div></div>` : '');
+  // Each part is a box you can move or hide (Edit layout).
+  const part = (id, name, html) => (html ? `<div data-box="${id}" data-name="${name}">${html}</div>` : '');
+  const before = `<div class="boxes" data-layout="sections">${part('split', 'Where your income goes', renderIncomeSplit())}${part('history', 'Month by month', renderHistory())}${part('categories', 'Fixed bills by category', cats.length ? `<div class="card"><h2>Fixed bills by category</h2><div class="hbars" style="${barValueWidth(cats.map(([, v]) => money(v, base(), 0)))}">${catBars}</div></div>` : '')}</div>`;
   return renderSection('cashflows', { tiles: tabBar + tiles, before, list: '' });
 }
 

@@ -229,3 +229,43 @@ test('month by month keeps past months when a bill changes; search; reports expo
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('layout: reorder with arrows and drag, hide, pin to Home, reset', { skip: skip() }, async () => {
+  const { page, ctx, errors, state, go } = await demo();
+  const order = (sel) => page.$$eval(`${sel} > [data-box]`, (e) => e.filter((x) => !x.hidden).map((x) => x.dataset.box));
+  await page.click('[data-lay=edit]');
+  await page.click('[data-layout="tiles"] > [data-box="liabilities"] [data-lay=up]');
+  assert.deepEqual((await order('[data-layout="tiles"]')).slice(0, 2), ['liabilities', 'total-assets']);
+  assert.equal(await page.$eval('dialog', (d) => d.open), false, 'controls don’t open the box');
+  // Drag the last box to the top (auto-scrolls).
+  const h = await page.$('[data-layout="tiles"] > [data-box="subscriptions-mo"] [data-lay=drag]');
+  await h.scrollIntoViewIfNeeded();
+  const hb = await h.boundingBox();
+  await page.mouse.move(hb.x + 10, hb.y + 10);
+  await page.mouse.down();
+  for (let i = 1; i <= 30; i++) { await page.mouse.move(60, Math.max(20, hb.y - i * 20)); await page.waitForTimeout(30); }
+  await page.waitForTimeout(600);
+  const top = await (await page.$('[data-layout="tiles"] > [data-box]:not([data-box="subscriptions-mo"])')).boundingBox();
+  await page.mouse.move(top.x + 30, top.y + 40);
+  await page.mouse.up();
+  assert.equal((await order('[data-layout="tiles"]'))[0], 'subscriptions-mo');
+  await page.click('[data-layout="tiles"] > [data-box="emergency-runway"] [data-lay=hide]');
+  await page.click('[data-lay=done]');
+  assert.ok(!(await order('[data-layout="tiles"]')).includes('emergency-runway'));
+  // Pin a Stocks box to Home.
+  await go('#stocks');
+  await page.click('[data-lay=edit]');
+  await page.click('[data-layout="tiles"] > [data-box="profit-loss"] [data-lay=pin]');
+  await page.click('[data-lay=done]');
+  await go('#dashboard');
+  assert.deepEqual(await order('[data-layout="pinned"]'), ['stocks|profit-loss']);
+  const saved = (await state()).settings.layout;
+  assert.equal(saved.pages['dashboard:tiles'].order[0], 'subscriptions-mo');
+  // Reset puts Home back and unpins.
+  await page.click('[data-lay=edit]');
+  await page.click('[data-lay=reset]');
+  assert.equal((await order('[data-layout="tiles"]'))[0], 'total-assets');
+  assert.equal(await page.$$eval('[data-layout="pinned"]', (e) => e.length), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

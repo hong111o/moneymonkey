@@ -618,3 +618,23 @@ h3 .ic { color: var(--text-2); margin-right: 4px; }
 .pm-wrap { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .pm-wrap input { flex: 1; min-width: 0; width: auto; }
 .btn.pm { flex: none; min-width: 40px; padding: 0 10px; font-size: 1rem; }
+
+/* ---------------------------------------------------------------- layout editing */
+.layout-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: 0 0 8px; }
+.layout-bar .btn .ic { margin-right: 4px; }
+.layout-bar.on { position: sticky; top: 56px; z-index: 5; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: var(--info-bg); color: var(--info-ink); box-shadow: var(--shadow); }
+.layout-bar.on .grow { min-width: 0; }
+.layout-editing > [data-box] { position: relative; outline: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -2px; }
+.layout-editing > .tile[data-box] { padding-top: 44px; }
+.layout-editing > [data-box]:not(.tile) { padding-top: 42px; }
+.layout-editing > .is-hidden { opacity: 0.4; }
+.layout-editing > .dragging { opacity: 0.6; outline-style: solid; z-index: 3; pointer-events: none; }
+.box-ctl { position: absolute; top: 6px; left: 6px; right: 6px; display: flex; gap: 4px; justify-content: flex-end; }
+.lay-btn { width: 32px; height: 30px; display: inline-grid; place-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-2); cursor: pointer; padding: 0; }
+.lay-btn .ic { width: 16px; height: 16px; }
+.lay-btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.lay-btn.drag { margin-right: auto; cursor: grab; touch-action: none; }
+.tiles.pinned { margin-bottom: 12px; }
+.tile-from { font-size: 0.7rem; color: var(--muted); margin-top: 4px; }
+.boxes { display: block; }
+.grid-2.boxes > .wide { grid-column: 1 / -1; }

@@ -171,6 +171,15 @@ If part of a broker or exchange account is uninvested cash, add it with **+ Cash
 - The next 30 days: bills, pay days, deposit maturities, property updates due. Amounts show in their own currency with the converted amount underneath. Tap a row to open it. If it's due or overdue, the payment box opens.
 - **Needs attention:** one row on Home lists what to do: payments to confirm, the check-in, values due for an update, deposits that matured. Tap it to see them all.
 
+### Arrange each page
+
+Tap **Edit layout** above the boxes on any page:
+- **Move a box:** drag its handle (works on a phone too; the page scrolls when you drag near the edge), or use the up/down arrows.
+- **Hide** boxes you don't need. They stay visible, faded, while you edit, so you can bring them back.
+- **Pin to Home:** any box from Home, Cash Flow, Cash & Bank, Stocks, Crypto, Fixed deposits, Property, Other assets or Loans. Pinned boxes show in a row at the top of Home.
+
+Home's and Cash Flow's larger sections can be moved and hidden too. **Reset** puts a page back to its usual layout. Your layout syncs to your other devices.
+
 ### Tappable boxes on other pages
 
 Boxes with a › open what's behind them:

@@ -40,6 +40,7 @@ function route() {
   const [id, ...rest] = location.hash.replace('#', '').split('/');
   viewParam = rest.length ? decodeURIComponent(rest.join('/')) : null;
   currentView = VIEWS.some((v) => v.id === id) ? id : 'dashboard';
+  if (layoutEditing !== currentView) layoutEditing = null;
   render();
   window.scrollTo(0, 0);
 }
@@ -64,6 +65,21 @@ function navCount(id) {
   return n && SECTIONS[id] ? `<span class="count">${n}</span>` : '';
 }
 
+// Home's summary boxes (also used to show boxes pinned from Home).
+function dashboardTiles() {
+  const s = summary;
+  return `<section class="tiles">
+      ${tile('Total assets', money(s.assets, base(), 0), '', '', explainAttr('assets'))}
+      ${tile('Liabilities', `<span class="${s.liabilities ? 'owed' : ''}">${money(s.liabilities, base(), 0)}</span>`, s.assets ? `Debt-to-asset ${(s.debtToAsset * 100).toFixed(1)}%` : '', '', explainAttr('liabilities'))}
+      ${tile('Investment P&L', signed(s.investPnl, base(), 0), s.investCost || s.noCostPnl ? (s.investCostPos ? `${pct(s.investPnlPct)} on ${money(s.investCostPos, base(), 0)}${s.noCostPnl ? ` · incl. ${money(s.noCostPnl, base(), 0)} with no cost` : ''}` : 'no cost to compare') : 'No holdings yet', '', explainAttr('pnl'))}
+      ${tile('Net cash flow / mo', signed(s.netMonthly, base(), 0), `${money(s.incomeTotal, base(), 0)} in · ${money(s.spending, base(), 0)} out${s.spendingSource === 'actual' ? ' (actual)' : ''}`, '', explainAttr('cashflow'))}
+      ${tile('Savings rate', s.incomeTotal ? pct(s.savingsRate, false) : '—', 'of monthly income', '', explainAttr('cashflow'))}
+      ${tile('Passive income / mo', money(s.passiveMonthly, base(), 0), 'interest, rent & dividends · FD interest paid at maturity', '', explainAttr('passive'))}
+      ${tile('Emergency runway', isFinite(s.runwayMonths) ? `${s.runwayMonths.toFixed(1)} mo` : '—', 'cash ÷ monthly spending', '', explainAttr('runway'))}
+      ${tile('Subscriptions / mo', money(s.flow.subscription, base(), 0), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
+    </section>`;
+}
+
 function render() {
   summary = Calc.summarize(state, todayISO());
   if (state.settings.theme === 'auto') delete document.documentElement.dataset.theme;
@@ -86,6 +102,7 @@ function render() {
   else if (currentView === 'region') main.innerHTML = renderRegion(viewParam ?? '');
   else if (currentView === 'card') main.innerHTML = renderCard(viewParam);
   else main.innerHTML = renderSection(currentView);
+  applyLayout();
   Charts.bindLineHover(main, tooltip);
   tickLive();
 }
@@ -114,9 +131,11 @@ function renderSyncStatus() {
 // ---------------------------------------------------------------- dashboard
 
 // `attrs` (e.g. data-action="explain" data-what="assets") makes the tile tappable.
+// A box's name for layouts: its label without amounts, years or currencies ("Total (HKD)" → total).
+const boxId = (label) => String(label).replace(/<[^>]+>/g, '').replace(/\(.*?\)/g, '').replace(/\d+/g, '').toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-+|-+$/g, '');
 function tile(label, value, sub = '', extra = '', attrs = '') {
   const tap = attrs ? ` clickable tile-link" ${attrs} tabindex="0" role="button` : '';
-  return `<div class="tile ${extra}${tap}"><div class="tile-label">${label}</div><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ''}</div>`;
+  return `<div class="tile ${extra}${tap}" data-box="${boxId(label)}" data-name="${esc(String(label).replace(/<[^>]+>/g, ''))}"><div class="tile-label">${label}</div><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ''}</div>`;
 }
 const explainAttr = (what) => `data-action="explain" data-what="${what}"`;
 // A platform's or region's total of one kind (cash, deposits, invest, property, debt).
@@ -197,34 +216,22 @@ function renderDashboard() {
 
     ${alerts ? `<ul class="alerts">${alerts}</ul>` : ''}
 
-    <section class="tiles">
-      ${tile('Total assets', money(s.assets, base(), 0), '', '', explainAttr('assets'))}
-      ${tile('Liabilities', `<span class="${s.liabilities ? 'owed' : ''}">${money(s.liabilities, base(), 0)}</span>`, s.assets ? `Debt-to-asset ${(s.debtToAsset * 100).toFixed(1)}%` : '', '', explainAttr('liabilities'))}
-      ${tile('Investment P&L', signed(s.investPnl, base(), 0), s.investCost || s.noCostPnl ? (s.investCostPos ? `${pct(s.investPnlPct)} on ${money(s.investCostPos, base(), 0)}${s.noCostPnl ? ` · incl. ${money(s.noCostPnl, base(), 0)} with no cost` : ''}` : 'no cost to compare') : 'No holdings yet', '', explainAttr('pnl'))}
-      ${tile('Net cash flow / mo', signed(s.netMonthly, base(), 0), `${money(s.incomeTotal, base(), 0)} in · ${money(s.spending, base(), 0)} out${s.spendingSource === 'actual' ? ' (actual)' : ''}`, '', explainAttr('cashflow'))}
-      ${tile('Savings rate', s.incomeTotal ? pct(s.savingsRate, false) : '—', 'of monthly income', '', explainAttr('cashflow'))}
-      ${tile('Passive income / mo', money(s.passiveMonthly, base(), 0), 'interest, rent & dividends · FD interest paid at maturity', '', explainAttr('passive'))}
-      ${tile('Emergency runway', isFinite(s.runwayMonths) ? `${s.runwayMonths.toFixed(1)} mo` : '—', 'cash ÷ monthly spending', '', explainAttr('runway'))}
-      ${tile('Subscriptions / mo', money(s.flow.subscription, base(), 0), `${money(s.flow.subscription * 12, base(), 0)} per year`, '', explainAttr('subscriptions'))}
-    </section>
+    ${dashboardTiles()}
 
-    <section class="grid-2">
-      <div class="card">
+    <section class="grid-2 boxes" data-layout="sections">
+      <div class="card" data-box="allocation" data-name="Where your money is">
         <h2>Where your money is</h2>
         <div class="alloc">
           ${Charts.donut(segs, { center: money(s.assets, base(), 0), centerLabel: 'Assets' })}
           <table class="legend"><tbody>${legend || '<tr><td class="sub">No assets yet</td></tr>'}</tbody></table>
         </div>
       </div>
-      <div class="card">
+      <div class="card" data-box="regions" data-name="By region & platform">
         <div class="card-head"><h2>By region & platform</h2><a href="#platforms" class="sub">All platforms →</a></div>
         ${regionPills ? `<div class="pills">${regionPills}</div>` : ''}
         ${platformBars ? `<div class="hbars" style="${barValueWidth(named.slice(0, 8).map((p) => money(p.net, base(), 0)))}">${platformBars}</div>` : '<p class="sub">Add a platform (e.g. HSBC HK, Monzo, Futu) to your accounts and holdings to see the split.</p>'}
       </div>
-    </section>
-
-    <section class="grid-2">
-      <div class="card">
+      <div class="card" data-box="networth" data-name="Net worth over time">
         <div class="card-head">
           <h2>Net worth over time</h2>
           <div class="seg" role="group" aria-label="History range">
@@ -233,15 +240,14 @@ function renderDashboard() {
         </div>
         ${Charts.lineChart(hist, { format: (v) => money(v) })}
       </div>
-      <div class="card">
+      <div class="card" data-box="upcoming" data-name="Next 30 days">
         <h2>Next 30 days</h2>
         ${events ? `<ul class="events">${events}</ul>` : '<p class="sub">Nothing scheduled. Add bills, income and subscriptions in <a href="#cashflows">Cash flow</a>.</p>'}
       </div>
-    </section>
-
-    <section class="card">
+      <div class="card wide" data-box="goals" data-name="Goals">
       <h2>Goals</h2>
       ${state.goals.length ? state.goals.map(goalCard).join('') : '<p class="sub">No goals yet. <a href="#goals">Set one</a> — e.g. an emergency fund of 6 months’ expenses.</p>'}
+      </div>
     </section>`;
 }
 
