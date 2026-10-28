@@ -132,6 +132,22 @@ Net worth only changes by the fee, because the money just moves between the hold
 
 **Low-balance warning:** a transfer, buy or confirmed payment that would leave an account below zero in the app asks first. You can update the balance, or go ahead if the real balance is higher than the app shows.
 
+### Dividends and splits
+
+Tap **Dividend / split** on a stock:
+- **Dividend received:** enter the amount. It's paid into the broker's cash (in that account's currency, if different). Tick **Reinvested** and enter the shares bought: the dividend becomes their cost, and nothing goes into cash. The **Dividends / yr** box shows what you've received this year next to what's expected.
+- **Split / consolidation:** enter new shares per old share (2 for 2-for-1, 0.1 for 1-for-10). Quantity, average cost and price are adjusted, and the value doesn't change.
+
+### Search and reports
+
+- **Search** (⌕ at the top) finds accounts, holdings, deposits, bills, income, cards, statements and platforms as you type.
+- **Reports & export** (in the menu) shows a year in figures:
+  - net worth at the start and now
+  - realised profit, dividends received, money invested and deposit interest
+  - the year's cash flow, the same figures as Month by month
+
+  It also downloads CSV files that open in Excel: the year report, activity & trades, account balances, holdings, income/bills/savings, card statements, and everything you own & owe today.
+
 ### Cash in your investment accounts
 
 If part of a broker or exchange account is uninvested cash, add it with **+ Cash** in the **By account** section of the Stocks (or Crypto) page. This creates a multi-currency account of type **Brokerage cash** on that platform. Each broker then shows *invested + cash = total*. The cash counts as cash in your net worth and appears under the broker on the Platforms page.
@@ -205,7 +221,8 @@ Prices refresh every 60 seconds by default and whenever you return to the app.
 ## Development
 
 ```
-npm test        # unit tests: money math, deposits, platforms, spending, sync merge & encryption
+npm test          # unit tests: money math, deposits, platforms, spending, sync merge & encryption
+npm run test:e2e  # browser tests on demo data (needs Playwright + Chromium)
 npm start       # serve on http://localhost:8080
 ```
 

@@ -1,0 +1,229 @@
+'use strict';
+// Browser tests: run the real app on demo data in a phone-sized Chromium.
+//   npm run test:e2e
+// Needs Playwright with Chromium (`npm i -D playwright && npx playwright install chromium`).
+// Prices and exchange rates are faked, so no network access is needed.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+
+let chromium;
+try { ({ chromium } = require('playwright')); } catch (e) { /* skipped below */ }
+
+const ROOT = path.join(__dirname, '..', '..');
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const RATES = { HKD: 1, USD: 0.128, GBP: 0.099, EUR: 0.118 };
+
+let server, base, browser;
+
+test.before(async () => {
+  if (!chromium) return;
+  server = http.createServer((req, res) => {
+    const file = path.join(ROOT, decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/\/$/, '/index.html'));
+    if (!file.startsWith(ROOT) || !fs.existsSync(file)) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream' });
+    fs.createReadStream(file).pipe(res);
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${server.address().port}/`;
+  browser = await chromium.launch();
+});
+
+test.after(async () => {
+  if (browser) await browser.close();
+  if (server) server.close();
+});
+
+// A fresh page with the demo loaded. The daily pop-ups are suppressed unless `prompts`.
+async function demo({ prompts = false } = {}) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true, serviceWorkers: 'block' });
+  if (!prompts) await ctx.addInitScript(() => { try { localStorage.setItem('moneymonkey.prompted', new Date().toISOString().slice(0, 10)); } catch (e) { /* ignore */ } });
+  await ctx.route('https://open.er-api.com/**', (r) => r.fulfill({ json: { result: 'success', rates: RATES }, headers: { 'access-control-allow-origin': '*' } }));
+  await ctx.route('https://api.coingecko.com/**', (r) => r.fulfill({ json: { bitcoin: { usd: 68000, usd_24h_change: 1.2 } }, headers: { 'access-control-allow-origin': '*' } }));
+  await ctx.route('https://api.frankfurter.app/**', (r) => r.abort());
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('dialog', (d) => d.accept());
+  await page.goto(base);
+  await page.click('text=Try demo data');
+  await page.waitForTimeout(1200);
+  const state = () => page.evaluate(() => JSON.parse(localStorage.getItem('moneymonkey.v1')));
+  const balance = async (name, cur) => (await state()).accounts.find((a) => a.name === name).balances.find((b) => b.currency === cur).amount;
+  const go = async (hash) => { await page.goto(base + hash); await page.waitForTimeout(400); };
+  return { page, ctx, errors, state, balance, go };
+}
+
+const skip = () => !chromium && 'Playwright is not installed';
+
+test('every page renders and every tappable box opens something', { skip: skip() }, async () => {
+  const { page, ctx, errors, state, go } = await demo();
+  const s = await state();
+  for (const v of ['dashboard', 'platforms', 'accounts', 'stocks', 'crypto', 'deposits', 'properties', 'others', 'liabilities', 'cashflows', 'goals', 'reports', 'settings',
+    `account/${s.accounts[0].id}`, `card/${s.cards[0].id}`, 'platform/Futu', 'region/Hong%20Kong']) {
+    await go(`#${v}`);
+    assert.ok((await page.textContent('#main')).trim().length > 50, `${v} rendered`);
+  }
+  for (const v of ['dashboard', 'cashflows', 'stocks', 'crypto', 'deposits']) {
+    await go(`#${v}`);
+    const n = await page.$$eval('.tiles .tile.clickable', (e) => e.length);
+    for (let i = 0; i < n; i++) {
+      await (await page.$$('.tiles .tile.clickable'))[i].click();
+      await page.waitForTimeout(150);
+      const opened = (await page.$eval('dialog', (d) => d.open)) || !page.url().endsWith(`#${v}`);
+      assert.ok(opened, `${v} box ${i} opens`);
+      if (await page.$eval('dialog', (d) => d.open)) await page.click('dialog [data-close]');
+      else await go(`#${v}`);
+    }
+  }
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('check-in opens first, marks due payments done without changing balances, and Undo refills it', { skip: skip() }, async () => {
+  const { page, ctx, errors, state, balance } = await demo({ prompts: true });
+  // Pop-ups show once a day: forget that it already showed, then open the app again.
+  await page.evaluate(() => { localStorage.removeItem('moneymonkey.prompted'); });
+  await page.reload();
+  await page.waitForTimeout(2000);
+  assert.match(await page.textContent('dialog h2'), /Monthly check-in/);
+  assert.ok((await page.$$('.ci-pay')).length >= 4);
+  const hk = await balance('HSBC One', 'HKD');
+  await page.uncheck('.ci-pay:has-text("Salary") input');
+  await page.fill('.ci-x-name', 'Tax refund');
+  await page.fill('.ci-x-amt', '5000');
+  await page.click('[data-ci=save]');
+  await page.waitForTimeout(400);
+  let s = await state();
+  assert.equal(await balance('HSBC One', 'HKD'), hk);
+  assert.ok(s.cashflows.some((c) => c.name === 'Tax refund' && c.frequency === 'once'));
+  assert.ok(s.deposits.find((d) => d.kind === 'regular').paid);
+  await page.click('#toasts .toast-undo button');
+  await page.waitForTimeout(500);
+  s = await state();
+  assert.ok(!s.cashflows.some((c) => c.name === 'Tax refund'));
+  assert.equal(await page.inputValue('.ci-x-name'), 'Tax refund');
+  assert.equal(await page.isChecked('.ci-pay:has-text("Salary") input'), false);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('payments: change account, deduct, and undo', { skip: skip() }, async () => {
+  const { page, ctx, errors, state, balance } = await demo();
+  const s = await state();
+  const za = s.accounts.find((a) => a.name === 'Savings');
+  await page.click('[data-action=attention]');
+  await page.click('dialog a[data-action=review-payments]');
+  await page.waitForTimeout(300);
+  const before = await balance('Savings', 'HKD');
+  await page.click('dialog .pay-item:has-text("Salary") [data-pay-change]');
+  await page.selectOption('dialog .pay-item:has-text("Salary") .pay-acct', za.id);
+  await page.waitForTimeout(200);
+  await page.click('dialog .pay-item:has-text("Salary") [data-pay=apply]');
+  await page.waitForTimeout(300);
+  assert.equal(await balance('Savings', 'HKD'), before + 62000);
+  const salary = (await state()).cashflows.find((c) => c.name === 'Salary');
+  assert.equal(salary.accountId, s.accounts.find((a) => a.name === 'HSBC One').id, 'usual account unchanged');
+  await page.click('dialog .toast-undo button');
+  await page.waitForTimeout(300);
+  assert.equal(await balance('Savings', 'HKD'), before);
+  assert.ok(await page.$('dialog .pay-item:has-text("Salary")'), 'asked again');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('buy with a top-up, sell with realised profit, dividend and split', { skip: skip() }, async () => {
+  const { page, ctx, errors, state, balance, go } = await demo();
+  let s = await state();
+  const aapl = s.stocks.find((h) => h.symbol === 'AAPL');
+  const vusa = s.stocks.find((h) => h.symbol === 'VUSA.L');
+  const tc = s.stocks.find((h) => h.symbol === '0700.HK');
+  await go('#stocks');
+  await page.click(`[data-action=trade-sell][data-id="${aapl.id}"]`);
+  await page.fill('[name=quantity]', '5');
+  await page.fill('[name=price]', '700');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  s = await state();
+  assert.equal(s.stocks.find((h) => h.id === aapl.id).avgCost, aapl.avgCost);
+  assert.equal(s.trades[0].realised, 5 * (700 - aapl.avgCost));
+  await page.click(`[data-action=trade-buy][data-id="${vusa.id}"]`);
+  await page.fill('[name=quantity]', '10');
+  await page.fill('[name=price]', '90');
+  await page.selectOption('[name=topUpFrom]', s.accounts.find((a) => a.name === 'Current account').id);
+  await page.waitForTimeout(150);
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  assert.equal(await balance('Trading 212 cash', 'GBP'), 0);
+  await page.click(`[data-action=trade-more][data-id="${tc.id}"]`);
+  await page.fill('[name=amount]', '680');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  assert.equal(await balance('Futu cash', 'HKD'), 15680);
+  await page.click(`[data-action=trade-more][data-id="${tc.id}"]`);
+  await page.selectOption('[name=side]', 'split');
+  await page.fill('[name=ratio]', '2');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  const after = (await state()).stocks.find((h) => h.id === tc.id);
+  assert.deepEqual([after.quantity, after.avgCost], [tc.quantity * 2, tc.avgCost / 2]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('a regular transfer moves money out of one account and into another', { skip: skip() }, async () => {
+  const { page, ctx, errors, state, balance, go } = await demo();
+  const s = await state();
+  await go('#cashflows');
+  await page.click('.page-head [data-action=add][data-sec=cashflows]:not([data-once])');
+  await page.fill('[name=name]', 'Top up T212');
+  await page.selectOption('[name=kind]', 'transfer');
+  await page.fill('[name=amount]', '500');
+  await page.fill('[name=currency]', 'GBP');
+  await page.selectOption('[name=accountId]', s.accounts.find((a) => a.name === 'Current account').id);
+  await page.waitForTimeout(150);
+  await page.selectOption('[name=toAccountId]', s.accounts.find((a) => a.name === 'Trading 212 cash').id);
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  // Make it due today, then confirm it.
+  await page.evaluate(() => { const st = JSON.parse(localStorage.getItem('moneymonkey.v1')); const c = st.cashflows.find((x) => x.name === 'Top up T212'); c.nextDate = c.trackFrom; localStorage.setItem('moneymonkey.v1', JSON.stringify(st)); });
+  await go('#dashboard');
+  await page.reload();
+  await page.waitForTimeout(800);
+  const monzo = await balance('Current account', 'GBP');
+  const t212 = await balance('Trading 212 cash', 'GBP');
+  await page.click('[data-action=attention]');
+  await page.click('dialog a[data-action=review-payments]');
+  await page.click('dialog .pay-item:has-text("Top up T212") [data-pay=apply]');
+  await page.waitForTimeout(300);
+  assert.equal(await balance('Current account', 'GBP'), monzo - 500);
+  assert.equal(await balance('Trading 212 cash', 'GBP'), t212 + 500);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('month by month keeps past months when a bill changes; search; reports export', { skip: skip() }, async () => {
+  const { page, ctx, errors, state, go } = await demo();
+  await go('#cashflows');
+  await page.click('[data-action=month-range][data-range="6"]');
+  const rows = () => page.$$eval('.hist-row', (e) => e.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).join('|'));
+  const before = await rows();
+  const rent = (await state()).cashflows.find((c) => c.name === 'Rent (HK)');
+  await page.evaluate((id) => document.querySelector(`[data-action=edit][data-sec=cashflows][data-id="${id}"]`).click(), rent.id);
+  await page.fill('[name=amount]', '20000');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  await page.click('[data-action=month-range][data-range="6"]');
+  assert.equal(await rows(), before);
+  await page.click('[data-action=search]');
+  await page.fill('.search-input', 'netflix');
+  assert.equal((await page.$$('.search-results .ex-row')).length, 1);
+  await page.click('dialog [data-close]');
+  await go('#reports');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-action=export-report][data-what=year]')]);
+  assert.match(dl.suggestedFilename(), /^moneymonkey-report-\d{4}\.csv$/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

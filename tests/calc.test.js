@@ -782,3 +782,21 @@ test('a credit-card loan next to card statements is flagged as possibly counted 
   assert.equal(C.summarize(base, '2026-10-28').alerts.filter((a) => /counted twice/.test(a.text)).length, 0);
   assert.equal(C.summarize({ ...base, cards: [{ id: 'k', name: 'HSBC Red' }] }, '2026-10-28').alerts.filter((a) => /counted twice/.test(a.text)).length, 1);
 });
+
+test('stock split and dividends received', () => {
+  const state = { accounts: [{ id: 'c', name: 'Futu cash', balances: [{ currency: 'HKD', amount: 1000 }] }], stocks: [{ id: 't', symbol: '0700.HK', currency: 'HKD', quantity: 100, avgCost: 300, source: 'manual', manualPrice: 450 }] };
+  // 2-for-1: 200 shares at an average of 150, price 225 — value unchanged.
+  C.applyTrade(state, { id: 'x1', side: 'split', section: 'stocks', holdingId: 't', ratio: 2, date: '2026-06-01' }, 1);
+  assert.deepEqual([state.stocks[0].quantity, state.stocks[0].avgCost, state.stocks[0].manualPrice], [200, 150, 225]);
+  assert.throws(() => C.applyTrade(state, { id: 'x2', side: 'split', section: 'stocks', holdingId: 't', ratio: 1, date: '2026-06-01' }, 2));
+  // Cash dividend into the broker account.
+  C.applyTrade(state, { id: 'd1', side: 'dividend', section: 'stocks', holdingId: 't', amount: 680, date: '2026-06-10', accountId: 'c', cashCurrency: 'HKD' }, 3);
+  assert.equal(state.accounts[0].balances[0].amount, 1680);
+  // Reinvested dividend: 2 more shares costing the HK$450 dividend.
+  C.applyTrade(state, { id: 'd2', side: 'dividend', section: 'stocks', holdingId: 't', amount: 450, reinvestQty: 2, date: '2026-09-10' }, 4);
+  assert.equal(state.stocks[0].quantity, 202);
+  close(state.stocks[0].avgCost, (200 * 150 + 450) / 202, 1e-9);
+  const r = C.dividendsReceived(state.trades, (v) => v, '2026-01-01');
+  assert.equal(r.total, 1130);
+  assert.equal(C.realisedProfit(state.trades, (v) => v).sells.length, 0);
+});

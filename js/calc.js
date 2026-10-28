@@ -971,10 +971,12 @@
       list.push(h);
     }
     if (!h) throw new Error('Holding not found');
+    const held = +h.quantity || 0;
+    if (t.side === 'split') return applySplit(state, h, t, nowMs);
+    if (t.side === 'dividend') return applyDividend(state, h, t, nowMs);
     const qty = +t.quantity || 0;
     const price = +t.price || 0;
     const fee = +t.fee || 0;
-    const held = +h.quantity || 0;
     if (!(qty > 0)) throw new Error('Enter a quantity above 0.');
     if (t.side === 'sell' && qty > held + 1e-9) throw new Error(`You only hold ${held}.`);
     const before = { quantity: held, avgCost: +h.avgCost || 0 };
@@ -1013,6 +1015,56 @@
       state.deleted = { ...(state.deleted || {}), [h.id]: nowMs };
     }
     return entry;
+  }
+
+  // A split multiplies the shares and divides the average cost (and price): value is unchanged.
+  // `ratio` = new shares per old share — 2 for a 2-for-1 split, 0.1 for a 1-for-10 consolidation.
+  function applySplit(state, h, t, nowMs) {
+    const r = +t.ratio;
+    if (!(r > 0) || r === 1) throw new Error('Enter the split ratio, e.g. 2 for a 2-for-1 split.');
+    const before = { quantity: +h.quantity || 0, avgCost: +h.avgCost || 0 };
+    h.quantity = +(before.quantity * r).toFixed(10);
+    h.avgCost = before.avgCost / r;
+    for (const k of ['manualPrice', 'lastPrice', 'prevClose']) if (+h[k]) h[k] = +h[k] / r;
+    h._mt = nowMs;
+    const entry = { id: t.id, date: t.date, side: 'split', section: t.section, holdingId: h.id, symbol: h.symbol || h.coinId || '', platform: h.platform || '', ratio: r, currency: h.currency, before, quantity: h.quantity, _mt: nowMs };
+    state.trades = [entry, ...(state.trades || [])];
+    return entry;
+  }
+
+  // A dividend received: paid into a cash account (in its currency, `cashAmount`), or reinvested
+  // as `reinvestQty` new shares — then the amount becomes part of their cost.
+  function applyDividend(state, h, t, nowMs) {
+    const amount = +t.amount || 0;
+    if (!(amount > 0)) throw new Error('Enter the dividend amount.');
+    const before = { quantity: +h.quantity || 0, avgCost: +h.avgCost || 0 };
+    const reinvestQty = +t.reinvestQty || 0;
+    let acct = null, cashCurrency = null, cashAmount = null;
+    if (reinvestQty > 0) {
+      h.quantity = +(before.quantity + reinvestQty).toFixed(10);
+      h.avgCost = (before.quantity * before.avgCost + amount) / h.quantity;
+      h._mt = nowMs;
+    } else if (t.accountId) {
+      acct = (state.accounts || []).find((a) => a.id === t.accountId);
+      if (acct) {
+        cashCurrency = t.cashCurrency || h.currency;
+        cashAmount = round2(cashCurrency === h.currency || t.cashAmount == null ? amount : +t.cashAmount);
+        adjustLine(acct, cashCurrency, cashAmount, t.date);
+        acct._mt = nowMs;
+      }
+    }
+    const entry = {
+      id: t.id, date: t.date, side: 'dividend', section: t.section, holdingId: h.id, symbol: h.symbol || h.coinId || '', platform: h.platform || '',
+      amount: round2(amount), currency: h.currency, reinvestQty: reinvestQty || null, before, accountId: acct ? acct.id : null, accountName: acct ? acct.name : null, cashCurrency, cashAmount, _mt: nowMs,
+    };
+    state.trades = [entry, ...(state.trades || [])];
+    return entry;
+  }
+
+  // Dividends actually received (optionally from a date), in base via `toBaseFn`.
+  function dividendsReceived(trades, toBaseFn, fromDate, toDate) {
+    const list = (trades || []).filter((e) => e.side === 'dividend' && (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate));
+    return { total: list.reduce((a, e) => a + toBaseFn(e.amount, e.currency), 0), list };
   }
 
   // Realised profit of sells (optionally one section, from a date), in base via `toBaseFn`.
@@ -1233,6 +1285,6 @@
     itemValue, itemParts, migratePlatforms, platformBreakdown,
     accountBalances, migrateAccounts, cashByCurrency, accountForPlatform, linkDeposits,
     unpaidCardBills, cardDueDate, linkCards,
-    balanceValue, adjustLine, pendingPayments, resolvePayment, undoPayment, paymentCurrency, regularSaverSchedule, regularPaid, shortfall, applyTrade, realisedProfit, transfer, checkinDate, checkinDue, recordCheckin,
+    balanceValue, adjustLine, pendingPayments, resolvePayment, undoPayment, paymentCurrency, regularSaverSchedule, regularPaid, shortfall, applyTrade, realisedProfit, dividendsReceived, transfer, checkinDate, checkinDue, recordCheckin,
   };
 });

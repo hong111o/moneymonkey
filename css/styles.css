@@ -578,3 +578,4 @@ table.legend a:hover { text-decoration: underline; }
 .alert.attention { align-items: center; cursor: pointer; }
 .alert.attention .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 dialog .alerts { margin: 0; }
+.search-input { width: 100%; margin-bottom: 10px; }

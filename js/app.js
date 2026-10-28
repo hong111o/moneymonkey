@@ -143,7 +143,7 @@
   // Amount column for a group of bars, as wide as its longest amount, so every row lines up
   // (keeping bar lengths comparable) and long numbers never spill out of the card.
   const barValueWidth = (texts) => `--val-w:${Math.max(6, ...texts.map((t) => String(t).replace(/<[^>]*>/g, '').length)) + 2}ch`;
-  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const plural = (n, word, many) => `${n} ${n === 1 ? word : many || `${word}s`}`;
 
   // "12 months", "3 months 5 days", "45 days"
   function termText(v) {
@@ -267,7 +267,7 @@
         { key: 'dividendYield', label: 'Dividend yield (% per year)', type: 'number', required: true, showIf: (v) => v.divMode === 'yield', help: 'Applied to the current value of your shares.' },
         { key: 'dividendReinvest', label: 'Reinvested automatically (DRIP / accumulating fund)', type: 'checkbox', span: true, showIf: (v) => !!v.divMode },
       ],
-      actions: [{ id: 'trade-buy', label: 'Buy' }, { id: 'trade-sell', label: 'Sell' }],
+      actions: [{ id: 'trade-buy', label: 'Buy' }, { id: 'trade-sell', label: 'Sell' }, { id: 'trade-more', label: 'Dividend / split' }],
       beforeSave: (item, prev) => {
         if (!prev || prev.symbol !== item.symbol || item.source === 'manual') { item.lastPrice = null; item.prevClose = null; }
         if (!item.divMode) { delete item.dividendPerShare; delete item.dividendYield; delete item.dividendReinvest; }
@@ -741,6 +741,7 @@
     { id: 'liabilities', label: 'Loans & Debts', icon: '−', group: 'Owe & spend' },
     { id: 'cashflows', label: 'Cash Flow', icon: '⇄', group: 'Owe & spend' },
     { id: 'goals', label: 'Goals', icon: '★', group: 'Owe & spend' },
+    { id: 'reports', label: 'Reports & export', icon: '≡', group: 'Owe & spend' },
     { id: 'settings', label: 'Settings & Sync', icon: '⚙', group: '' },
     { id: 'account', hidden: true },
     { id: 'platform', hidden: true },
@@ -754,6 +755,7 @@
   let viewParam = null;
   let historyRange = '90';
   let monthRange = '3';
+  let reportYear = null;
   let summary = null;
   const filters = {};
 
@@ -801,6 +803,7 @@
     else if (currentView === 'platforms') main.innerHTML = renderPlatforms();
     else if (currentView === 'cashflows') main.innerHTML = renderCashflows();
     else if (currentView === 'goals') main.innerHTML = renderGoals();
+    else if (currentView === 'reports') main.innerHTML = renderReports();
     else if (currentView === 'account') main.innerHTML = renderAccount(viewParam);
     else if (currentView === 'platform') main.innerHTML = renderPlatformDetail(viewParam ?? '');
     else if (currentView === 'region') main.innerHTML = renderRegion(viewParam ?? '');
@@ -853,6 +856,8 @@
       if (e.toAccountId) return `${name}: ${money(Math.abs(e.amount), e.currency)} moved from “${esc(e.accountName)}” to “${esc(e.toAccountName)}”${e.toCurrency !== e.currency ? ` (received ${money(e.received, e.toCurrency)})` : ''}.`;
       return `${name}: ${money(Math.abs(e.amount), e.currency)} ${e.amount < 0 ? 'paid from' : 'received into'} “${esc(e.accountName)}”${e.paidAmount != null ? ` (${money(e.paidAmount, e.paidCurrency)})` : ''}.`;
     }
+    if (e.kind === 'trade' && e.side === 'dividend') return `Dividend from ${esc(e.symbol)}: ${money(e.amount, e.currency)}${e.reinvestQty ? ` reinvested in ${num(e.reinvestQty, 8)} shares` : e.cashAmount != null ? ` — +${money(e.cashAmount, e.cashCurrency)}` : ''}.`;
+    if (e.kind === 'trade' && e.side === 'split') return `${esc(e.symbol)} split ${num(e.ratio, 6)}-for-1: ${num(e.before.quantity, 8)} → ${num(e.quantity, 8)}.`;
     if (e.kind === 'trade') return `${e.side === 'buy' ? 'Bought' : 'Sold'} ${num(e.quantity, 8)} ${esc(e.symbol)} at ${money(e.price, e.currency)}${e.fee ? ` (fee ${money(e.fee, e.currency)})` : ''} — ${e.side === 'buy' ? '−' : '+'}${money(e.cashAmount, e.cashCurrency)}${e.side === 'sell' && e.realised != null ? `, profit ${signed(e.realised, e.currency)}` : ''}.`;
     if (e.kind === 'transfer') return `Transferred ${money(e.amount, e.currency)} from “${esc(e.accountName)}” to “${esc(e.toAccountName)}”${e.toCurrency !== e.currency ? ` (received ${money(e.received, e.toCurrency)})` : ''}${e.note ? ` — ${esc(e.note)}` : ''}.`;
     return esc(e.text || '');
@@ -1436,12 +1441,13 @@
 
   // Month by month: recorded card spending + regular bills and loans, against regular income.
   // Shows the last month, quarter or 6 months, or one row per year (all recorded months).
-  function renderHistory() {
+  // Every month with a card statement or a one-off (extra income / one-off cost), newest first,
+  // with that month's regular income and fixed costs as saved then (the last day recorded; months
+  // from before these were saved use today's — `todayPlan`). One-offs count in their own month only.
+  function monthFigures() {
     const s = summary;
-    // Every month with a card statement or a one-off (extra income / one-off cost), newest first.
-    // One-offs count in their own month only — never in the regular monthly plan.
-    const extras = new Map();
     const thisMonth = todayISO().slice(0, 7);
+    const extras = new Map();
     for (const c of state.cashflows) {
       if (c.frequency !== 'once' || c.active === false || !c.nextDate || c.nextDate.slice(0, 7) > thisMonth) continue;
       const v = toBase(c.amount, c.currency) || 0;
@@ -1452,29 +1458,38 @@
       e.names.push(c.name);
       extras.set(c.nextDate.slice(0, 7), e);
     }
-    const cardByMonth = new Map(s.spendMonths.map((m) => [m.month, m.total]));
-    const months = [...new Set([...cardByMonth.keys(), ...extras.keys()])].sort().reverse()
-      .map((month) => ({ month, total: cardByMonth.get(month), extra: extras.get(month) || { in: 0, out: 0, names: [] } }));
-    if (!months.length) {
-      return `<div class="card"><h2>Month by month</h2><p class="sub">Record your monthly card statements (Credit cards &amp; monthly spending, below) to see how each month compares with your income.</p></div>`;
-    }
-    // Each month's regular income and fixed costs as saved that month (the last day recorded);
-    // months from before these were saved use today's amounts.
     const today = { income: s.incomeTotal, fixed: s.split.bills + s.loanRepayments, cardFixed: s.cardPaidBills };
     const saved = new Map();
     for (const h of state.history) if (h.income != null && (h.currency || base()) === base()) saved.set(h.date.slice(0, 7), h);
-    const planOf = (month) => saved.get(month) || (month === thisMonth ? today : null);
-    let usedToday = 0;
-    const plan = (month) => { const p = planOf(month); if (!p) usedToday++; return p || today; };
+    const cardByMonth = new Map(s.spendMonths.map((m) => [m.month, m.total]));
+    return [...new Set([...cardByMonth.keys(), ...extras.keys()])].sort().reverse().map((month) => {
+      const pl = saved.get(month) || (month === thisMonth ? today : null);
+      const plan = pl || today;
+      const x = extras.get(month) || { in: 0, out: 0, names: [] };
+      // A month with only a one-off and no statement: assume just the fixed bills charged to cards.
+      const total = cardByMonth.get(month);
+      const card = total ?? plan.cardFixed;
+      const income = plan.income + x.in;
+      const spending = card + plan.fixed + x.out;
+      return { month, label: fmtMonth(month), noStatement: total == null, todayPlan: !pl, regular: plan.income, fixed: plan.fixed, card, xin: x.in, xout: x.out, names: x.names, income, spending, net: income - spending };
+    });
+  }
+
+  function renderHistory() {
+    const months = monthFigures();
+    if (!months.length) {
+      return `<div class="card"><h2>Month by month</h2><p class="sub">Record your monthly card statements (Credit cards &amp; monthly spending, below) to see how each month compares with your income.</p></div>`;
+    }
     const byYear = monthRange === 'year';
+    const used = byYear ? months : months.slice(0, +monthRange);
+    const usedToday = used.filter((m) => m.todayPlan).length;
     let h;
     if (byYear) {
       const years = new Map();
       for (const m of months) {
         const y = m.month.slice(0, 4);
         const r = years.get(y) || { label: y, n: 0, card: 0, xin: 0, xout: 0, regular: 0, fixed: 0 };
-        const pl = plan(m.month);
-        r.n += 1; r.card += m.total ?? pl.cardFixed; r.xin += m.extra.in; r.xout += m.extra.out; r.regular += pl.income; r.fixed += pl.fixed;
+        r.n += 1; r.card += m.card; r.xin += m.xin; r.xout += m.xout; r.regular += m.regular; r.fixed += m.fixed;
         years.set(y, r);
       }
       h = [...years.values()].sort((x, y) => (x.label < y.label ? -1 : 1)).map((r) => {
@@ -1482,16 +1497,7 @@
         const income = r.regular + r.xin;
         return { label: `${r.label}`, sub: plural(r.n, 'month'), regular: r.regular, xin: r.xin, xout: r.xout, income, card: r.card, spending, net: income - spending };
       });
-    } else {
-      h = months.slice(0, +monthRange).reverse().map((m) => {
-        // A month with only a one-off and no statement: assume just the fixed bills charged to cards.
-        const pl = plan(m.month);
-        const card = m.total ?? pl.cardFixed;
-        const spending = card + pl.fixed + m.extra.out;
-        const income = pl.income + m.extra.in;
-        return { label: fmtMonth(m.month), month: m.month, noStatement: m.total == null, regular: pl.income, xin: m.extra.in, xout: m.extra.out, names: m.extra.names, income, card, spending, net: income - spending };
-      });
-    }
+    } else h = used.slice().reverse();
     const extraSub = (m) => [m.xin ? `<span class="pos">+${money(m.xin, base(), 0)} extra</span>` : '', m.xout ? `−${money(m.xout, base(), 0)} one-off` : '', m.noStatement ? 'no card statement' : ''].filter(Boolean).join(' · ');
     const max = Math.max(1, ...h.map((m) => Math.max(m.income, m.spending)));
     const rows = h.map((m) => `<div class="hist-row">
@@ -1614,7 +1620,9 @@
       return [first, ...lines.filter((c) => c !== first)].map((c) => ({ value: c, label: `${c} balance` }));
     };
     const cashCur = (v) => (acctOf(v) ? v.cashCurrency || cashCurOpts(v)[0].value : '');
-    const gross = (v) => (v.side === 'buy' ? 1 : -1) * (+v.fee || 0) + (+v.quantity || 0) * (+v.price || 0);
+    const gross = (v) => (v.side === 'dividend' ? +v.amount || 0 : (v.side === 'buy' ? 1 : -1) * (+v.fee || 0) + (+v.quantity || 0) * (+v.price || 0));
+    const trades = (v) => v.side === 'buy' || v.side === 'sell';
+    const movesCash = (v) => v.side !== 'split' && !(v.side === 'dividend' && v.reinvest);
     const cashAmt = (v) => {
       const cc = cashCur(v);
       if (!cc) return null;
@@ -1657,25 +1665,29 @@
       .map((f) => ({ ...f, showIf: (v) => v.holdingId === '__new' }));
     const h0 = list.find((h) => h.id === holdingId);
     const start = { side, holdingId: h0 ? h0.id : side === 'buy' ? '__new' : (list[0] || {}).id, date: todayISO() };
-    if (!start.holdingId) return toast(`Nothing to sell yet — add a ${kind === 'coin' ? 'coin' : 'holding'} first.`);
+    if (!start.holdingId) return toast(`Nothing to ${side} yet — add a ${kind === 'coin' ? 'coin' : 'holding'} first.`);
     // Default to the broker's own cash account, if there is one.
     start.accountId = (brokerCashOn(platformOf(start)) || {}).id || (platformOf(start) ? '__new' : '');
     if (h0 && (h0.lastPrice || h0.manualPrice)) start.price = +(h0.lastPrice || h0.manualPrice);
     if (side === 'sell' && h0) start.quantity = +h0.quantity;
     openForm({
-      title: `${side === 'buy' ? 'Buy' : 'Sell'}${h0 ? ` ${h0.symbol || h0.coinId}` : ''}`,
+      title: `${{ buy: 'Buy', sell: 'Sell', dividend: 'Dividend', split: 'Split' }[side]}${h0 ? ` ${h0.symbol || h0.coinId}` : ''}`,
       intro: 'Moves money between the holding and a cash account, so your net worth only changes by the fee. Buying updates the average cost; selling keeps it and records your profit.',
       fields: [
-        { key: 'side', label: 'Action', type: 'select', options: opt([['buy', 'Buy'], ['sell', 'Sell']]) },
+        { key: 'side', label: 'Action', type: 'select', options: opt([['buy', 'Buy'], ['sell', 'Sell'], ...(section === 'stocks' ? [['dividend', 'Dividend received']] : []), ['split', 'Split / consolidation']]) },
         { key: 'holdingId', label: kind === 'coin' ? 'Coin' : 'Holding', type: 'select', span: true, options: (v) => [...list.map((h) => ({ value: h.id, label: label(h) })), ...(v.side === 'buy' ? [{ value: '__new', label: `+ New ${kind === 'coin' ? 'coin' : 'holding'}…` }] : [])] },
         ...newFields,
-        { key: 'quantity', label: kind === 'coin' ? 'Quantity' : 'Shares', type: 'number', required: true },
-        { key: 'price', label: `Price per ${kind}`, type: 'number', required: true, help: 'In the holding’s currency.' },
-        { key: 'fee', label: 'Fee (optional)', type: 'number', help: 'In the holding’s currency, e.g. commission or FX fee.' },
+        { key: 'quantity', label: kind === 'coin' ? 'Quantity' : 'Shares', type: 'number', required: true, showIf: trades },
+        { key: 'price', label: `Price per ${kind}`, type: 'number', required: true, help: 'In the holding’s currency.', showIf: trades },
+        { key: 'fee', label: 'Fee (optional)', type: 'number', help: 'In the holding’s currency, e.g. commission or FX fee.', showIf: trades },
+        { key: 'amount', label: 'Dividend received (total)', type: 'number', required: true, help: 'In the holding’s currency, after any withholding tax.', showIf: (v) => v.side === 'dividend' },
+        { key: 'reinvest', label: 'Reinvested — bought more shares instead of cash', type: 'checkbox', span: true, showIf: (v) => v.side === 'dividend' },
+        { key: 'reinvestQty', label: 'Shares bought with it', type: 'number', required: true, showIf: (v) => v.side === 'dividend' && v.reinvest },
+        { key: 'ratio', label: `New ${kind}s for each old one`, type: 'number', required: true, help: '2 for a 2-for-1 split, 3 for 3-for-1, 0.1 for a 1-for-10 consolidation. Value stays the same.', showIf: (v) => v.side === 'split' },
         { key: 'date', label: 'Date', type: 'date', required: true, default: todayISO },
-        { key: 'accountId', label: 'Cash account', type: 'select', span: true, options: acctOpts, help: 'Where the money comes from (buy) or goes to (sell) — usually the broker’s cash.' },
-        { key: 'cashCurrency', label: 'From / into', type: 'select', options: cashCurOpts, showIf: (v) => !!acctOf(v) },
-        { key: 'cashAmount', label: 'Amount in that currency', type: 'number', showIf: (v) => !!acctOf(v) && cashCur(v) !== curOf(v), help: 'What the broker actually charged or paid — leave blank to use today’s rate.' },
+        { key: 'accountId', label: 'Cash account', type: 'select', span: true, options: acctOpts, help: 'Where the money comes from (buy) or goes to (sell, dividend) — usually the broker’s cash.', showIf: movesCash },
+        { key: 'cashCurrency', label: 'From / into', type: 'select', options: cashCurOpts, showIf: (v) => movesCash(v) && !!acctOf(v) },
+        { key: 'cashAmount', label: 'Amount in that currency', type: 'number', showIf: (v) => movesCash(v) && !!acctOf(v) && cashCur(v) !== curOf(v), help: 'What the broker actually charged or paid — leave blank to use today’s rate.' },
         { key: 'topUpFrom', label: 'Not enough cash? Top up first from', type: 'select', span: true, showIf: (v) => v.side === 'buy' && !!acctOf(v), options: (v) => [{ value: '', label: 'No top-up' }, ...state.accounts.filter((a) => a.id !== v.accountId).map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }))] },
         { key: 'topUpCurrency', label: 'From its', type: 'select', options: topUpCurOpts, showIf: (v) => v.side === 'buy' && !!v.topUpFrom && !!acctOf(v) },
         { key: 'topUpSent', label: 'Amount sent', type: 'number', showIf: (v) => v.side === 'buy' && !!v.topUpFrom && !!acctOf(v), help: 'In that balance’s currency.' },
@@ -1688,9 +1700,21 @@
       preview: (v) => {
         const h = holdingOf(v);
         const cur = curOf(v);
+        const held = h ? +h.quantity || 0 : 0, avg = h ? +h.avgCost || 0 : 0;
+        if (v.side === 'split') {
+          const r = +v.ratio;
+          if (!(r > 0) || !h) return '';
+          return `${num(held, 8)} → <strong>${num(held * r, 8)}</strong> ${kind}s, average cost ${money(avg, cur)} → <strong>${money(avg / r, cur)}</strong>. The value doesn’t change.`;
+        }
+        if (v.side === 'dividend') {
+          const amt = +v.amount || 0;
+          if (!(amt > 0) || !h) return '';
+          if (v.reinvest) return v.reinvestQty > 0 ? `${num(held, 8)} → <strong>${num(held + +v.reinvestQty, 8)}</strong> shares; average cost ${money(avg, cur)} → <strong>${money((held * avg + amt) / (held + +v.reinvestQty), cur)}</strong>.` : '';
+          const a = acctOf(v);
+          return `Dividend <strong>${money(amt, cur)}</strong>${a ? ` → into “${esc(a.name)}”: +${money(cashAmt(v), cashCur(v))}${cashCur(v) !== cur && v.cashAmount == null ? ' at today’s rate' : ''}` : ' — no cash account picked, only recorded'}.`;
+        }
         const qty = +v.quantity || 0, price = +v.price || 0, fee = +v.fee || 0;
         if (!(qty > 0) || !(price >= 0)) return '';
-        const held = h ? +h.quantity || 0 : 0, avg = h ? +h.avgCost || 0 : 0;
         const out = [];
         if (v.side === 'buy') {
           const cost = qty * price + fee;
@@ -1727,6 +1751,8 @@
         return out.join('<br>');
       },
       validate: (v) => {
+        if (v.side === 'split') return +v.ratio > 0 && +v.ratio !== 1 ? null : 'Enter the split ratio, e.g. 2 for a 2-for-1 split.';
+        if (v.side === 'dividend') return +v.amount > 0 ? (v.reinvest && !(+v.reinvestQty > 0) ? 'Enter how many shares were bought with it.' : null) : 'Enter the dividend amount.';
         if (!(v.quantity > 0)) return 'Enter a quantity above 0.';
         if (!(v.price >= 0)) return 'Enter the price.';
         const h = holdingOf(v);
@@ -1742,7 +1768,7 @@
         if (left > 0.005 && !confirm(`“${acctOf(v).name}” doesn’t have enough ${cashCur(v)} in the app — this leaves it ${money(-left, cashCur(v))}. If its real balance is higher, update it first. Record anyway?`)) return 'Not recorded — pick an account to top up from, or update the balance first.';
         const tuLeft = tu ? Calc.shortfall(tu.from, tu.fromCurrency, tu.amount, v.date) : 0;
         if (tuLeft > 0.005 && !confirm(`“${tu.from.name}” doesn’t have enough ${tu.fromCurrency} in the app for the top-up — it would be left at ${money(-tuLeft, tu.fromCurrency)}. Record anyway?`)) return 'Not recorded — pick another account to top up from.';
-        if (v.accountId === '__new' && acctOf(v)) {
+        if (v.accountId === '__new' && acctOf(v) && movesCash(v)) {
           const acct = { ...newCashAcct(v), id: uid(), updatedAt: new Date().toISOString(), _mt: Date.now() };
           state.accounts.push(acct);
           v.accountId = acct.id;
@@ -1756,12 +1782,13 @@
         try {
           const e = Calc.applyTrade(state, {
             id: `trade-${uid()}`, side: v.side, section, holdingId: id, newHolding, quantity: +v.quantity, price: +v.price, fee: +v.fee || 0, date: v.date,
-            accountId: acctOf(v) ? v.accountId : null, cashCurrency: cashCur(v) || null, cashAmount: cashAmt(v),
+            amount: +v.amount || 0, reinvestQty: v.reinvest ? +v.reinvestQty : 0, ratio: +v.ratio,
+            accountId: movesCash(v) && acctOf(v) ? v.accountId : null, cashCurrency: cashCur(v) || null, cashAmount: cashAmt(v),
             topUp: tu ? { fromId: tu.fromId, fromCurrency: tu.fromCurrency, amount: tu.amount, received: tu.received } : null,
             removeIfEmpty: !!v.removeIfEmpty,
           }, Date.now());
           commit();
-          toast(e.side === 'buy' ? `Bought ${num(e.quantity, 8)} ${e.symbol}` : `Sold ${num(e.quantity, 8)} ${e.symbol} · profit ${money(e.realised, e.currency)}`);
+          toast({ buy: () => `Bought ${num(e.quantity, 8)} ${e.symbol}`, sell: () => `Sold ${num(e.quantity, 8)} ${e.symbol} · profit ${money(e.realised, e.currency)}`, dividend: () => `Dividend ${money(e.amount, e.currency)} from ${e.symbol} recorded`, split: () => `${e.symbol} split ${num(e.ratio, 6)}-for-1 — now ${num(e.quantity, 8)}` }[e.side]());
           if (isNew && section === 'stocks') refreshPrices({ force: true });
         } catch (err) {
           return err.message;
@@ -1769,6 +1796,177 @@
         return null;
       },
     });
+  }
+
+  // ---------------------------------------------------------------- reports & export
+
+  // One year in figures: net worth, cash flow (as in Month by month), investments and interest.
+  function yearReport(year) {
+    const inYear = (d) => d && d.slice(0, 4) === year;
+    const toB = (v, c) => toBase(v, c) || 0;
+    const hist = state.history.filter((h) => inYear(h.date)).map((h) => ({ date: h.date, v: !h.currency || h.currency === base() ? h.netWorth : Calc.convert(h.netWorth, h.currency, base(), state.fx) })).filter((h) => isFinite(h.v));
+    const months = monthFigures().filter((m) => m.month.slice(0, 4) === year).reverse();
+    const sum = (k) => months.reduce((t, m) => t + m[k], 0);
+    const realised = Calc.realisedProfit(state.trades, toB, null, `${year}-01-01`);
+    const sells = realised.sells.filter((e) => inYear(e.date));
+    const div = Calc.dividendsReceived(state.trades, toB, `${year}-01-01`, `${year}-12-31`);
+    const buys = state.trades.filter((e) => e.side === 'buy' && inYear(e.date));
+    const matured = state.activity.filter((e) => String(e.kind).startsWith('deposit-') && inYear(e.date));
+    return {
+      year, months,
+      nwStart: hist.length ? hist[0] : null, nwEnd: hist.length ? hist[hist.length - 1] : null,
+      regular: sum('regular'), extraIn: sum('xin'), card: sum('card'), fixed: sum('fixed'), extraOut: sum('xout'),
+      income: sum('income'), spending: sum('spending'), net: sum('net'),
+      realised: sells.reduce((t, e) => t + toB(e.realised, e.currency), 0), sells: sells.length,
+      invested: buys.reduce((t, e) => t + toB(e.total, e.currency), 0), buys: buys.length,
+      dividends: div.total, dividendCount: div.list.length,
+      interest: matured.reduce((t, e) => t + toB(e.interest, e.currency), 0), maturities: matured.length,
+      payments: state.activity.filter((e) => e.kind === 'payment' && inYear(e.date)).length,
+    };
+  }
+
+  function reportYears() {
+    const ys = new Set([todayISO().slice(0, 4)]);
+    for (const h of state.history) ys.add(h.date.slice(0, 4));
+    for (const e of state.spending) ys.add(e.month.slice(0, 4));
+    for (const e of state.trades) ys.add(e.date.slice(0, 4));
+    return [...ys].sort().reverse();
+  }
+
+  function renderReports() {
+    const years = reportYears();
+    const year = years.includes(reportYear) ? reportYear : years[0];
+    const r = yearReport(year);
+    const line = (label, value, sub = '') => `<div class="ex-total"><span class="grow">${label}${sub ? `<div class="sub">${sub}</div>` : ''}</span><span class="num">${value}</span></div>`;
+    const m = (v) => money(v, base(), 0);
+    const nwChange = r.nwStart && r.nwEnd ? r.nwEnd.v - r.nwStart.v : null;
+    return `<div class="page-head"><div><h1>Reports &amp; export</h1><p class="sub">A year in figures, and your data as CSV files that open in Excel, Numbers or Google Sheets.</p></div></div>
+      <div class="seg" role="group" aria-label="Year">${years.map((y) => `<button data-action="report-year" data-year="${y}" class="${y === year ? 'on' : ''}">${y}</button>`).join('')}</div>
+      <section class="grid-2">
+        <div class="card">
+          <h2>Net worth</h2>
+          ${r.nwStart ? line(`Start · ${fmtDate(r.nwStart.date)}`, m(r.nwStart.v)) + line(`Latest · ${fmtDate(r.nwEnd.date)}`, m(r.nwEnd.v)) + line('<strong>Change</strong>', `<strong>${signed(nwChange, base(), 0)}</strong>`) : '<p class="sub">No daily snapshots for this year yet.</p>'}
+        </div>
+        <div class="card">
+          <h2>Investments</h2>
+          ${line('Realised profit', signed(r.realised, base(), 0), plural(r.sells, 'sale'))}
+          ${line('Dividends received', m(r.dividends), plural(r.dividendCount, 'payment'))}
+          ${line('Invested (buys)', m(r.invested), plural(r.buys, 'buy'))}
+          ${line('Fixed deposit interest paid', m(r.interest), plural(r.maturities, 'maturity', 'maturities'))}
+        </div>
+      </section>
+      <div class="card">
+        <h2>Cash flow · ${plural(r.months.length, 'recorded month')}</h2>
+        ${r.months.length ? `${line('Regular income', m(r.regular))}${r.extraIn ? line('Extra income', m(r.extraIn)) : ''}${line('Card spending', m(r.card), 'from your statements')}${line('Fixed bills &amp; loan repayments', m(r.fixed), 'not on a card')}${r.extraOut ? line('One-off costs', m(r.extraOut)) : ''}${line('<strong>Left over</strong>', `<strong class="${r.net >= 0 ? 'pos' : 'neg'}">${signed(r.net, base(), 0)}</strong>`, 'before planned saving')}` : '<p class="sub">No card statements or one-offs recorded for this year.</p>'}
+        <p class="sub">Same figures as Cash Flow’s month by month. ${plural(r.payments, 'payment')} confirmed this year.</p>
+      </div>
+      <div class="card">
+        <h2>Export (CSV)</h2>
+        <div class="row-actions wrap">
+          <button class="btn primary" data-action="export-report" data-what="year">${year} report</button>
+          <button class="btn" data-action="export-report" data-what="activity">Activity &amp; trades</button>
+          <button class="btn" data-action="export-report" data-what="accounts">Account balances</button>
+          <button class="btn" data-action="export-report" data-what="holdings">Holdings</button>
+          <button class="btn" data-action="export-report" data-what="cashflows">Income, bills &amp; savings</button>
+          <button class="btn" data-action="export-report" data-what="statements">Card statements</button>
+          <button class="btn" data-action="export-csv">Everything I own &amp; owe (today)</button>
+        </div>
+        <p class="sub">Amounts are in their own currency, with the ${esc(base())} value where it helps. For a full backup you can restore, use Settings → Export backup.</p>
+      </div>`;
+  }
+
+  const csvCell = (v) => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const toCsv = (rows) => rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
+
+  function exportReportCsv(what) {
+    const t = todayISO();
+    const r2 = (v) => (v == null || !isFinite(v) ? '' : round2(v));
+    let rows, name;
+    if (what === 'year') {
+      const years = reportYears();
+      const year = years.includes(reportYear) ? reportYear : years[0];
+      const r = yearReport(year);
+      rows = [['MoneyMonkey report', year, `amounts in ${base()}`], [],
+        ['Net worth start', r.nwStart ? r.nwStart.date : '', r.nwStart ? r2(r.nwStart.v) : ''], ['Net worth latest', r.nwEnd ? r.nwEnd.date : '', r.nwEnd ? r2(r.nwEnd.v) : ''],
+        ['Realised profit', '', r2(r.realised)], ['Dividends received', '', r2(r.dividends)], ['Invested (buys)', '', r2(r.invested)], ['Fixed deposit interest paid', '', r2(r.interest)], [],
+        ['Month', 'Regular income', 'Extra income', 'Card spending', 'Fixed bills & loans', 'One-off costs', 'Left over'],
+        ...r.months.map((mm) => [mm.month, r2(mm.regular), r2(mm.xin), r2(mm.card), r2(mm.fixed), r2(mm.xout), r2(mm.net)]),
+        ['Total', r2(r.regular), r2(r.extraIn), r2(r.card), r2(r.fixed), r2(r.extraOut), r2(r.net)]];
+      name = `moneymonkey-report-${year}.csv`;
+    } else if (what === 'activity') {
+      const tradeRows = state.trades.map((e) => [e.date, e.side, `${e.symbol}${e.platform ? ` (${e.platform})` : ''}`, e.quantity ?? '', e.price ?? '', e.side === 'dividend' ? e.amount : e.total ?? '', e.currency, e.realised ?? '', e.accountName || '', e.cashAmount ?? '', e.cashCurrency || '']);
+      const actRows = state.activity.filter((e) => e.kind !== 'checkin').map((e) => [e.date, e.kind === 'payment' ? `payment (${e.outcome || 'applied'})` : e.kind, (activityText(e) || '').replace(/<[^>]+>/g, ''), '', '', e.amount ?? '', e.currency || '', '', e.accountName || '', e.received ?? e.paidAmount ?? '', e.toCurrency || e.paidCurrency || '']);
+      rows = [['Date', 'Type', 'Description', 'Quantity', 'Price', 'Amount', 'Currency', 'Realised profit', 'Account', 'Account amount', 'Account currency'], ...[...tradeRows, ...actRows].sort((a, b) => (a[0] < b[0] ? 1 : -1))];
+      name = `moneymonkey-activity-${t}.csv`;
+    } else if (what === 'accounts') {
+      rows = [['Account', 'Platform', 'Type', 'Currency', 'Balance', `Value (${base()})`, 'Interest % p.a.', 'Last updated']];
+      for (const a of state.accounts) for (const b of Calc.accountBalances(a)) { const v = Calc.balanceValue(b, t).value; rows.push([a.name, a.platform || '', labelOf(ACCOUNT_TYPES, a.type), b.currency, r2(v), r2(toBase(v, b.currency)), b.rate || '', (a.updatedAt || '').slice(0, 10)]); }
+      for (const d of state.deposits) { const v = Calc.depositValue(d, t); rows.push([`${d.kind === 'regular' ? 'Regular saver' : 'Fixed deposit'}${d.name ? ` · ${d.name}` : ''}`, d.platform || '', 'deposit', d.currency, r2(v.value), r2(toBase(v.value, d.currency)), d.rate || '', `matures ${v.maturityDate}`]); }
+      name = `moneymonkey-accounts-${t}.csv`;
+    } else if (what === 'holdings') {
+      rows = [['Symbol', 'Name', 'Platform', 'Quantity', 'Average cost', 'Price', 'Currency', 'Market value', `Value (${base()})`, 'Profit / loss']];
+      for (const k of ['stocks', 'crypto']) for (const h of state[k]) { const v = Calc.holdingValue(h); rows.push([h.symbol || h.coinId, h.name || h.coinId || '', h.platform || '', h.quantity, r2(h.avgCost), r2(v.price), h.currency, r2(v.marketValue), r2(toBase(v.marketValue, h.currency)), r2(v.pnl)]); }
+      name = `moneymonkey-holdings-${t}.csv`;
+    } else if (what === 'cashflows') {
+      rows = [['Name', 'Type', 'Category', 'Amount', 'Currency', 'How often', `Per month (${base()})`, 'Next date', 'Active', 'Account', 'Paid by card']];
+      for (const c of state.cashflows) rows.push([c.name, labelOf(FLOW_KINDS, c.kind), c.category || '', c.amount, c.currency, labelOf(FREQ, c.frequency), r2(toBase(Calc.monthlyAmount(c), c.currency)), c.nextDate || '', c.active === false ? 'no' : 'yes', accountName(c.accountId) || '', c.onCard ? 'yes' : '']);
+      name = `moneymonkey-cashflow-${t}.csv`;
+    } else if (what === 'statements') {
+      rows = [['Card', 'Month', 'Amount', 'Currency', 'Due date', 'Paid on', 'Note']];
+      for (const e of state.spending.slice().sort((a, b) => (a.month < b.month ? 1 : -1))) rows.push([e.platform || '', e.month, e.amount, e.currency, e.dueDate || '', e.paidOn || '', e.note || '']);
+      name = `moneymonkey-card-statements-${t}.csv`;
+    } else return;
+    // A byte-order mark so Excel reads £, € and other symbols correctly.
+    download(name, `\ufeff${toCsv(rows)}`, 'text/csv;charset=utf-8');
+    toast(`Downloaded ${name}`);
+  }
+
+  // ---------------------------------------------------------------- search
+
+  // Everything searchable, as { text, title, sub, open }: accounts, holdings, deposits, property,
+  // other assets, loans, cash-flow items, cards, statements, goals and platforms.
+  function searchIndex() {
+    const t = todayISO();
+    const edit = (sec, id) => () => editItem(sec, id);
+    const go = (hash) => () => { location.hash = hash; };
+    const out = [];
+    const add = (title, sub, open, extra = '') => out.push({ text: `${title} ${sub} ${extra}`.toLowerCase(), title, sub, open });
+    for (const a of state.accounts) add(a.name, `Account · ${a.platform || ''} · ${Calc.accountBalances(a).map((b) => money(b.amount, b.currency)).join(', ')}`, go(`#account/${encodeURIComponent(a.id)}`), a.note);
+    for (const k of ['stocks', 'crypto']) for (const h of state[k]) add(h.symbol || h.coinId, `${k === 'stocks' ? 'Stock' : 'Crypto'} · ${h.platform || ''} · ${num(h.quantity, 8)} · ${money(Calc.holdingValue(h).marketValue, h.currency)}`, edit(k, h.id), `${h.name || ''} ${h.coinId || ''}`);
+    for (const d of state.deposits) add(`${d.platform || ''} ${d.name || ''}`.trim() || 'Deposit', `${d.kind === 'regular' ? 'Regular saver' : 'Fixed deposit'} · ${money(Calc.depositValue(d, t).value, d.currency)} · matures ${fmtDate(Calc.depositValue(d, t).maturityDate)}`, edit('deposits', d.id));
+    for (const p of state.properties) add(p.name, `Property · ${p.address || ''}`, edit('properties', p.id), p.platform);
+    for (const o of state.others) add(o.name, `Other asset · ${money(o.value, o.currency)}`, edit('others', o.id), `${o.category || ''} ${o.platform || ''}`);
+    for (const l of state.liabilities) add(l.name, `Loan · ${l.platform || ''} · ${money(Calc.loanBalance(l, t).balance, l.currency)} left`, edit('liabilities', l.id));
+    for (const c of state.cashflows) add(c.name, `${labelOf(FLOW_KINDS, c.kind)} · ${money(c.amount, c.currency)} ${labelOf(FREQ, c.frequency).toLowerCase()}${c.active === false ? ' · paused' : ''}`, edit('cashflows', c.id), c.category);
+    for (const c of state.cards) add(c.name, `Credit card · ${c.platform || ''}`, go(`#card/${encodeURIComponent(c.id)}`));
+    for (const e of state.spending) add(`${e.platform || 'Card'} · ${fmtMonth(e.month)}`, `Statement · ${money(e.amount, e.currency)} · ${billStatus(e) || ''}`, edit('spending', e.id), e.note);
+    for (const g of state.goals) add(g.name, 'Goal', go('#goals'));
+    const plats = new Set([...state.accounts, ...state.stocks, ...state.crypto, ...state.liabilities, ...state.properties, ...state.others].map((x) => x.platform).filter(Boolean));
+    for (const name of plats) add(name, 'Platform', go(`#platform/${encodeURIComponent(name)}`));
+    return out;
+  }
+
+  function openSearch() {
+    const index = searchIndex();
+    let shown = [];
+    const results = (q) => {
+      const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+      shown = words.length ? index.filter((r) => words.every((w) => r.text.includes(w))).slice(0, 40) : [];
+      return words.length
+        ? shown.length ? shown.map((r, i) => `<a class="ex-row" href="#" data-hit="${i}"><span class="grow"><strong>${esc(r.title)}</strong><div class="sub">${esc(r.sub)}</div></span><span class="chev" aria-hidden="true">›</span></a>`).join('') : '<p class="sub">Nothing found.</p>'
+        : '<p class="sub">Search accounts, holdings, deposits, bills, income, cards, statements and platforms — e.g. “netflix”, “futu”, “GBP”.</p>';
+    };
+    openSheet('Search', `<input class="search-input" type="search" placeholder="Search…" aria-label="Search" autocomplete="off"><div class="ex-list search-results">${results('')}</div>`, (e) => {
+      const hit = e.target.closest('[data-hit]');
+      if (!hit) return;
+      e.preventDefault();
+      const r = shown[+hit.dataset.hit];
+      dialog().close();
+      if (r) r.open();
+    });
+    const input = $('.search-input', dialog());
+    input.addEventListener('input', () => { $('.search-results', dialog()).innerHTML = results(input.value); });
+    input.focus();
   }
 
   // A tap on a "Next 30 days" row: the payment box when it's due today (or overdue), else the item.
@@ -2319,7 +2517,12 @@
         return { v: toBase(y, h.currency) || 0, re: !!h.dividendReinvest, html: row(`#" data-action="edit" data-sec="stocks" data-id="${esc(h.id)}`, esc(h.symbol), `${h.divMode === 'yield' ? `${num(h.dividendYield, 2)}% yield` : `${money(h.dividendPerShare, h.currency)} per share × ${num(h.quantity, 4)}`}${mv && h.divMode !== 'yield' ? ` · ${((y / mv) * 100).toFixed(2)}% of value` : ''}`, `${money(y, h.currency)}<div class="sub">${money(toBase(y, h.currency) / 12, base(), 0)}/mo</div>`) };
       });
       const yearly = list.reduce((a, r) => a + r.v, 0);
-      body = group('Paid out', list.filter((r) => !r.re).sort(sortDesc).map((r) => r.html)) + group('Reinvested', list.filter((r) => r.re).sort(sortDesc).map((r) => r.html))
+      const year = t.slice(0, 4);
+      const got = Calc.dividendsReceived(state.trades, (v, c) => toBase(v, c) || 0, `${year}-01-01`);
+      const gotRows = got.list.map((e) => row(e.accountId ? acctHref(e.accountId) : '#stocks', `${fmtDate(e.date)} · ${esc(e.symbol)}`, e.reinvestQty ? `reinvested in ${num(e.reinvestQty, 8)} shares` : e.accountName ? `into ${esc(e.accountName)}` : 'recorded', money(e.amount, e.currency)));
+      body = group(`Received in ${year}`, gotRows) + (gotRows.length ? total(`Received in ${year}`, money(got.total, base(), 0)) : '<p class="sub">Record a dividend you receive with “Dividend / split” on the holding — it goes into the broker’s cash.</p>')
+        + '<h3>Expected per year</h3>'
+        + group('Paid out', list.filter((r) => !r.re).sort(sortDesc).map((r) => r.html)) + group('Reinvested', list.filter((r) => r.re).sort(sortDesc).map((r) => r.html))
         + total('Per year', money(yearly, base(), 0)) + total('Per month (average)', money(yearly / 12, base(), 0))
         + '<p class="sub">Counted in Cash Flow income and passive income; reinvested dividends also count as saving.</p>';
     } else if (what === 'brokercash') {
@@ -3380,6 +3583,9 @@
       case 'open-card': location.hash = `#card/${encodeURIComponent(id)}`; return;
       case 'pay-card': return payCardBill(id);
       case 'open-event': return openEvent(b.dataset);
+      case 'search': return openSearch();
+      case 'report-year': reportYear = b.dataset.year; return render();
+      case 'export-report': return exportReportCsv(b.dataset.what);
       case 'attention': return openSheet('Needs attention', `<ul class="alerts">${dashboardAlerts().map(alertItem).join('')}</ul>`, (e) => { if (e.target.closest('a')) dialog().close(); });
       case 'activity-all': filters.activityAll = id; return render();
       case 'undo-payment': {
@@ -3409,6 +3615,7 @@
       }
       case 'trade-buy': return openTrade(sec, id, 'buy');
       case 'trade-sell': return openTrade(sec, id, 'sell');
+      case 'trade-more': return openTrade(sec, id, 'dividend');
       case 'match-confirm': {
         const cf = state.cashflows.find((c) => c.id === id);
         const key = { loan: 'loanId', rent: 'propertyId', saver: 'saverId' }[b.dataset.kind];
