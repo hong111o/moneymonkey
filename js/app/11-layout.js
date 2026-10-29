@@ -89,7 +89,8 @@ function applyLayout() {
     const hidden = new Set(c.dataset.layout === 'pinned' ? [] : pc.hidden || []);
     const boxes = [...c.children].filter((el) => el.dataset.box);
     const rank = (el, i) => { const k = order.indexOf(el.dataset.box); return k >= 0 ? k : order.length + i; };
-    boxes.map((el, i) => [el, rank(el, i)]).sort((a, b) => a[1] - b[1]).forEach(([el]) => c.appendChild(el));
+    // A list sorted by a column keeps that order (your own order comes back when the sort is off).
+    if (!c.dataset.sorted) boxes.map((el, i) => [el, rank(el, i)]).sort((a, b) => a[1] - b[1]).forEach(([el]) => c.appendChild(el));
     for (const el of boxes) {
       if (!hidden.has(el.dataset.box)) continue;
       if (editing) el.classList.add('is-hidden');

@@ -67,7 +67,7 @@ function renderFlowGroups() {
 const SPLIT_PARTS = [
   ['bills', 'Bank bills', 'var(--series-1)', 'bills'],
   ['card', 'Card spending', 'var(--series-2)', 'card'],
-  ['loans', 'Loans', 'var(--series-4)', 'loans'],
+  ['loans', 'Loans', 'var(--neg)', 'loans'],
   ['saving', 'Planned saving', 'var(--series-3)', 'saving'],
 ];
 
@@ -81,7 +81,7 @@ function renderIncomeSplit() {
   const parts = SPLIT_PARTS.filter(([k]) => sp[k] > 0.5);
   const bar = parts.map(([k, label, color]) => `<span style="flex-grow:${sp[k]};background:${color}" data-tip="${esc(label)}: ${esc(money(sp[k], base(), 0))}"></span>`).join('')
     + (!over && sp.unallocated > 0.5 ? `<span class="free" style="flex-grow:${sp.unallocated}" data-tip="Free: ${esc(money(sp.unallocated, base(), 0))}"></span>` : '');
-  const pctOf = (v) => (s.incomeTotal ? `${((v / s.incomeTotal) * 100).toFixed(0)}%` : '');
+  const pctOf = (v) => (s.incomeTotal ? `${((v / s.incomeTotal) * 100).toFixed(1)}%` : '');
   const rows = parts.map(([k, label, color, what]) => `<div class="split-row clickable" data-action="explain" data-what="${what}" tabindex="0" role="button">
       <span class="swatch" style="background:${color}"></span><span class="grow">${label}</span><span class="sub">${pctOf(sp[k])}</span><span class="num">${money(sp[k], base(), 0)}</span><span class="chev" aria-hidden="true">›</span></div>`).join('');
   const freeRow = `<div class="split-row free-row clickable" data-action="explain" data-what="cashflow" tabindex="0" role="button">
@@ -195,7 +195,7 @@ function renderHistory() {
   const more = !byYear && months.length > h.length ? ` ${plural(months.length - h.length, 'earlier month')} — see “By year”.` : '';
   return `<div class="card" style="${barValueWidth(h.map((m) => `+${money(Math.abs(m.net), base(), 0)}`))}">
     <div class="card-head"><h2>Month by month</h2>${seg}</div>
-    <p class="sub legend-inline"><span class="swatch" style="background:var(--series-1)"></span>income <span class="swatch" style="background:var(--series-2)"></span>spent</p>
+    <p class="sub legend-inline"><span class="swatch" style="background:var(--series-1)"></span>Income <span class="swatch" style="background:var(--series-2)"></span>Spent</p>
     ${rows}
     <p class="sub">Left over ${money(avgNet, base(), 0)} a month on average${byYear ? ` across ${plural(nMonths, 'recorded month')}` : ''} (before planned saving)${best ? ` · best ${best.label}, highest spending ${worst.label}` : ''}.${more} Card spending is what you recorded; income is the regular monthly income (income items, interest, rent and dividends) and the bills and loan repayments as they were that month, plus any extras. Add extras in the monthly check-in or as a one-off item.${usedToday ? ` ${plural(usedToday, 'month')} here ${usedToday === 1 ? 'is' : 'are'} from before the app saved your regular amounts, so ${usedToday === 1 ? 'it uses' : 'they use'} today’s.` : ''}</p>
   </div>`;
@@ -228,7 +228,7 @@ function renderCardsCard() {
     ? `Average of the last ${plural(s.spendAvgMonths, 'month')}: <strong>${money(s.cardSpendAvg, base(), 0)}</strong>. Your cash flow uses this plus ${money(s.notOnCard, base(), 0)}/mo of bills not paid by card.`
     : '';
   return `<div class="card" id="spending" style="${barValueWidth(months.map((m) => money(m.total, base(), 0)))}">
-    <div class="card-head"><h2>Credit cards &amp; monthly spending</h2><div class="row-actions"><button class="btn small" data-action="add" data-sec="cards">+ Card</button><button class="btn small primary" data-action="add" data-sec="spending">+ Statement</button></div></div>
+    <div class="card-head"><h2>Credit cards &amp; monthly spending</h2><div class="row-actions"><button class="btn small" data-action="add" data-sec="cards">+ Add card</button><button class="btn small primary" data-action="add" data-sec="spending">+ Add statement</button></div></div>
     ${state.cards.length ? `<ul class="card-list">${cardRows}</ul>` : '<p class="sub">Add your credit cards once (name, due day, which account pays them), then record each month’s statement. Bills show up in “Next 30 days”, count as debt until paid, and you’re asked to confirm the payment on the due date. Your cash flow then uses what you really spent.</p>'}
     ${months.length ? `<h3>Spent per month</h3>${avgNote ? `<p class="sub">${avgNote}</p>` : ''}${rows}${moreMonths > 0 || spendAll ? `<button class="btn small" data-action="spend-all">${spendAll ? 'Show latest 3 months' : `Show all (${moreMonths} more)`}</button>` : ''}` : ''}
   </div>`;
@@ -254,7 +254,7 @@ function renderCard(id) {
   return `${back}
     <div class="page-head">
       <div><h1 class="keep-case">${esc(c.name)}</h1><p class="sub">${meta}</p></div>
-      <div class="row-actions"><button class="btn" data-action="edit" data-sec="cards" data-id="${esc(c.id)}">Edit card</button><button class="btn primary" data-action="add" data-sec="spending" data-card="${esc(c.id)}">+ Statement</button></div>
+      <div class="row-actions"><button class="btn" data-action="edit" data-sec="cards" data-id="${esc(c.id)}">Edit card</button><button class="btn primary" data-action="add" data-sec="spending" data-card="${esc(c.id)}">+ Add statement</button></div>
     </div>
     <section class="tiles">
       ${tile('Owed now', owed ? `<span class="owed">${money(owed)}</span>` : money(0), unpaid.length ? plural(unpaid.length, 'unpaid bill') : 'all paid', '', unpaid.length ? `${explainAttr('card-owed')} data-cat="${esc(c.id)}"` : '')}

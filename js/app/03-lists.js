@@ -81,7 +81,7 @@ function renderSection(key, opts = {}) {
         ${currencies.length > 1 ? `<select class="filter" data-filter="accountsCurrency" aria-label="Filter by currency"><option value="__all">All currencies</option>${currencies.map((c) => `<option value="${esc(c)}" ${curFilter === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : ''}
         ${key === 'stocks' || key === 'crypto' ? `<button class="btn" data-action="refresh">${icon('refresh')} Prices</button><button class="btn" data-action="trade-buy" data-sec="${key}">Buy / sell</button>` : ''}
         ${key === 'accounts' && state.accounts.length ? '<button class="btn" data-action="checkin">Check-in</button><button class="btn" data-action="transfer">Transfer / exchange</button>' : ''}
-        ${key === 'cashflows' ? '<button class="btn" data-action="add" data-sec="cashflows" data-once="1">+ Extra / one-off</button>' : ''}
+        ${key === 'cashflows' ? '<button class="btn" data-action="add" data-sec="cashflows" data-once="1">+ Add extra / one-off</button>' : ''}
         <button class="btn primary" data-action="add" data-sec="${key}">+ Add</button>
       </div>
     </div>
@@ -103,15 +103,105 @@ function itemName(key, item) {
   return item.name || item.symbol || item.coinId || item.platform || '';
 }
 
+// ---------------------------------------------------------------- sorting by a column
+
+// Tap a column heading: high → low, again: low → high, a third time: back to your own order.
+// Remembered per table on this device. While editing the layout, your own order shows.
+const tableSorts = (() => { try { return JSON.parse(localStorage.getItem('moneymonkey.sort') || '{}'); } catch (e) { return {}; } })();
+function setTableSort(table, col) {
+  const cur = tableSorts[table];
+  if (!cur || cur.col !== col) tableSorts[table] = { col, dir: 'desc' };
+  else if (cur.dir === 'desc') tableSorts[table] = { col, dir: 'asc' };
+  else delete tableSorts[table];
+  try { localStorage.setItem('moneymonkey.sort', JSON.stringify(tableSorts)); } catch (e) { /* storage unavailable */ }
+}
+const activeSort = (table) => (layoutEditing === currentView ? null : tableSorts[table] || null);
+
+// Values to sort by where the cell's text isn't enough (dates, several currencies).
+const SORT_VALUES = {
+  'accounts:Cash': (a) => accountTotal(a),
+  'accounts:Fixed deposits': (a) => depositsTotal(accountDeposits(a)),
+  'accounts:Total': (a) => accountTotal(a) + depositsTotal(accountDeposits(a)),
+  'accounts:Updated': (a) => (a.updatedAt ? Date.parse(a.updatedAt) : null),
+  'deposits:Period': (d) => Calc.depositValue(d, todayISO()).maturityDate,
+  'properties:Last valued': (p) => Calc.propertyValue(p, todayISO()).lastDate,
+  'liabilities:Debt-free': (l) => { const m = Calc.loanBalance(l, todayISO()).monthsLeft; return m == null || !isFinite(m) ? null : m; },
+  'cashflows:Amount': (c) => toBase(Calc.monthlyAmount(c), c.currency),
+  'cashflows:Next': (c) => (c.active === false ? null : Calc.nextOccurrence(c, todayISO())),
+};
+// The value of one cell for sorting: a number (in your base currency) or text.
+function sortValue(table, col, item) {
+  const own = SORT_VALUES[`${table}:${col.label}`];
+  if (own) return own(item);
+  const html = String(col.render(item));
+  const main = html.split('<div class="sub">')[0].replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').trim();
+  if (!col.num) return main.toLowerCase();
+  const m = /(\d[\d,]*\.?\d*)\s*(%?)/.exec(main);
+  if (!m) return null;
+  let n = parseFloat(m[1].replace(/,/g, ''));
+  if (/[-−▼]/.test(main.slice(0, m.index))) n = -n;
+  return m[2] || !item.currency ? n : toBase(n, item.currency);
+}
+// Sorts items by a column; empty values always go last.
+function sortItems(table, columns, items) {
+  const sort = activeSort(table);
+  const col = sort && columns[sort.col];
+  if (!col) return items;
+  const pv = state.settings.privacy;
+  state.settings.privacy = false; // read the real numbers even while amounts are hidden
+  let vals;
+  try { vals = new Map(items.map((it) => [it, sortValue(table, col, it)])); } finally { state.settings.privacy = pv; }
+  const dir = sort.dir === 'asc' ? 1 : -1;
+  const empty = (v) => v == null || v === '' || v === '—' || (typeof v === 'number' && !isFinite(v));
+  return [...items].sort((a, b) => {
+    const x = vals.get(a); const y = vals.get(b);
+    if (empty(x) || empty(y)) return empty(x) - empty(y);
+    return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y))) * dir;
+  });
+}
+// A column heading you can tap to sort by.
+function sortHeader(table, i, label, num) {
+  const sort = activeSort(table);
+  const on = sort && sort.col === i;
+  const arrow = on ? (sort.dir === 'desc' ? '↓' : '↑') : '↕';
+  return `<th class="${num ? 'num' : ''} sortable${on ? ' sorted' : ''}" aria-sort="${on ? (sort.dir === 'desc' ? 'descending' : 'ascending') : 'none'}"><button type="button" class="sort-btn" data-sort-table="${esc(table)}" data-sort-col="${i}" title="Sort by ${esc(String(label).toLowerCase())}">${label}<span class="sort-ic" aria-hidden="true">${arrow}</span></button></th>`;
+}
+// On phones (where tables show as cards, without headings): one menu with every sort.
+function sortMenu(table, columns) {
+  const sort = activeSort(table);
+  const cur = sort ? `${sort.col}:${sort.dir}` : '';
+  const opts = columns.flatMap((c, i) => (c.num
+    ? [[`${i}:desc`, `${c.label}: high to low`], [`${i}:asc`, `${c.label}: low to high`]]
+    : [[`${i}:asc`, `${c.label}: A to Z`], [`${i}:desc`, `${c.label}: Z to A`]]));
+  return `<div class="sort-bar"><label>Sort <select data-sort-menu="${esc(table)}"><option value="">Your order</option>${opts.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label></div>`;
+}
+document.addEventListener('change', (e) => {
+  const sel = e.target.closest('[data-sort-menu]');
+  if (!sel) return;
+  const [col, dir] = sel.value.split(':');
+  if (sel.value) tableSorts[sel.dataset.sortMenu] = { col: +col, dir };
+  else delete tableSorts[sel.dataset.sortMenu];
+  try { localStorage.setItem('moneymonkey.sort', JSON.stringify(tableSorts)); } catch (err) { /* storage unavailable */ }
+  render();
+});
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-sort-table]');
+  if (!b) return;
+  setTableSort(b.dataset.sortTable, +b.dataset.sortCol);
+  render();
+});
+
 function renderItemsTable(key, items) {
   const sec = SECTIONS[key];
-  const rows = items
+  const sorted = activeSort(key) && sec.columns[activeSort(key).col];
+  const rows = sortItems(key, sec.columns, items)
     .map((item) => `<tr class="clickable" data-action="${sec.rowAction || 'edit'}" data-sec="${key}" data-id="${esc(item.id)}" data-box="${esc(item.id)}" data-name="${esc(itemName(key, item))}" tabindex="0">
       ${sec.columns.map((c) => `<td class="${c.num ? 'num' : ''} ${c.primary ? 'primary' : ''} ${c.wide ? 'wide' : ''}" data-label="${esc(c.label)}">${c.render(item)}</td>`).join('')}
       <td class="actions">${(sec.actions || []).map((a) => `<button class="btn small" data-action="${a.id}" data-sec="${key}" data-id="${esc(item.id)}">${a.label}</button>`).join('')}<span class="chev" aria-hidden="true">›</span></td></tr>`)
     .join('');
-  // The rows can be reordered (and pinned to Home) with Edit layout, like the boxes.
-  return `<div class="card table-card"><table class="data"><thead><tr>${sec.columns.map((c) => `<th class="${c.num ? 'num' : ''}">${c.label}</th>`).join('')}<th></th></tr></thead><tbody data-layout="list-${key}">${rows}</tbody></table></div>`;
+  // The rows can be reordered (and pinned to Home) with Edit layout, like the boxes; while a
+  // column sort is on, that order shows instead.
+  return `${layoutEditing === currentView ? '' : sortMenu(key, sec.columns)}<div class="card table-card"><table class="data"><thead><tr>${sec.columns.map((c, i) => sortHeader(key, i, c.label, c.num)).join('')}<th></th></tr></thead><tbody data-layout="list-${key}"${sorted ? ' data-sorted="1"' : ''}>${rows}</tbody></table></div>`;
 }
 
 // ---------------------------------------------------------------- investment accounts (holdings + cash)
@@ -135,7 +225,7 @@ function renderBrokerCard(key) {
     const cash = accts.reduce((t, a) => t + (accountTotal(a) || 0), 0);
     const cashLines = accts.flatMap((a) => Calc.accountBalances(a).filter((b) => +b.amount).map((b) => `<a href="#account/${encodeURIComponent(a.id)}" class="cur-pill"><span class="cur-tag">${esc(b.currency)}</span> ${money(Calc.balanceValue(b, todayISO()).value, b.currency)}</a>`));
     const addBtn = name
-      ? `<button class="btn small" data-action="${accts.length ? 'open-account' : 'add'}" ${accts.length ? `data-id="${esc(accts[0].id)}"` : `data-sec="accounts" data-type="brokerage" data-platform="${esc(name)}"`}>${accts.length ? 'Update cash' : '+ Cash'}</button>`
+      ? `<button class="btn small" data-action="${accts.length ? 'open-account' : 'add'}" ${accts.length ? `data-id="${esc(accts[0].id)}"` : `data-sec="accounts" data-type="brokerage" data-platform="${esc(name)}"`}>${accts.length ? 'Update cash' : '+ Add cash'}</button>`
       : '';
     return `<div class="broker">
       <div class="broker-head"><a href="#platform/${encodeURIComponent(name)}"><strong>${esc(name || 'No platform set')}</strong></a><strong class="num">${money(held + cash)}</strong></div>
@@ -203,7 +293,7 @@ function renderAccount(id) {
       ${bals.length ? `<ul class="acct-bals">${balRows}</ul>` : '<p class="sub">No cash in this account yet. Tap “Update balances” to add one line per currency.</p>'}
       <p class="sub">Balances updated ${ago(a.updatedAt)}</p>
     </div>
-    <div class="section-head"><h2>Fixed deposits &amp; savers</h2><span class="row-actions"><button class="btn small" data-action="add" data-sec="deposits" data-kind="regular" data-account="${esc(a.id)}">+ Regular saver</button><button class="btn small primary" data-action="add" data-sec="deposits" data-account="${esc(a.id)}">+ Fixed deposit</button></span></div>
+    <div class="section-head stack-sm"><h2>Fixed deposits &amp; savers</h2><span class="row-actions"><button class="btn small" data-action="add" data-sec="deposits" data-kind="regular" data-account="${esc(a.id)}">+ Add regular saver</button><button class="btn small primary" data-action="add" data-sec="deposits" data-account="${esc(a.id)}">+ Add fixed deposit</button></span></div>
     ${deps.length ? renderItemsTable('deposits', deps) : '<div class="card"><p class="sub">No fixed deposits or regular savers in this account.</p></div>'}
     ${history.length ? `<div class="section-head"><h2>Activity</h2></div><div class="card"><ul class="events">${history.map((e) => `<li><span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${activityText(e)}</span>${e.kind === 'payment' ? `<button class="btn small ghost" data-action="undo-payment" data-id="${esc(e.id)}">Undo</button>` : '<span></span>'}</li>`).join('')}</ul>${moreActivity ? `<button class="btn small" data-action="activity-all" data-id="${esc(a.id)}">Show all (${moreActivity} more)</button>` : ''}</div>` : ''}`;
 }
@@ -256,12 +346,17 @@ function renderPlatformTable(platforms) {
   const cell = (v, cls = '') => (Math.abs(v) < 0.005 ? '<span class="sub">—</span>' : `<span class="${cls}">${money(v, base(), 0)}</span>`);
   const td = (label, v, cls = '') => `<td class="num ${Math.abs(v) < 0.005 ? 'empty-cell' : ''}" data-label="${label}">${cell(v, cls)}</td>`;
   // Each platform is a box you can move in Edit layout (the "no platform" row too).
-  const rows = platforms.map((p) => `<tr class="clickable" data-action="open-platform" data-name="${esc(p.name)}" data-box="${esc(p.name || '__none')}" tabindex="0">
+  // Columns to sort by (the cells themselves are drawn below).
+  const cols = [['Platform', false, (p) => (p.name || '').toLowerCase()], ['Cash', true, (p) => p.cash], ['Investments', true, (p) => p.invest], ['Deposits', true, (p) => p.deposits],
+    ['Property & other', true, (p) => p.property + p.other], ['Debts', true, (p) => p.debt], ['Net', true, (p) => p.net]].map(([label, n, v]) => ({ label, num: n, render: () => '', value: v }));
+  for (const c of cols) SORT_VALUES[`platforms:${c.label}`] = c.value;
+  const rows = sortItems('platforms', cols, platforms).map((p) => `<tr class="clickable" data-action="open-platform" data-name="${esc(p.name)}" data-box="${esc(p.name || '__none')}" tabindex="0">
       <td data-label="Platform"><strong>${esc(p.name || 'No platform set')}</strong><div class="sub">${p.region ? `${esc(p.region)}${p.regionGuessed ? ' <span class="badge" title="Guessed from currency — tap to set">guess</span>' : ''}` : (p.name ? 'Tap to set a region' : 'Edit items to add a platform')} · ${plural(p.count, 'item')} · ${esc(p.currencies.join(', '))}</div></td>
       ${td('Cash', p.cash)}${td('Investments', p.invest)}${td('Deposits', p.deposits)}${td('Property &amp; other', p.property + p.other)}${td('Debts', -p.debt, 'neg')}
       <td class="num primary" data-label="Net">${money(p.net, base(), 0)}<div class="sub">${net > 0 ? `${((p.net / net) * 100).toFixed(1)}%` : ''}</div></td>
       <td class="actions"><span class="chev" aria-hidden="true">›</span></td></tr>`).join('');
-  return `<div class="card table-card"><table class="data"><thead><tr><th>Platform</th><th class="num">Cash</th><th class="num">Investments</th><th class="num">Deposits</th><th class="num">Property & other</th><th class="num">Debts</th><th class="num">Net</th><th></th></tr></thead><tbody data-layout="list-platforms">${rows}</tbody></table></div>`;
+  const sorted = activeSort('platforms') && cols[activeSort('platforms').col];
+  return `${layoutEditing === currentView ? '' : sortMenu('platforms', cols)}<div class="card table-card"><table class="data"><thead><tr>${cols.map((c, i) => sortHeader('platforms', i, c.label, c.num)).join('')}<th></th></tr></thead><tbody data-layout="list-platforms"${sorted ? ' data-sorted="1"' : ''}>${rows}</tbody></table></div>`;
 }
 
 // ---------------------------------------------------------------- one region
@@ -320,7 +415,7 @@ function renderPlatformDetail(name) {
     return `<div class="section-head"><h2>${label}</h2><button class="btn small" data-action="add" data-sec="${k}" data-platform="${esc(name)}">+ Add</button></div>${renderItemsTable(k, items)}`;
   }).join('');
   const addMore = PLATFORM_GROUP_TITLES.filter(([k]) => !state[k].some((x) => (x.platform || '') === name))
-    .map(([k, label]) => `<button class="btn small" data-action="add" data-sec="${k}" data-platform="${esc(name)}">+ ${label}</button>`).join('');
+    .map(([k, label]) => `<button class="btn small" data-action="add" data-sec="${k}" data-platform="${esc(name)}">+ Add ${label.toLowerCase()}</button>`).join('');
   const meta = [p.region ? `${esc(p.region)}${p.regionGuessed ? ' <span class="badge" title="Guessed from currency">guess</span>' : ''}` : '', esc(p.currencies.join(', '))].filter(Boolean).join(' · ');
   return `${back}
     <div class="page-head">

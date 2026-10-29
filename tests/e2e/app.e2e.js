@@ -304,3 +304,24 @@ test('layout: accounts and holdings can be reordered and pinned to Home', { skip
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('lists sort by a column: high to low, low to high, then back to your own order', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  const names = () => page.$$eval('[data-layout="list-stocks"] > tr', (r) => r.map((x) => x.dataset.name));
+  await go('#stocks');
+  const own = await names();
+  // Phone: the Sort menu. Market value is compared in one currency (HK$91,000 > £5,304 > $4,125).
+  const mv = await page.$$eval('[data-sort-menu="stocks"] option', (o) => o.find((x) => /market value: high/i.test(x.textContent)).value);
+  await page.selectOption('[data-sort-menu="stocks"]', mv);
+  await page.waitForTimeout(200);
+  const order = async () => (await names()).map((n) => (/0700|tencent/i.test(n) ? 'tencent' : /vusa|vanguard/i.test(n) ? 'vanguard' : /aapl|apple/i.test(n) ? 'apple' : n));
+  assert.deepEqual(await order(), ['tencent', 'vanguard', 'apple']);
+  await page.selectOption('[data-sort-menu="stocks"]', mv.replace('desc', 'asc'));
+  await page.waitForTimeout(200);
+  assert.deepEqual(await order(), ['apple', 'vanguard', 'tencent']);
+  await page.selectOption('[data-sort-menu="stocks"]', '');
+  await page.waitForTimeout(200);
+  assert.deepEqual(await names(), own);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

@@ -486,7 +486,7 @@ function renderSide() {
     const p = +g.target ? Math.max(0, Math.min(1, cur / +g.target)) : 0;
     return `<li class="side-item side-goal clickable" data-href="#goals" data-q="${esc(`${g.name} goal`.toLowerCase())}" tabindex="0">
         <span class="sub-name"><span class="keep-case">${esc(g.name)}</span><span class="goal-bar"><span style="width:${p * 100}%"></span></span><span class="sub">${money(cur, base(), 0)} of ${money(+g.target || 0, base(), 0)}</span></span>
-        <span class="side-val"><span class="num">${(p * 100).toFixed(0)}%</span></span>
+        <span class="side-val"><span class="num">${(p * 100).toFixed(1)}%</span></span>
       </li>`;
   }).join('') : '';
   el.innerHTML = `<div class="side-head">

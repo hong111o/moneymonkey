@@ -486,7 +486,7 @@ function holdingColumns(kind) {
       render: (h) => {
         const y = Calc.dividendPerYear(h);
         const mv = hv(h).marketValue;
-        return y > 0 ? `${money(y, h.currency)}<div class="sub">${mv ? `${((y / mv) * 100).toFixed(2)}% · ` : ''}${h.dividendReinvest ? 'reinvested' : 'paid out'}</div>` : '<span class="sub">—</span>';
+        return y > 0 ? `${money(y, h.currency)}<div class="sub">${mv ? `${((y / mv) * 100).toFixed(1)}% · ` : ''}${h.dividendReinvest ? 'reinvested' : 'paid out'}</div>` : '<span class="sub">—</span>';
       },
     }]),
     { label: 'Profit / loss', num: true, render: (h) => { const v = hv(h); return `${signed(v.pnl, h.currency)}<div class="sub">${pct(v.pnlPct)}</div>`; } },

@@ -838,3 +838,48 @@ label.side-search input { margin: 0; border: 0; box-shadow: none; }
   body:not([data-view="dashboard"]) .side-panel { display: none; }
 }
 @media (min-width: 861px) { .main { margin: 0 auto; } }
+
+/* ---------------------------------------------------------------- one style everywhere: actions in black, colour only in data */
+a { color: var(--text); text-decoration-color: color-mix(in srgb, var(--text) 35%, transparent); text-underline-offset: 2px; }
+.back { color: var(--text-2); }
+.back:hover { color: var(--text); }
+.linklike { color: var(--text); }
+.menu-list a.active { color: var(--text); }
+.sync-chip.busy .cloud { color: var(--text); }
+input:focus, select:focus, textarea:focus { outline-color: var(--ink); }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--ink); }
+.choice:hover, .choice:active { border-color: var(--ink); }
+.cur-block.on .cur-tag { background: var(--ink); color: var(--ink-text); }
+.layout-editing > [data-box] { outline-color: color-mix(in srgb, var(--text) 30%, transparent); }
+.lay-btn.on { background: var(--ink); color: var(--ink-text); border-color: var(--ink); }
+.layout-bar.on { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+/* "Looks like the same payment" notes: plain, like Needs attention. */
+.loan-notes li { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+/* A section heading with its buttons on their own row on phones. */
+@media (max-width: 860px) {
+  .section-head.stack-sm { flex-direction: column; align-items: stretch; }
+  .section-head.stack-sm .row-actions { justify-content: flex-end; }
+}
+.alert:not(.warn):not(.good):not(.attention) { background: var(--surface-2); color: var(--text); }
+.form-preview:not(:empty) { background: var(--surface-2); color: var(--text); }
+
+/* Sorting by a column: tap a heading (computer) or use the Sort menu (phone). */
+th.sortable { padding: 0; }
+.sort-btn { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 4px; width: 100%; padding: 10px 14px; cursor: pointer; font: inherit; color: inherit; white-space: nowrap; }
+th.num .sort-btn { justify-content: flex-end; }
+.sort-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; border-radius: 6px; }
+.sort-ic { font-size: 0.85em; color: var(--muted); opacity: 0.6; }
+th.sorted .sort-ic { color: var(--text); opacity: 1; }
+.sort-btn:hover .sort-ic { opacity: 1; }
+.sort-bar { display: none; }
+@media (max-width: 860px) {
+  .sort-bar { display: flex; justify-content: flex-end; margin: 0 0 8px; }
+  .sort-bar label { flex-direction: row; align-items: center; gap: 8px; font-size: 0.85rem; }
+  .sort-bar select { width: auto; min-height: 36px; padding: 4px 8px; }
+}
+@media (min-width: 861px) {
+  .card.table-card { overflow-x: auto; }
+  th.sortable .sort-btn { padding: 10px 10px; }
+  th.num.sortable .sort-btn { padding-right: 10px; }
+}
+@media (min-width: 861px) { table.data td { padding-left: 10px; padding-right: 10px; } table.data td.actions .btn.small { padding: 4px 8px; } }

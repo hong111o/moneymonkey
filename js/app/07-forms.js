@@ -424,7 +424,7 @@ function explain(what, param) {
     const list = state.stocks.filter((h) => Calc.dividendPerYear(h) > 0).map((h) => {
       const y = Calc.dividendPerYear(h);
       const mv = hv(h).marketValue;
-      return { v: toBase(y, h.currency) || 0, re: !!h.dividendReinvest, html: row(`#" data-action="edit" data-sec="stocks" data-id="${esc(h.id)}`, esc(h.symbol), `${h.divMode === 'yield' ? `${num(h.dividendYield, 2)}% yield` : `${money(h.dividendPerShare, h.currency)} per share × ${num(h.quantity, 4)}`}${mv && h.divMode !== 'yield' ? ` · ${((y / mv) * 100).toFixed(2)}% of value` : ''}`, `${money(y, h.currency)}<div class="sub">${money(toBase(y, h.currency) / 12, base(), 0)}/mo</div>`) };
+      return { v: toBase(y, h.currency) || 0, re: !!h.dividendReinvest, html: row(`#" data-action="edit" data-sec="stocks" data-id="${esc(h.id)}`, esc(h.symbol), `${h.divMode === 'yield' ? `${num(h.dividendYield, 2)}% yield` : `${money(h.dividendPerShare, h.currency)} per share × ${num(h.quantity, 4)}`}${mv && h.divMode !== 'yield' ? ` · ${((y / mv) * 100).toFixed(1)}% of value` : ''}`, `${money(y, h.currency)}<div class="sub">${money(toBase(y, h.currency) / 12, base(), 0)}/mo</div>`) };
     });
     const yearly = list.reduce((a, r) => a + r.v, 0);
     const year = t.slice(0, 4);

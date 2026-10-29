@@ -234,31 +234,46 @@ function fillDatalists() {
   $('#region-list').innerHTML = [...regions].map((r) => `<option value="${esc(r)}">`).join('');
 }
 
-// ================================================================== headings in Title Case
+// ================================================================== Title Case
 
-// Every heading and label reads in Title Case ("Net Cash Flow / Mo", "Debt-to-Asset").
-// Only all-lowercase words change, so names like "iPhone", "eToro", "HSBC" or "HK$5M" stay
-// as typed; short joining words stay lowercase unless they come first. Elements marked
-// `.keep-case` (the greeting, account and card names) are left alone.
+// Headings, buttons, tabs, labels and other short names read in Title Case ("Net Cash Flow / Mo",
+// "Add Fixed Deposit", "Bank Bills"). Sentences stay as they are, and so does grey helper text.
+// Only all-lowercase words change, so names like "iPhone", "eToro", "HSBC" or "HK$5M" stay as
+// typed; short joining words stay lowercase unless they come first. Elements marked `.keep-case`
+// (the greeting, account and card names) are left alone.
 const SMALL_WORDS = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'to', 'in', 'on', 'at', 'for', 'per', 'by', 'vs', 'via', 'from', 'with']);
-const TITLE_SEL = 'h1, h2, h3, .tile-label, th, .nav-group, .bal-head';
+const TITLE_SEL = 'h1, h2, h3, h4, .tile-label, th, .nav-group, .bal-head, button, .btn, label, summary, option, .badge, .leg, strong, b, .menu-list a, .tabbar a, .choice, .grow, .goal-head, dt';
+const TITLE_SKIP = '.keep-case, .sub, small, p, .intro, input, textarea, select:not(:has(option)), .toast, .ev-label, .tile-value, .hero-value';
 function titleCase(text, first = true) {
   return text.replace(/[A-Za-z][A-Za-z'’]*/g, (w, i) => {
-    if (w !== w.toLowerCase()) return w;
-    if (SMALL_WORDS.has(w) && !(first && !text.slice(0, i).trim())) return w;
+    if (w.length < 2 || w !== w.toLowerCase()) return w;
+    const before = text.slice(0, i);
+    if (/\d$|\d\/$/.test(before)) return w; // units after a number: "6d", "HK$20/day"
+    if (SMALL_WORDS.has(w) && !(first && !before.trim())) return w;
     return w[0].toUpperCase() + w.slice(1);
   });
 }
+// Reads like a sentence: ends with a full stop / question / colon, or is long.
+const isSentence = (t) => /[.?!:]$/.test(t) || /\.\s/.test(t) || t.split(/\s+/).filter(Boolean).length > 6;
 function titleCaseIn(root) {
   if (!root || root.nodeType !== 1) return;
   const els = root.matches(TITLE_SEL) ? [root] : [];
   els.push(...root.querySelectorAll(TITLE_SEL));
   for (const el of els) {
-    if (el.closest('.keep-case')) continue;
-    let first = true;
+    if (el.closest(TITLE_SKIP)) continue;
+    // Bold words inside a sentence ("tap <b>Set up sync</b>, then…") stay as the sentence has them.
+    if (/^(STRONG|B)$/.test(el.tagName) && el.parentElement && isSentence(el.parentElement.textContent.replace(/\s+/g, ' ').trim())) continue;
+    const nodes = [];
     const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-      if (n.parentElement.closest('.keep-case, .sub, input, select, option')) { if (n.nodeValue.trim()) first = false; continue; }
+      if (n.parentElement.closest(TITLE_SKIP)) continue;
+      if (el.tagName !== 'OPTION' && n.parentElement.closest('select')) continue; // a label's own words, not its menu
+      nodes.push(n);
+    }
+    const own = nodes.map((n) => n.nodeValue).join('').replace(/\s+/g, ' ').trim();
+    if (!own || isSentence(own)) continue;
+    let first = true;
+    for (const n of nodes) {
       const t = titleCase(n.nodeValue, first);
       if (t !== n.nodeValue) n.nodeValue = t;
       if (n.nodeValue.trim()) first = false;
@@ -266,8 +281,9 @@ function titleCaseIn(root) {
   }
   for (const el of root.querySelectorAll('[data-label]')) el.dataset.label = titleCase(el.dataset.label);
 }
-new MutationObserver((list) => { for (const m of list) for (const n of m.addedNodes) titleCaseIn(n); })
+new MutationObserver((list) => { for (const m of list) for (const n of m.addedNodes) titleCaseIn(n.nodeType === 3 ? n.parentElement : n); })
   .observe(document.body, { childList: true, subtree: true });
+titleCaseIn(document.body);
 
 // ================================================================== boot
 

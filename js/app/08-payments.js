@@ -191,7 +191,7 @@ function openCheckin(prefill) {
     <h3>${icon('sparkle')} Extra income or one-off costs in ${fmtMonth(lm)}</h3>
     <p class="sub">Optional — e.g. a bonus or a big one-off purchase. Only used in Cash Flow’s month by month; it doesn’t change any balance (the balances above already include it).</p>
     <div class="ci-extras">${extraRow()}</div>
-    <button type="button" class="btn small" data-ci="add-extra">+ Another</button>
+    <button type="button" class="btn small" data-ci="add-extra">+ Add another</button>
     <div class="row-actions ci-actions"><button class="btn primary" data-ci="save">Save check-in</button><button class="btn" data-ci="later">Remind me tomorrow</button><button class="btn ghost" data-ci="skip">Skip this month</button></div>
     <p class="form-error" role="alert"></p>`;
   const fill = () => {

@@ -174,6 +174,10 @@ If part of a broker or exchange account is uninvested cash, add it with **+ Cash
 
 On a computer, the menu is a column of icons on the left (hover for names). The **side panel** button in the top bar shows an extra panel with your debts and goals (on other pages: assets and debts with search). It's hidden unless you turn it on, and the choice is remembered on that device.
 
+### Sort any list
+
+Tap a column heading in a list (Stocks, Crypto, Cash & Bank, Fixed Deposits, Property, Other Assets, Debts, Cash Flow items, Platforms) to sort by it: high to low, tap again for low to high, a third time for your own order again. On a phone, use the **Sort** menu above the list. Amounts in different currencies are compared in your base currency. The sort is remembered for each list on that device.
+
 ### Arrange each page
 
 Tap the **⠿ Edit layout** button in a page's header:
