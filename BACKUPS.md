@@ -35,3 +35,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 20 | 2026-10-28 | `32d088a` | Reorder and pin accounts, holdings and other list items |
 | 21 | 2026-10-28 | `12140ed` | Reorder and pin list items; last version before the calm redesign |
 | 22 | 2026-10-28 | `a6bdd89` | Calm redesign of Home and the app shell |
+| 23 | 2026-10-29 | `e76ff30` | Platforms can be put in your own order |
