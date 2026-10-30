@@ -951,3 +951,8 @@ th.sorted .sort-ic { color: var(--text); opacity: 1; }
 .side-trend .trend-pct { font-size: 0.85rem; }
 /* With the panel showing, a table's row buttons live in the panel instead. */
 @media (min-width: 1500px) { body.side-open table.data td.actions .btn { display: none; } }
+/* Laptop widths: the panel only shows on Home, so other pages keep the full width (this must
+   win over the panel-open column above). */
+@media (min-width: 1100px) and (max-width: 1499px) {
+  body.side-open:not([data-view="dashboard"]) .layout { grid-template-columns: 64px minmax(0, 1fr); }
+}

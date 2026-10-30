@@ -418,3 +418,19 @@ test('target mix on Goals: must add up to 100%, then shows gaps and suggested mo
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('side panel on a laptop: pages other than Home keep their full width', { skip: skip() }, async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 900 }, serviceWorkers: 'block' });
+  await ctx.addInitScript(() => { localStorage.setItem('moneymonkey.prompted', new Date().toISOString().slice(0, 10)); localStorage.setItem('moneymonkey.side', '1'); });
+  await ctx.route('https://open.er-api.com/**', (r) => r.fulfill({ json: { result: 'success', rates: RATES }, headers: { 'access-control-allow-origin': '*' } }));
+  const page = await ctx.newPage();
+  await page.goto(base);
+  await page.click('text=Try demo data');
+  await page.waitForTimeout(800);
+  const width = async (hash) => { await page.goto(base + hash); await page.waitForTimeout(300); return (await (await page.$('#main')).boundingBox()).width; };
+  assert.ok(await width('#accounts') > 1100, 'Cash & Bank uses the full width');
+  assert.ok(await width('#stocks') > 1100, 'Stocks uses the full width');
+  assert.equal(await page.$eval('#side', (e) => getComputedStyle(e).display), 'none');
+  assert.ok(await width('#dashboard') > 800, 'Home shares the width with the panel');
+  await ctx.close();
+});
