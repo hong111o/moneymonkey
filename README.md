@@ -176,7 +176,7 @@ If part of a broker or exchange account is uninvested cash, add it with **+ Cash
 - Summary boxes. **Tap any box with a ›** (P&L, cash flow, savings rate, passive income, runway, subscriptions, interest today) to see what's inside it, with links to edit each item
 - **By region & platform** (top 5), **Next 7 days** (bills, pay days, deposit maturities, property updates; the first 5, with See all) and **Goals**. Amounts in Next 7 days show in their own currency with the converted amount underneath; tap a row to open it, and if it's due or overdue the payment box opens.
 
-On a computer, the menu is a column of icons on the left (hover for names). The **side panel** button in the top bar shows an extra panel with your debts and goals (on other pages: assets and debts with search). It's hidden unless you turn it on, and the choice is remembered on that device.
+On a computer, the menu is a column of icons on the left (hover for names). The **side panel** button in the top bar opens a panel beside the page (hidden unless you turn it on; remembered on that device). It shows **Today**: the clock, markets today with your biggest movers, interest earned today, what's due today and tomorrow, and Needs attention. With it open, **click any account, holding, deposit, property, debt, bill or card** to see its details there: value and 30-day trend, everything its list shows, recent activity, and buttons (Buy / Sell, Edit, End now…). "‹ Today" goes back.
 
 ### Target mix (Goals page)
 

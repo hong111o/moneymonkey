@@ -452,10 +452,10 @@ function filteredHistory() {
 
 // ---------------------------------------------------------------- side panel (wide screens)
 
-// The side panel is hidden unless you turn it on (remembered on this device).
+// The side panel is hidden unless you turn it on (remembered on this device). It shows "Today"
+// (what changes during the day), or the details of whatever row you click while it's open.
 let sideOpen = (() => { try { return localStorage.getItem('moneymonkey.side') === '1'; } catch (e) { return false; } })();
-let sideTab = 'assets';
-let sideQuery = '';
+let sideSel = null; // { sec, id } of the item shown, or null for Today
 
 function renderSide() {
   const el = $('#side');
@@ -464,67 +464,110 @@ function renderSide() {
   const sb = $('#side-btn');
   if (sb) { sb.setAttribute('aria-pressed', String(sideOpen)); sb.title = sideOpen ? 'Hide side panel' : 'Show side panel'; sb.setAttribute('aria-label', sb.title); }
   if (!sideOpen) { el.innerHTML = ''; return; }
-  // On Home the Assets card is already on screen, so the panel shows Debts and Goals instead.
-  const onHome = currentView === 'dashboard';
-  const groups = onHome ? debtGroups() : sideTab === 'assets' ? assetGroups() : sideTab === 'debts' ? debtGroups() : [...assetGroups(), ...debtGroups()];
-  const debtKeys = new Set(['debt', 'cards']);
-  const q = sideQuery.trim().toLowerCase();
-  const trends = hasTrends();
-  const tab = (id, label) => `<button class="${sideTab === id ? 'on' : ''}" data-side-tab="${id}" aria-pressed="${sideTab === id}">${label}</button>`;
-  const body = groups.map((g) => {
-    const debt = debtKeys.has(g.key);
-    const id = `s:${g.key}`;
-    const open = openGroups.has(id) || !!q;
-    const items = g.items.map((x) => `<li class="side-item clickable" ${x.open} data-q="${esc(`${x.name} ${x.sub} ${g.label}`.toLowerCase())}" tabindex="0">
-        ${badge(x.platform || x.name)}<span class="sub-name"><span>${esc(x.name)}</span><span class="sub">${esc(x.sub)}</span></span>
-        <span class="side-val"><span class="num${debt ? ' owed' : ''}">${money(x.value, base(), 0)}</span>${x.due ? dueText(x.due) : trends ? trend('item', x.id, { debt }) : ''}</span>
-      </li>`).join('');
-    return `<li class="side-group" data-side-group>
-        <button class="side-group-head" data-asset-group="${id}" aria-expanded="${open}">
-          <span class="chev-r" aria-hidden="true">›</span><span class="dot" style="background:${g.color}"></span>
-          <span class="grow"><strong>${esc(g.label)}</strong><span class="sub"> · ${g.items.length}</span></span>
-          <span class="side-val"><span class="num${debt ? ' owed' : ''}">${moneyShort(g.total)}</span>${g.key === 'cards' ? '' : trends ? trend('cat', trendKey(g), { debt }) : ''}</span>
-        </button>
-        <ul class="side-items" data-parent="${id}" ${open ? '' : 'hidden'}>${items}</ul>
-      </li>`;
-  }).join('');
-  const goals = onHome ? state.goals.map((g) => {
-    const cur = goalCurrent(g);
-    const p = +g.target ? Math.max(0, Math.min(1, cur / +g.target)) : 0;
-    return `<li class="side-item side-goal clickable" data-href="#goals" data-q="${esc(`${g.name} goal`.toLowerCase())}" tabindex="0">
-        <span class="sub-name"><span class="keep-case">${esc(g.name)}</span><span class="goal-bar"><span style="width:${p * 100}%"></span></span><span class="sub">${money(cur, base(), 0)} of ${money(+g.target || 0, base(), 0)}</span></span>
-        <span class="side-val"><span class="num">${(p * 100).toFixed(1)}%</span></span>
-      </li>`;
-  }).join('') : '';
-  el.innerHTML = `<div class="side-head">
-      <h2>${onHome ? 'Debts & goals' : 'Your money'}</h2>
-      <label class="side-search">${icon('search')}<input type="search" placeholder="Search" value="${esc(sideQuery)}" data-side-search aria-label="Search your money"></label>
-      ${onHome ? '' : `<div class="seg side-tabs">${tab('assets', 'Assets')}${tab('debts', 'Debts')}${tab('all', 'All')}</div>`}
-      <button class="btn small ghost side-new" data-action="quick-add">${icon('plus')} Add ${onHome || sideTab === 'debts' ? 'debt' : 'asset'}</button>
-    </div>
-    <ul class="side-groups">${body || `<li class="sub side-empty">${onHome ? 'No debts — nice.' : 'Nothing here yet.'}</li>`}</ul>
-    ${onHome ? `<h3 class="side-sub">Goals</h3><ul class="side-groups side-goals" data-side-group>${goals || '<li class="sub side-empty">No goals yet. <a href="#goals">Set one</a>.</li>'}</ul>` : ''}`;
-  if (q) filterSide();
+  const detail = sideSel && sideDetail(sideSel.sec, sideSel.id);
+  if (!detail) sideSel = null;
+  el.innerHTML = detail || sideToday();
+  for (const r of document.querySelectorAll('#main .side-selected')) r.classList.remove('side-selected');
+  if (sideSel) for (const r of document.querySelectorAll(`#main [data-id="${CSS.escape(sideSel.id)}"]:is(tr, li)`)) r.classList.add('side-selected');
+  Charts.bindLineHover(el, tooltip);
 }
 
-// Typing in the search hides what doesn't match, without redrawing (so the box keeps focus).
-function filterSide() {
-  const q = sideQuery.trim().toLowerCase();
-  for (const g of document.querySelectorAll('#side [data-side-group]')) {
-    let any = false;
-    for (const it of g.querySelectorAll('.side-item')) { const hit = !q || it.dataset.q.includes(q); it.hidden = !hit; any = any || hit; }
-    g.hidden = !any && !!g.querySelector('.side-item');
-    const list = g.querySelector('.side-items');
-    if (!list) continue;
-    if (q) list.hidden = false;
-    else list.hidden = !openGroups.has(list.dataset.parent);
-  }
+// Today: the clock, markets and your biggest movers, interest ticking up, what's due, and Needs attention.
+function sideToday() {
+  const s = summary;
+  const t = todayISO();
+  const tomorrow = Calc.toISO(Calc.addDays(new Date(), 1));
+  const movers = [...state.stocks.map((h) => ['stocks', h]), ...state.crypto.map((h) => ['crypto', h])]
+    .map(([sec, h]) => ({ sec, h, v: hv(h), base: toBase(hv(h).dayChange, h.currency) || 0 }))
+    .filter((m) => Math.abs(m.base) > 0.005).sort((a, b) => Math.abs(b.base) - Math.abs(a.base)).slice(0, 5);
+  const due = s.events.filter((e) => e.date <= tomorrow);
+  const alerts = dashboardAlerts();
+  const pick = (sec, id) => `data-side-pick="${esc(sec)}" data-id="${esc(id)}"`;
+  return `<div class="side-head"><h2>Today</h2><p class="sub side-clock" id="side-clock">${clockText()}</p></div>
+    <section class="side-sec">
+      <div class="side-row"><span>Markets today</span><strong>${signed(s.dayChange)}</strong></div>
+      ${movers.length ? `<ul class="side-list">${movers.map((m) => `<li class="clickable" ${pick(m.sec, m.h.id)} tabindex="0"><span class="grow">${badge(m.h.platform || m.h.symbol)}<span class="keep-case">${esc(m.h.symbol || itemName(m.sec, m.h))}</span></span><span class="num"><span class="${m.base > 0 ? 'pos' : 'neg'}">${m.v.dayChangePct > 0 ? '+' : ''}${(m.v.dayChangePct * 100).toFixed(1)}%</span><span class="sub">${signed(m.base, base(), 0)}</span></span></li>`).join('')}</ul>` : '<p class="sub">No price moves yet today.</p>'}
+    </section>
+    ${s.interestDaily > 0 ? `<section class="side-sec"><div class="side-row"><span>Interest earned today</span><strong class="pos" id="side-interest">${money(0, base(), 2)}</strong></div><p class="sub">${money(s.interestDaily)} a day from savers and fixed deposits</p></section>` : ''}
+    <section class="side-sec"><h3>Due today &amp; tomorrow</h3>
+      ${due.length ? `<ul class="side-list">${due.map((e) => `<li class="${e.ref ? 'clickable' : ''}" ${e.ref ? `data-action="open-event" data-kind="${esc(e.kind)}" data-id="${esc(e.ref)}" data-date="${esc(e.date)}" data-account="${esc(e.accountId || '')}" data-card="${esc(e.cardId || '')}" tabindex="0"` : ''}><span class="grow"><span class="keep-case">${esc(e.label)}</span><span class="sub">${e.date < t ? '<span class="warn-text">overdue</span>' : e.date === t ? 'today' : 'tomorrow'}</span></span><span class="num">${e.amount == null ? '' : money(e.amount, base(), 0)}</span></li>`).join('')}</ul>` : '<p class="sub">Nothing due today or tomorrow.</p>'}
+    </section>
+    ${alerts.length ? `<section class="side-sec"><h3>Needs attention</h3><ul class="alerts side-alerts">${alerts.map(alertItem).join('')}</ul></section>` : ''}
+    <p class="sub side-tip">Tip: click any account, holding, bill or loan to see its details here.</p>`;
 }
-document.addEventListener('input', (e) => {
-  if (!e.target.matches('[data-side-search]')) return;
-  sideQuery = e.target.value;
-  filterSide();
-});
+
+const SIDE_KIND = { accounts: 'Bank / cash account', stocks: 'Stock or ETF', crypto: 'Crypto', deposits: 'Fixed deposit', properties: 'Property', others: 'Other asset', liabilities: 'Debt', cashflows: 'Income, bill or saving' };
+// One item's details: its value and 30-day trend, everything its list shows, recent activity, actions.
+function sideDetail(sec, id) {
+  if (sec === 'cards') return sideCard(id);
+  const def = SECTIONS[sec];
+  const item = def && (state[sec] || []).find((x) => x.id === id);
+  if (!item) return '';
+  const debt = sec === 'liabilities';
+  const value = def.total ? def.total([item]) : null;
+  const vals = seriesOf('item', id);
+  const ch = vals.length > 1 && vals[0] ? (vals[vals.length - 1] - vals[0]) / Math.abs(vals[0]) : null;
+  const good = ch != null && (debt ? ch < 0 : ch > 0);
+  const chart = ch != null ? `<div class="side-trend">${Charts.sparkline(vals, { width: 260, height: 48, cls: Math.abs(ch) < 0.0005 ? '' : good ? 'up' : 'down' })}<span class="trend-pct ${Math.abs(ch) < 0.0005 ? '' : good ? 'up' : 'down'}">${ch > 0 ? '+' : ''}${(ch * 100).toFixed(1)}% <span class="sub">in 30 days</span></span></div>` : '';
+  const rows = def.columns.slice(1).map((c) => `<div class="side-dl"><span class="side-dl-label">${esc(c.label)}</span><span>${c.render(item)}</span></div>`).join('');
+  let acts = [];
+  if (sec === 'accounts') acts = [...state.activity.filter((e) => ['deposit-cash', 'deposit-renew', 'payment', 'transfer'].includes(e.kind) && (e.accountId === id || e.heldIn === id || e.toAccountId === id)), ...state.trades.filter((e) => e.accountId === id).map((e) => ({ ...e, kind: 'trade' }))];
+  if (sec === 'stocks' || sec === 'crypto') acts = state.trades.filter((e) => e.holdingId === id).map((e) => ({ ...e, kind: 'trade' }));
+  if (sec === 'cashflows') acts = state.activity.filter((e) => e.kind === 'payment' && String(e.id).startsWith(`pay-cf:${id}:`));
+  acts = acts.sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : (y._mt || 0) - (x._mt || 0))).slice(0, 6);
+  const buttons = [
+    ...(def.actions || []).map((a) => `<button class="btn small" data-action="${a.id}" data-sec="${sec}" data-id="${esc(id)}">${a.label}</button>`),
+    sec === 'accounts' ? `<a class="btn small" href="#account/${encodeURIComponent(id)}">Open account</a>` : '',
+    sec === 'cashflows' && item.frequency !== 'once' && !Calc.hasEnded(item, todayISO()) ? `<button class="btn small" data-side-end="${esc(id)}">End now</button>` : '',
+    sec === 'cashflows' && Calc.hasEnded(item, todayISO()) ? `<button class="btn small" data-action="restart-cf" data-id="${esc(id)}">Restart</button>` : '',
+    `<button class="btn small primary" data-action="edit" data-sec="${sec}" data-id="${esc(id)}">Edit</button>`,
+  ].join('');
+  return `<div class="side-head side-detail-head"><button class="btn small ghost side-back" data-side-close>‹ Today</button>
+      <div class="side-title">${badge(item.platform || itemName(sec, item))}<div><h2 class="keep-case">${esc(itemName(sec, item))}</h2><p class="sub">${esc(SIDE_KIND[sec] || def.singular || '')}${item.platform ? ` · ${esc(item.platform)}` : ''}</p></div></div></div>
+    ${value != null ? `<div class="side-value ${debt ? 'owed' : ''}">${money(value)}</div>` : ''}
+    ${chart}
+    <div class="row-actions side-actions">${buttons}</div>
+    <section class="side-sec">${rows}</section>
+    ${acts.length ? `<section class="side-sec"><h3>Recent activity</h3><ul class="side-list side-acts">${acts.map((e) => `<li><span class="grow"><span class="sub">${fmtDate(e.date)}</span><span>${activityText(e)}</span></span></li>`).join('')}</ul></section>` : ''}`;
+}
+
+// A credit card: what's owed, statements, and actions.
+function sideCard(id) {
+  const c = cardById(id);
+  if (!c) return '';
+  const stm = state.spending.filter((e) => e.cardId === id).sort((a, b) => (a.month < b.month ? 1 : -1)).slice(0, 6);
+  const owed = Calc.unpaidCardBills(state).filter((e) => e.cardId === id).reduce((t, e) => t + (toBase(e.amount, e.currency) || 0), 0);
+  return `<div class="side-head side-detail-head"><button class="btn small ghost side-back" data-side-close>‹ Today</button>
+      <div class="side-title">${badge(c.platform || c.name)}<div><h2 class="keep-case">${esc(c.name)}</h2><p class="sub">Credit card${c.platform ? ` · ${esc(c.platform)}` : ''}</p></div></div></div>
+    <div class="side-value ${owed ? 'owed' : ''}">${money(owed)}</div><p class="sub">owed now</p>
+    <div class="row-actions side-actions"><button class="btn small" data-action="add" data-sec="spending" data-card="${esc(id)}">+ Add statement</button><a class="btn small" href="#card/${encodeURIComponent(id)}">Open card</a><button class="btn small primary" data-action="edit" data-sec="cards" data-id="${esc(id)}">Edit</button></div>
+    <section class="side-sec"><h3>Statements</h3>${stm.length ? `<ul class="side-list">${stm.map((e) => `<li><span class="grow"><span>${fmtMonth(e.month)}</span><span class="sub">${billStatus(e).replace(/<[^>]+>/g, '') || 'no due date'}</span></span><span class="num">${money(e.amount, e.currency)}</span></li>`).join('')}</ul>` : '<p class="sub">No statements yet.</p>'}</section>`;
+}
+
+// Is the panel actually on screen (wide enough, and turned on)?
+const sideVisible = () => sideOpen && $('#side') && getComputedStyle($('#side')).display !== 'none';
+// While the panel is open, clicking a row shows its details there instead of opening its form.
+document.addEventListener('click', (e) => {
+  if (!sideVisible() || layoutEditing) return;
+  const pickEl = e.target.closest('[data-side-pick]');
+  let sec = pickEl && pickEl.dataset.sidePick;
+  let id = pickEl && pickEl.dataset.id;
+  if (!pickEl) {
+    if (e.target.closest('#side, dialog, button, a, input, select, label, [data-asset-group], .box-ctl')) return;
+    const row = e.target.closest('#main tr[data-id], #main li[data-id]');
+    if (!row) return;
+    const act = row.dataset.action;
+    if (act === 'edit' && row.dataset.sec && SECTIONS[row.dataset.sec] && row.dataset.sec !== 'goals' && row.dataset.sec !== 'spending') sec = row.dataset.sec;
+    else if (act === 'open-account') sec = 'accounts';
+    else if (act === 'open-card') sec = 'cards';
+    else return;
+    id = row.dataset.id;
+  }
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  sideSel = { sec, id };
+  renderSide();
+}, true);
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-action="toggle-side"]')) {
     sideOpen = !sideOpen;
@@ -532,10 +575,7 @@ document.addEventListener('click', (e) => {
     renderSide();
     return;
   }
-  const go = e.target.closest('#side [data-href]');
-  if (go) { location.hash = go.dataset.href; return; }
-  const b = e.target.closest('[data-side-tab]');
-  if (!b) return;
-  sideTab = b.dataset.sideTab;
-  renderSide();
+  if (e.target.closest('[data-side-close]')) { sideSel = null; renderSide(); }
+  const end = e.target.closest('[data-side-end]');
+  if (end && confirm('End this now? It moves to Ended in Cash Flow → Items, ready to restart.')) endCashflow(end.dataset.sideEnd);
 });

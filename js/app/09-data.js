@@ -101,11 +101,12 @@ function recordSnapshot() {
 function tickLive() {
   const clock = $('#clock');
   if (clock) clock.textContent = clockText();
-  const el = $('#live-interest');
-  if (!el || !summary) return;
+  const sideClock = $('#side-clock');
+  if (sideClock) sideClock.textContent = clockText();
+  if (!summary) return;
   const now = new Date();
   const frac = (now - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000;
-  el.textContent = money(summary.interestDaily * frac, base(), 2);
+  for (const el of [$('#live-interest'), $('#side-interest')]) if (el) el.textContent = money(summary.interestDaily * frac, base(), 2);
 }
 
 let priceTimer = null;
