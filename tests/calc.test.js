@@ -901,3 +901,20 @@ test('a property whose own rent item has ended counts no rent (its old figure do
   assert.equal(C.summarize(state, '2026-10-30').rentMonthly, 0);
   assert.equal(C.summarize(state, '2026-10-30').flow.income, 0);
 });
+
+test('targetMix: shares, gaps, on/off target, moves and how to split new money', () => {
+  const totals = { cash: 300, stocks: 100, crypto: 0, deposits: 100, property: 5000, other: 0 };
+  const mix = C.targetMix(totals, { targets: { cash: 20, stocks: 60, deposits: 20 }, tolerance: 5 }, 100);
+  assert.equal(mix.total, 500); // property left out by default
+  const row = (k) => mix.rows.find((r) => r.key === k);
+  assert.equal(row('cash').pct, 60);
+  assert.equal(row('cash').gap, -200);
+  assert.equal(row('stocks').gap, 200);
+  assert.equal(row('deposits').onTarget, true);
+  assert.equal(row('cash').onTarget, false);
+  assert.deepEqual(mix.moves, [{ from: 'cash', to: 'stocks', amount: 200 }]);
+  // HK$100 of new money all goes to the shortfall (stocks).
+  assert.deepEqual(mix.split.map((x) => [x.key, x.amount]), [['stocks', 100]]);
+  // With property included, it counts in the total.
+  assert.equal(C.targetMix(totals, { targets: { property: 90, cash: 10 }, includeProperty: true }).total, 5500);
+});

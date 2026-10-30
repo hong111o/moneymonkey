@@ -228,10 +228,80 @@ function goalCard(g) {
 
 function renderGoals() {
   const sec = SECTIONS.goals;
+  const goals = state.goals.length ? state.goals.map((g) => `<div class="card clickable" data-action="edit" data-sec="goals" data-id="${esc(g.id)}" tabindex="0">${goalCard(g)}</div>`).join('')
+    : '<div class="card empty">No goals yet.</div>';
+  // Each part is a box you can move or hide (Edit layout).
   return `<div class="page-head"><div><h1>${sec.title}</h1><p class="sub intro">${sec.intro}</p></div>
     <div class="row-actions"><button class="btn primary" data-action="add" data-sec="goals">+ Add</button></div></div>
-    ${state.goals.length ? state.goals.map((g) => `<div class="card clickable" data-action="edit" data-sec="goals" data-id="${esc(g.id)}" tabindex="0">${goalCard(g)}</div>`).join('')
-      : '<div class="card empty">No goals yet.</div>'}`;
+    <section class="boxes" data-layout="sections">
+      <div data-box="mix" data-name="Target mix">${targetMixCard()}</div>
+      <div data-box="goals" data-name="Goals">${goals}</div>
+    </section>`;
+}
+
+// ---------------------------------------------------------------- target mix
+
+const mixLabel = (k) => CATEGORY_LABELS[k];
+// How your assets are spread against the % you're aiming for, with suggested moves.
+function targetMixCard() {
+  const cfg = state.settings.targetMix;
+  if (!cfg) {
+    return `<div class="card mix-card"><div class="card-head"><h2>Target mix</h2></div>
+      <p class="sub">Decide how much of your assets should be in each area, e.g. 50% stocks, 20% cash, 20% fixed deposits, 10% crypto. You’ll see how far off you are and roughly what to move.</p>
+      <button class="btn primary" data-action="target-mix">Set target mix</button></div>`;
+  }
+  const mix = Calc.targetMix(summary.totals, cfg, summary.netMonthly);
+  const tol = cfg.tolerance ?? 5;
+  const rows = mix.rows.filter((r) => r.target > 0 || r.amount > 0).map((r) => {
+    const status = r.onTarget ? '<span class="badge good">On target</span>' : `<span class="badge warn">${r.gap > 0 ? `Add ${money(r.gap, base(), 0)}` : `Over by ${money(-r.gap, base(), 0)}`}</span>`;
+    return `<div class="mix-row">
+        <div class="mix-head"><span><span class="dot" style="background:${CATEGORY_COLORS[r.key]}"></span><strong>${esc(mixLabel(r.key))}</strong></span>${status}</div>
+        <div class="mix-bar" title="Now ${r.pct.toFixed(1)}% · target ${r.target}%"><span class="mix-fill" style="width:${Math.min(100, r.pct)}%;background:${CATEGORY_COLORS[r.key]}"></span><span class="mix-mark" style="left:${Math.min(100, r.target)}%"></span></div>
+        <div class="sub">Now ${r.pct.toFixed(1)}% (${money(r.amount, base(), 0)}) · target ${r.target}%${r.onTarget ? '' : ` · ${r.diff > 0 ? '+' : ''}${r.diff.toFixed(1)} points`}</div>
+      </div>`;
+  }).join('');
+  const moves = mix.moves.length && !mix.onTarget ? `<h3>Rebalance now</h3><ul class="mix-moves">${mix.moves.map((m) => `<li>Move about <strong>${money(m.amount, base(), 0)}</strong> from ${esc(mixLabel(m.from))} to ${esc(mixLabel(m.to))}</li>`).join('')}</ul>` : '';
+  const split = mix.split.length && !mix.onTarget ? `<h3>With new money (no selling)</h3><p class="sub">Put this month’s surplus of ${money(summary.netMonthly, base(), 0)} into:</p><ul class="mix-moves">${mix.split.map((x) => `<li>${esc(mixLabel(x.key))} <strong>${x.pct.toFixed(1)}%</strong> · ${money(x.amount, base(), 0)}</li>`).join('')}</ul>` : '';
+  return `<div class="card mix-card">
+      <div class="card-head"><h2>Target mix</h2><button class="btn small" data-action="target-mix">Edit</button></div>
+      ${mix.onTarget ? '<p class="mix-ok"><span class="badge good">On target</span> Every area is within ±' + tol + ' points of your target.</p>' : ''}
+      <div class="mix-rows">${rows}</div>
+      ${moves}${split}
+      <p class="sub mix-foot">Based on assets of ${money(mix.total, base(), 0)}${cfg.includeProperty ? ' (including property)' : ' (property not included)'} · on target within ±${tol} points · debts aren’t counted.</p>
+    </div>`;
+}
+
+// Set the target % for each area (must add up to 100%), whether property counts, and the tolerance.
+function openTargetMix() {
+  const cfg = state.settings.targetMix || { targets: {}, includeProperty: false, tolerance: 5 };
+  const keys = Calc.MIX_KEYS;
+  const sumOf = (v) => keys.filter((k) => v.includeProperty || k !== 'property').reduce((t, k) => t + (+v[`t_${k}`] || 0), 0);
+  openForm({
+    title: 'Target mix',
+    intro: 'What % of your assets you’d like in each area. They need to add up to 100%. Leave an area at 0 if you don’t want any there.',
+    fields: [
+      { key: 'includeProperty', label: 'Include property', type: 'checkbox', span: true },
+      ...keys.map((k) => ({ key: `t_${k}`, label: `${mixLabel(k)} %`, type: 'number', showIf: k === 'property' ? (v) => v.includeProperty : undefined })),
+      { key: 'tolerance', label: 'On target within ± (points)', type: 'number', help: 'E.g. 5: a 50% target counts as on target from 45% to 55%.' },
+    ],
+    values: { includeProperty: !!cfg.includeProperty, tolerance: cfg.tolerance ?? 5, ...Object.fromEntries(keys.map((k) => [`t_${k}`, cfg.targets[k] ?? ''])) },
+    preview: (v) => { const t = sumOf(v); return `Total: <strong>${num(t, 2)}%</strong>${Math.abs(t - 100) < 0.01 ? ' ✓' : ` · ${t < 100 ? `${num(100 - t, 2)}% still to place` : `${num(t - 100, 2)}% too much`}`}`; },
+    validate: (v) => (Math.abs(sumOf(v) - 100) > 0.01 ? `The targets add up to ${num(sumOf(v), 2)}% — they need to add up to 100%.` : !(v.tolerance >= 0 && v.tolerance <= 50) ? 'Tolerance should be between 0 and 50 points.' : keys.some((k) => +v[`t_${k}`] < 0) ? 'Targets can’t be negative.' : null),
+    buttons: state.settings.targetMix ? [{ label: 'Remove', onClick: () => { setTargetMix(null); toast('Target mix removed'); } }] : [],
+    onSave: (v) => {
+      const targets = {};
+      for (const k of keys) if ((v.includeProperty || k !== 'property') && +v[`t_${k}`] > 0) targets[k] = +v[`t_${k}`];
+      setTargetMix({ targets, includeProperty: !!v.includeProperty, tolerance: +v.tolerance });
+      toast('Target mix saved');
+    },
+  });
+}
+function setTargetMix(cfg) {
+  const settings = { ...state.settings, targetMix: cfg };
+  if (!cfg) delete settings.targetMix;
+  state.settings = settings;
+  state.settingsMt = Date.now();
+  commit();
 }
 
 // ---------------------------------------------------------------- settings

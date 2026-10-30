@@ -458,6 +458,56 @@
     return occ[0] || null;
   }
 
+  // ---------- target mix ----------
+
+  // How the assets are spread against target percentages (`targets`: { cash: 20, stocks: 50, … },
+  // in percent). `totals` are the asset groups in the base currency. Property only counts when
+  // `includeProperty`. Returns each group's current share, its gap to the target (in money:
+  // + to add, − over), whether it's within `tolerance` points, suggested moves from groups that
+  // are over to groups that are under (biggest first), and how to split `newMoney` (e.g. the
+  // monthly surplus) to get closer without selling.
+  const MIX_KEYS = ['cash', 'stocks', 'crypto', 'deposits', 'property', 'other'];
+  function targetMix(totals, { targets = {}, includeProperty = false, tolerance = 5 } = {}, newMoney = 0) {
+    const keys = MIX_KEYS.filter((k) => includeProperty || k !== 'property');
+    const amount = (k) => Math.max(0, +totals[k] || 0);
+    const total = keys.reduce((t, k) => t + amount(k), 0);
+    const rows = keys.map((k) => {
+      const target = +targets[k] || 0;
+      const pct = total ? (amount(k) / total) * 100 : 0;
+      const gap = round2((target / 100) * total - amount(k));
+      return { key: k, amount: amount(k), pct, target, diff: pct - target, gap, onTarget: Math.abs(pct - target) <= tolerance };
+    });
+    // Rebalance: pair the biggest excess with the biggest shortfall until both lists are used up.
+    const over = rows.filter((r) => r.gap < -0.5).map((r) => ({ key: r.key, left: -r.gap })).sort((a, b) => b.left - a.left);
+    const under = rows.filter((r) => r.gap > 0.5).map((r) => ({ key: r.key, left: r.gap })).sort((a, b) => b.left - a.left);
+    const moves = [];
+    for (const o of over) {
+      for (const u of under) {
+        if (o.left < 0.5) break;
+        if (u.left < 0.5) continue;
+        const amt = Math.min(o.left, u.left);
+        moves.push({ from: o.key, to: u.key, amount: round2(amt) });
+        o.left -= amt;
+        u.left -= amt;
+      }
+    }
+    // New money: fill the shortfalls (in proportion) first; anything beyond follows the targets.
+    const split = [];
+    const m = Math.max(0, +newMoney || 0);
+    if (m > 0) {
+      const short = rows.filter((r) => r.gap > 0);
+      const need = short.reduce((t, r) => t + r.gap, 0);
+      const byKey = {};
+      if (need > 0) for (const r of short) byKey[r.key] = Math.min(r.gap, need > m ? (m * r.gap) / need : r.gap);
+      const rest = m - Object.values(byKey).reduce((t, v) => t + v, 0);
+      const tsum = rows.reduce((t, r) => t + r.target, 0);
+      if (rest > 0.005 && tsum > 0) for (const r of rows) byKey[r.key] = (byKey[r.key] || 0) + (rest * r.target) / tsum;
+      for (const r of rows) if (byKey[r.key] > 0.005) split.push({ key: r.key, amount: round2(byKey[r.key]), pct: (byKey[r.key] / m) * 100 });
+      split.sort((a, b) => b.amount - a.amount);
+    }
+    return { total: round2(total), rows, moves, split, onTarget: rows.every((r) => r.onTarget) };
+  }
+
   // ---------- history & goals ----------
 
   function upsertHistory(history, entry, maxLen) {
@@ -1361,7 +1411,7 @@
     otherAssetValue,
     latestValuation, propertyValue,
     holdingValue, holdingView, costMethod, dilutedRealised, dividendPerYear,
-    monthlyAmount, amountOn, inMonth, hasEnded, occurrences, nextOccurrence,
+    monthlyAmount, amountOn, inMonth, hasEnded, occurrences, nextOccurrence, targetMix, MIX_KEYS,
     upsertHistory, monthsToGoal, spendingByMonth,
     summarize,
     itemValue, itemParts, itemValues, migratePlatforms, platformBreakdown,

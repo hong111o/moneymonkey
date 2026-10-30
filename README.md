@@ -17,7 +17,7 @@ No server and no dependencies. Your data is stored on your devices and, if you t
 | **Debts** | Mortgage, car loan, credit card. Enter the balance yourself, or the loan terms | Balance falls each month on its repayment schedule, with a debt-free date |
 | **Cash Flow** | Income, bills, subscriptions and regular saving, weekly to yearly | Monthly/yearly totals, savings rate, upcoming payments |
 | **Actual spending** | What you really spent each month, e.g. each **credit card statement** | Cash flow, savings rate and runway use your real 3-month average instead of estimates |
-| **Goals** | Target amount and optional date | Progress, and whether you're on track |
+| **Goals** | Target amount and optional date; a target mix for your assets | Progress, whether you're on track, and how far your mix is from target |
 
 ### Bank accounts hold cash and fixed deposits
 
@@ -177,6 +177,10 @@ If part of a broker or exchange account is uninvested cash, add it with **+ Cash
 - **By region & platform** (top 5), **Next 7 days** (bills, pay days, deposit maturities, property updates; the first 5, with See all) and **Goals**. Amounts in Next 7 days show in their own currency with the converted amount underneath; tap a row to open it, and if it's due or overdue the payment box opens.
 
 On a computer, the menu is a column of icons on the left (hover for names). The **side panel** button in the top bar shows an extra panel with your debts and goals (on other pages: assets and debts with search). It's hidden unless you turn it on, and the choice is remembered on that device.
+
+### Target mix (Goals page)
+
+Set what % of your assets you'd like in each area: Cash & Bank, Stocks & ETFs, Crypto, Fixed Deposits, Other Assets, and Property if you switch on **Include property** (off by default). The targets must add up to 100%. Goals then shows each area's current share against its target, whether it's on target (within ±5 points by default, adjustable), how much to add or how much it's over, suggested moves to rebalance, and how to split this month's surplus to get closer without selling. Shares use your assets in your base currency; debts aren't counted.
 
 ### Sort any list
 

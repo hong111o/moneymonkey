@@ -36,6 +36,7 @@ document.addEventListener('click', (e) => {
       return editItem(sec, null, preset);
     }
     case 'review-payments': return reviewPayments();
+    case 'target-mix': return openTargetMix();
     case 'extend-cf': return openExtend(b.dataset.id);
     case 'checkin': return openCheckin();
     case 'transfer': return openTransfer(b.dataset.account);

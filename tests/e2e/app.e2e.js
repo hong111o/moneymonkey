@@ -400,3 +400,21 @@ test('rent entered on a property is one Cash Flow item, with its start date, edi
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('target mix on Goals: must add up to 100%, then shows gaps and suggested moves', { skip: skip() }, async () => {
+  const { page, ctx, errors, state, go } = await demo();
+  await go('#goals');
+  await page.click('[data-action="target-mix"]');
+  for (const [k, v] of [['cash', 15], ['stocks', 45], ['crypto', 10], ['deposits', 20], ['other', 5]]) await page.fill(`dialog [name=t_${k}]`, String(v));
+  await page.click('dialog button[type=submit]');
+  assert.match(await page.textContent('dialog .form-error'), /100%/);
+  await page.fill('dialog [name=t_other]', '10');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(200);
+  const s = await state();
+  assert.deepEqual(s.settings.targetMix, { targets: { cash: 15, stocks: 45, crypto: 10, deposits: 20, other: 10 }, includeProperty: false, tolerance: 5 });
+  assert.ok(await page.isVisible('.mix-card .mix-moves'), 'suggested moves shown');
+  assert.match(await page.textContent('.mix-card'), /property not included/i);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
