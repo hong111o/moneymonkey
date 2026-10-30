@@ -37,3 +37,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 22 | 2026-10-28 | `a6bdd89` | Calm redesign of Home and the app shell |
 | 23 | 2026-10-29 | `e76ff30` | Platforms can be put in your own order |
 | 24 | 2026-10-30 | `46712c4` | One style on every page, Title Case labels, sortable lists |
+| 25 | 2026-10-30 | `9d522dd` | Start and end dates, amount changes, ended items you can restart |
