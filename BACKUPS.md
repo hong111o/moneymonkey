@@ -40,3 +40,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 25 | 2026-10-30 | `9d522dd` | Start and end dates, amount changes, ended items you can restart |
 | 26 | 2026-10-30 | `a235bab` | Property rent follows its income item's start, end and amount changes |
 | 27 | 2026-10-30 | `d838f74` | Property rent and Cash Flow rent are one record |
+| 28 | 2026-10-30 | `6e0408c` | Target mix on Goals |
