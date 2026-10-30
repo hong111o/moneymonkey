@@ -622,7 +622,9 @@
     let rentMonthly = 0;
     for (const p of rented) {
       const m = rentMatches.find((x) => x.propertyId === p.id);
-      const cf = m && (state.cashflows || []).find((c) => c.id === m.cashflowId);
+      // Its own rent item counts even once ended or paused (then as nothing), so the property's
+      // old rent figure doesn't come back after a tenancy ends.
+      const cf = (m && (state.cashflows || []).find((c) => c.id === m.cashflowId)) || (state.cashflows || []).find((c) => c.kind === 'income' && c.propertyId === p.id);
       rentMonthly += cf ? toBase(monthlyAmount(cf, today.slice(0, 7)), cf.currency) : toBase(p.monthlyRent, p.currency);
     }
 

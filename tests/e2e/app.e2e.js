@@ -362,3 +362,41 @@ test('cash-flow items: a later start isn’t counted yet, the end reminder exten
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('rent entered on a property is one Cash Flow item, with its start date, edited from either page', { skip: skip() }, async () => {
+  const { page, ctx, errors, state, go } = await demo();
+  const nextMonth = await page.evaluate(() => Calc.toISO(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)));
+  await go('#properties');
+  await page.evaluate(() => editItem('properties', null));
+  await page.fill('dialog [name=name]', 'Studio');
+  await page.fill('dialog [name=currency]', 'HKD');
+  await page.fill('dialog [name=currentValue]', '3000000');
+  await page.fill('dialog [name=monthlyRent]', '12000');
+  await page.dispatchEvent('dialog form', 'change');
+  assert.equal(await page.isVisible('dialog [name=rentStart]'), true, 'rent fields appear once there is rent');
+  await page.fill('dialog [name=rentStart]', nextMonth);
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(200);
+  let s = await state();
+  const studio = s.properties.find((p) => p.name === 'Studio');
+  const item = s.cashflows.find((c) => c.propertyId === studio.id);
+  assert.ok(item && item.kind === 'income' && item.amount === 12000 && item.startDate === nextMonth, 'one linked income item with the start date');
+  // Not counted this month.
+  assert.equal(await page.evaluate((id) => rentThisMonth(state.properties.find((p) => p.id === id)), studio.id), 0);
+  // Edit the item on Cash Flow: the property shows the new rent.
+  await page.evaluate((id) => editItem('cashflows', id), item.id);
+  await page.fill('dialog [name=amount]', '12500');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(200);
+  s = await state();
+  assert.equal(s.properties.find((p) => p.id === studio.id).monthlyRent, 12500);
+  // Clearing the rent on the property ends the item (kept under Ended).
+  await page.evaluate((id) => editItem('properties', id), studio.id);
+  await page.fill('dialog [name=monthlyRent]', '');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(200);
+  s = await state();
+  assert.ok(s.cashflows.find((c) => c.id === item.id).endDate, 'rent item ended, not deleted');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

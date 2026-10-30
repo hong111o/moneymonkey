@@ -377,10 +377,51 @@ function updateCashflow(id, patch) {
 
 // ---------------------------------------------------------------- rent linked to an income item
 
-// The income item a property's rent is linked (or matched) to, if any.
+// The income item holding a property's rent: linked to it (even if ended or paused), or matched.
 function rentItem(p) {
+  const own = state.cashflows.find((c) => c.kind === 'income' && c.propertyId === p.id);
+  if (own) return own;
   const m = summary && summary.rentMatches.find((x) => x.propertyId === p.id);
   return m ? state.cashflows.find((c) => c.id === m.cashflowId) || null : null;
+}
+// Income items a property's rent could be: not linked to another property (or the one chosen now).
+function rentCandidates(chosenId) {
+  return state.cashflows.filter((c) => c.kind === 'income' && c.frequency !== 'once' && (!c.propertyId || c.id === chosenId || !state.properties.some((p) => p.id === c.propertyId)));
+}
+// Saving a property: its rent is one Cash Flow income item, created or updated here. Clearing
+// the rent ends that item (it stays under Ended, ready to restart for the next tenancy).
+function saveRentItem(p, prev) {
+  const t = todayISO();
+  const rent = +p.monthlyRent || 0;
+  const old = prev ? rentItem(prev) : null;
+  const now = Date.now();
+  if (!(rent > 0)) {
+    if (old && !Calc.hasEnded(old, t) && !(old.endDate && old.endDate <= t)) state.cashflows = state.cashflows.map((c) => (c.id === old.id ? { ...c, endDate: t, endAsked: t, _mt: now } : c));
+    return;
+  }
+  const cf = p.rentItemId ? state.cashflows.find((c) => c.id === p.rentItemId) : null;
+  const changes = (p.rentChanges || []).filter((c) => c.from && isFinite(c.amount)).sort((a, b) => (a.from < b.from ? -1 : 1));
+  const wasEnded = cf && Calc.hasEnded(cf, t);
+  const next = {
+    ...(cf || { id: uid(), name: `Rent: ${p.name}`, category: 'Rent', active: true }),
+    kind: 'income', frequency: 'monthly', amount: rent, currency: p.currency, propertyId: p.id,
+    accountId: p.rentAccountId || '',
+    _mt: now,
+  };
+  // Dates: a tenancy that had ended starts again today unless a start is given.
+  next.startDate = p.rentStart || (wasEnded && !p.rentEnd ? t : '');
+  next.endDate = p.rentEnd || '';
+  for (const k of ['startDate', 'endDate']) if (!next[k]) delete next[k];
+  if (changes.length) next.changes = changes; else delete next.changes;
+  if (!cf || (cf.endDate || '') !== (next.endDate || '')) delete next.endAsked;
+  delete next.notRent;
+  delete next.rentLink;
+  if (!next.nextDate || wasEnded) next.nextDate = next.startDate || t;
+  if (next.startDate && next.nextDate < next.startDate) next.nextDate = next.startDate;
+  if (!next.accountId) { delete next.trackFrom; delete next.lastHandled; } else if (!cf || cf.accountId !== next.accountId) { next.trackFrom = t; delete next.lastHandled; }
+  // Another item that used to hold this property's rent is no longer linked to it.
+  state.cashflows = state.cashflows.map((c) => (old && c.id === old.id && c.id !== next.id && c.propertyId === p.id ? (({ propertyId, ...rest }) => ({ ...rest, _mt: now }))(c) : c));
+  state.cashflows = cf ? state.cashflows.map((c) => (c.id === cf.id ? next : c)) : [...state.cashflows, next];
 }
 // A property's rent this month, in the base currency: it follows its linked item's dates and amounts.
 function rentThisMonth(p) {

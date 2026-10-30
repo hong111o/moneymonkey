@@ -889,3 +889,15 @@ test('property rent linked to an income item that starts next month: matched now
   // Without an income item, the property's rent counts from now as before.
   assert.equal(C.summarize({ ...state, cashflows: [] }, '2026-10-30').rentMonthly, 12000);
 });
+
+test('a property whose own rent item has ended counts no rent (its old figure doesn’t come back)', () => {
+  const state = {
+    settings: { baseCurrency: 'HKD' }, fx: { base: 'HKD', rates: { HKD: 1 } },
+    accounts: [], stocks: [], crypto: [], deposits: [], others: [], liabilities: [], goals: [],
+    properties: [{ id: 'flat', name: 'Flat', value: 3000000, currency: 'HKD', monthlyRent: 12000 }],
+    cashflows: [{ id: 'rent', kind: 'income', amount: 12000, frequency: 'monthly', currency: 'HKD', nextDate: '2026-01-01', endDate: '2026-09-30', propertyId: 'flat' }],
+  };
+  assert.equal(C.summarize(state, '2026-09-15').rentMonthly, 12000);
+  assert.equal(C.summarize(state, '2026-10-30').rentMonthly, 0);
+  assert.equal(C.summarize(state, '2026-10-30').flow.income, 0);
+});

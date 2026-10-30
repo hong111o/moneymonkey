@@ -233,11 +233,31 @@ const SECTIONS = {
       { key: 'purchaseDate', label: 'Purchase date', type: 'date' },
       { key: 'currentValue', label: 'Current estimated value', type: 'number', required: true, onlyNew: true, transient: true },
       { key: 'updateFrequency', label: 'Remind me to update the value', type: 'select', options: opt([['weekly', 'Weekly'], ['monthly', 'Monthly'], ['quarterly', 'Quarterly'], ['yearly', 'Yearly']]), default: () => 'monthly' },
-      { key: 'monthlyRent', label: 'Monthly rental income (if let)', type: 'number', help: 'Counted as income in Cash Flow and in passive income automatically — no need to add it in Cash Flow too.' },
+      { key: 'monthlyRent', label: 'Monthly rental income (if let)', type: 'number', help: 'Saved as one rent item in Cash Flow too (the same record, edit it from either page). Counted once, as income and passive income.' },
+      // The rent's details live on its linked Cash Flow income item; these fields edit that item.
+      {
+        key: 'rentItemId', label: 'Rent item in Cash Flow', type: 'select', span: true, transient: true, showIf: (v) => +v.monthlyRent > 0,
+        options: (v) => [{ value: '', label: 'New income item for this rent' }, ...rentCandidates(v.rentItemId).map((c) => ({ value: c.id, label: `“${c.name}” · ${money(Calc.amountOn(c, todayISO()), c.currency)}/mo${c.propertyId ? '' : ' — already in Cash Flow'}` }))],
+        help: 'If you already entered this rent in Cash Flow, pick it so it’s one record, not two.',
+      },
+      { key: 'rentStart', label: 'Rent starts (optional)', type: 'date', transient: true, showIf: (v) => +v.monthlyRent > 0, help: 'Leave empty if it’s already let. Before this month it isn’t counted.' },
+      { key: 'rentEnd', label: 'Rent ends (optional)', type: 'date', transient: true, showIf: (v) => +v.monthlyRent > 0, help: 'E.g. when the tenancy ends. After this month it stops counting.' },
+      { key: 'rentChanges', label: 'Rent changes', type: 'changes', span: true, transient: true, showIf: (v) => +v.monthlyRent > 0, help: 'A new rent and the date it starts, e.g. a rise at renewal. Earlier months keep the old rent.' },
+      {
+        key: 'rentAccountId', label: 'Rent paid into account (optional)', type: 'select', span: true, transient: true, showIf: (v) => +v.monthlyRent > 0,
+        options: () => [{ value: '', label: 'Not linked — just for my budget' }, ...state.accounts.map((a) => ({ value: a.id, label: `${a.name}${a.platform ? ` · ${a.platform}` : ''}` }))],
+        help: 'Then MoneyMonkey asks you to confirm each rent payment before adding it to that account.',
+      },
     ],
+    validate: (v) => (+v.monthlyRent > 0 && v.rentStart && v.rentEnd && v.rentEnd < v.rentStart ? 'The rent’s end date is before its start date.' : null),
+    editValues: (p) => {
+      const cf = rentItem(p);
+      return { ...p, monthlyRent: cf ? +cf.amount || 0 : p.monthlyRent, rentItemId: cf ? cf.id : '', rentStart: cf ? cf.startDate || '' : '', rentEnd: cf ? cf.endDate || '' : '', rentChanges: cf ? cf.changes || [] : [], rentAccountId: cf ? cf.accountId || '' : '' };
+    },
     beforeSave: (item, prev) => {
       item.valuations = prev ? prev.valuations || [] : [];
       if (!prev && isFinite(item.currentValue)) item.valuations.push({ date: todayISO(), value: item.currentValue });
+      saveRentItem(item, prev);
     },
     actions: [{ id: 'valuation', label: 'Update value' }],
     columns: [
@@ -245,7 +265,7 @@ const SECTIONS = {
       { label: 'Value', num: true, primary: true, render: (p) => `${money(Calc.propertyValue(p, todayISO()).value, p.currency, 0)}${Charts.sparkline([...(p.valuations || [])].sort((a, b) => (a.date < b.date ? -1 : 1)).map((v) => +v.value))}` },
       { label: 'Purchase', num: true, render: (p) => `${money(p.purchasePrice, p.currency, 0)}<div class="sub">${p.purchaseDate ? fmtDate(p.purchaseDate) : ''}</div>` },
       { label: 'Gain', num: true, render: (p) => { const v = Calc.propertyValue(p, todayISO()); return p.purchasePrice ? `${signed(v.gain, p.currency, 0)}<div class="sub">${pct(v.gainPct)}</div>` : '—'; } },
-      { label: 'Rent / mo', num: true, render: (p) => (p.monthlyRent ? `${money(p.monthlyRent, p.currency, 0)}${rentNote(p) ? `<div class="sub">${rentNote(p).replace(/^ · /, '')}</div>` : ''}` : '—') },
+      { label: 'Rent / mo', num: true, render: (p) => { const cf = rentItem(p); const amt = cf ? Calc.amountOn(cf, todayISO()) : +p.monthlyRent; return amt ? `${money(amt, cf ? cf.currency : p.currency, 0)}${rentNote(p) ? `<div class="sub">${rentNote(p).replace(/^ · /, '')}</div>` : ''}` : '—'; } },
       { label: 'Last valued', render: (p) => { const v = Calc.propertyValue(p, todayISO()); return `${fmtDate(v.lastDate)}${v.stale ? ' <span class="badge warn">Update due</span>' : `<div class="sub">next ${fmtDate(v.nextUpdate)}</div>`}`; } },
     ],
     total: (items) => items.reduce((s, p) => s + (toBase(Calc.propertyValue(p, todayISO()).value, p.currency) || 0), 0),
@@ -389,6 +409,8 @@ const SECTIONS = {
         if (!item.changes.length) delete item.changes;
       }
       if (!prev || prev.endDate !== item.endDate) delete item.endAsked;
+      // Rent linked to a property: the property shows the same rent.
+      if (item.propertyId && item.kind === 'income') state.properties = state.properties.map((p) => (p.id === item.propertyId && +p.monthlyRent !== +item.amount ? { ...p, monthlyRent: +item.amount, _mt: Date.now() } : p));
       if (item.onCard && (item.kind === 'expense' || item.kind === 'subscription')) item.accountId = '';
       if (!item.toAccountId || !item.accountId) delete item.toAccountId;
       if (!item.accountId) {
