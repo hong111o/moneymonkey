@@ -57,7 +57,7 @@ function sectionTiles(key, items) {
   } else if (key === 'liabilities') {
     extra = tile('Repayments / mo', money(items.reduce((s, l) => s + (Calc.loanBalance(l, t).balance > 0 ? toBase(l.payment, l.currency) || 0 : 0), 0)));
   } else if (key === 'properties') {
-    extra = tile('Rent / mo', money(items.reduce((s, p) => s + (toBase(p.monthlyRent, p.currency) || 0), 0)));
+    extra = tile('Rent / mo', money(items.reduce((s, p) => s + rentThisMonth(p), 0)), 'this month');
   }
   return `<section class="tiles">${tile(`Total (${esc(base())})`, `<span class="${sec.negative ? 'neg' : ''}">${money(sec.total(items))}</span>`)}${extra}</section>`;
 }

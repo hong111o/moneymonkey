@@ -557,11 +557,9 @@
       }
     }
 
-    let rentMonthly = 0;
     for (const p of state.properties || []) {
       const v = propertyValue(p, today);
       totals.property += toBase(v.value, p.currency);
-      rentMonthly += toBase(p.monthlyRent, p.currency);
       if (v.stale) alerts.push({ level: 'warn', text: `"${p.name}" value was last updated ${v.lastDate || 'never'} — it is due a ${p.updateFrequency || 'monthly'} update.` });
       else if (v.nextUpdate <= horizon) events.push({ date: v.nextUpdate, label: `Update value: ${p.name}`, amount: null, kind: 'property', ref: p.id });
     }
@@ -606,15 +604,26 @@
     }
     // Property rent (the property's "monthly rent") is the single source of rent income. An income
     // item for the same rent (linked, or same currency + amount) is counted once, as that rent.
+    // Items that start later match too; ended or paused ones don't.
     const rented = (state.properties || []).filter((p) => +p.monthlyRent > 0);
     const rentMatches = [];
     for (const cf of state.cashflows || []) {
-      if (!inMonth(cf, today.slice(0, 7)) || cf.kind !== 'income' || cf.notRent) continue;
+      if (cf.active === false || hasEnded(cf, today) || cf.kind !== 'income' || cf.notRent) continue;
       const taken = new Set(rentMatches.map((m) => m.propertyId));
+      // Any of its amounts (before or after a rent rise) can match the property's rent.
+      const amounts = [+cf.amount || 0, ...(cf.changes || []).map((c) => +c.amount || 0)];
       const hit = cf.propertyId
         ? rented.find((p) => p.id === cf.propertyId)
-        : rented.find((p) => !taken.has(p.id) && p.currency === cf.currency && cf.frequency === 'monthly' && Math.abs(amountOn(cf, today) - +p.monthlyRent) <= Math.max(1, 0.01 * +p.monthlyRent));
+        : rented.find((p) => !taken.has(p.id) && p.currency === cf.currency && cf.frequency === 'monthly' && amounts.some((a) => Math.abs(a - +p.monthlyRent) <= Math.max(1, 0.01 * +p.monthlyRent)));
       if (hit) rentMatches.push({ cashflowId: cf.id, propertyId: hit.id, linked: !!cf.propertyId });
+    }
+    // A property's rent this month. Linked to an income item, it follows that item's start, end and
+    // amount changes; on its own, it counts from now.
+    let rentMonthly = 0;
+    for (const p of rented) {
+      const m = rentMatches.find((x) => x.propertyId === p.id);
+      const cf = m && (state.cashflows || []).find((c) => c.id === m.cashflowId);
+      rentMonthly += cf ? toBase(monthlyAmount(cf, today.slice(0, 7)), cf.currency) : toBase(p.monthlyRent, p.currency);
     }
 
     // Dividends: per share per year, or a yield on the current value. Reinvested ones also count as saving.

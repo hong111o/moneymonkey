@@ -374,3 +374,24 @@ function updateCashflow(id, patch) {
   });
   commit();
 }
+
+// ---------------------------------------------------------------- rent linked to an income item
+
+// The income item a property's rent is linked (or matched) to, if any.
+function rentItem(p) {
+  const m = summary && summary.rentMatches.find((x) => x.propertyId === p.id);
+  return m ? state.cashflows.find((c) => c.id === m.cashflowId) || null : null;
+}
+// A property's rent this month, in the base currency: it follows its linked item's dates and amounts.
+function rentThisMonth(p) {
+  const cf = rentItem(p);
+  return (cf ? toBase(Calc.monthlyAmount(cf, thisMonth()), cf.currency) : toBase(p.monthlyRent, p.currency)) || 0;
+}
+// " · starts Nov 2026" / " · ended Mar 2027" when the linked item's dates keep the rent out of this month.
+function rentNote(p) {
+  const cf = rentItem(p);
+  if (!cf) return '';
+  if (cf.startDate && cf.startDate.slice(0, 7) > thisMonth()) return ` · starts ${fmtMonth(cf.startDate.slice(0, 7))}`;
+  if (cf.endDate && cf.endDate.slice(0, 7) < thisMonth()) return ` · ended ${fmtMonth(cf.endDate.slice(0, 7))}`;
+  return '';
+}

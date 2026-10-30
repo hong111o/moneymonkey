@@ -872,3 +872,20 @@ test('an item starting next month is not in this month’s income; a price chang
   const ev = dec.events.find((e) => e.ref === 'tv');
   assert.equal(ev.orig, 12);
 });
+
+test('property rent linked to an income item that starts next month: matched now, counted from its start', () => {
+  const state = {
+    settings: { baseCurrency: 'HKD' }, fx: { base: 'HKD', rates: { HKD: 1 } },
+    accounts: [], stocks: [], crypto: [], deposits: [], others: [], liabilities: [], goals: [],
+    properties: [{ id: 'flat', name: 'Flat', value: 3000000, currency: 'HKD', monthlyRent: 12000 }],
+    cashflows: [{ id: 'rent', kind: 'income', amount: 12000, frequency: 'monthly', currency: 'HKD', nextDate: '2026-11-01', startDate: '2026-11-01', changes: [{ from: '2027-01-01', amount: 12500 }] }],
+  };
+  const oct = C.summarize(state, '2026-10-30');
+  assert.deepEqual(oct.rentMatches.map((m) => m.propertyId), ['flat']);
+  assert.equal(oct.rentMonthly, 0);
+  assert.equal(oct.flow.income, 0);
+  assert.equal(C.summarize(state, '2026-11-02').rentMonthly, 12000);
+  assert.equal(C.summarize(state, '2027-01-05').rentMonthly, 12500);
+  // Without an income item, the property's rent counts from now as before.
+  assert.equal(C.summarize({ ...state, cashflows: [] }, '2026-10-30').rentMonthly, 12000);
+});

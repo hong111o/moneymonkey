@@ -245,7 +245,7 @@ const SECTIONS = {
       { label: 'Value', num: true, primary: true, render: (p) => `${money(Calc.propertyValue(p, todayISO()).value, p.currency, 0)}${Charts.sparkline([...(p.valuations || [])].sort((a, b) => (a.date < b.date ? -1 : 1)).map((v) => +v.value))}` },
       { label: 'Purchase', num: true, render: (p) => `${money(p.purchasePrice, p.currency, 0)}<div class="sub">${p.purchaseDate ? fmtDate(p.purchaseDate) : ''}</div>` },
       { label: 'Gain', num: true, render: (p) => { const v = Calc.propertyValue(p, todayISO()); return p.purchasePrice ? `${signed(v.gain, p.currency, 0)}<div class="sub">${pct(v.gainPct)}</div>` : '—'; } },
-      { label: 'Rent / mo', num: true, render: (p) => (p.monthlyRent ? money(p.monthlyRent, p.currency, 0) : '—') },
+      { label: 'Rent / mo', num: true, render: (p) => (p.monthlyRent ? `${money(p.monthlyRent, p.currency, 0)}${rentNote(p) ? `<div class="sub">${rentNote(p).replace(/^ · /, '')}</div>` : ''}` : '—') },
       { label: 'Last valued', render: (p) => { const v = Calc.propertyValue(p, todayISO()); return `${fmtDate(v.lastDate)}${v.stale ? ' <span class="badge warn">Update due</span>' : `<div class="sub">next ${fmtDate(v.nextUpdate)}</div>`}`; } },
     ],
     total: (items) => items.reduce((s, p) => s + (toBase(Calc.propertyValue(p, todayISO()).value, p.currency) || 0), 0),

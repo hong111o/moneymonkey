@@ -369,7 +369,7 @@ function explain(what, param) {
   const active = state.cashflows.filter((c) => c.active !== false);
   const monthly = (c) => toBase(Calc.monthlyAmount(c, thisMonth()), c.currency) || 0;
   const flowSub = (c) => [`${esc(labelOf(FREQ, c.frequency))} ${money(c.amount, c.currency)}`, c.category ? esc(c.category) : '', c.onCard ? 'paid by card' : (c.accountId && accountName(c.accountId) ? `↔ ${esc(accountName(c.accountId))}` : ''), c.frequency !== 'once' || c.nextDate >= t ? `next ${fmtDate(Calc.nextOccurrence(c, t))}` : ''].filter(Boolean).join(' · ');
-  const flowRow = (c) => ({ v: monthly(c), html: `<a class="ex-row" href="#" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}"><span class="grow"><strong>${esc(c.name)}</strong><div class="sub">${flowSub(c)}</div></span><span class="num">${money(monthly(c), base(), 0)}</span><span class="chev" aria-hidden="true">›</span></a>` });
+  const flowRow = (c) => ({ v: monthly(c), html: `<a class="ex-row" href="#" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}"><span class="grow"><strong>${esc(c.name)}</strong>${cfBadges(c)}<div class="sub">${flowSub(c)}</div></span><span class="num">${money(monthly(c), base(), 0)}</span><span class="chev" aria-hidden="true">›</span></a>` });
   const flowRows = (list) => list.map(flowRow).sort(sortDesc).map((r) => r.html);
   const isBill = (c) => c.kind === 'expense' || c.kind === 'subscription';
   const matched = new Set(s.loanMatches.map((m) => m.cashflowId));
@@ -402,7 +402,8 @@ function explain(what, param) {
   const rentRows = () => state.properties.filter((p) => +p.monthlyRent > 0).map((p) => {
     const m = s.rentMatches.find((x) => x.propertyId === p.id);
     const cf = m && state.cashflows.find((c) => c.id === m.cashflowId);
-    return { v: toBase(p.monthlyRent, p.currency) || 0, html: `<a class="ex-row" href="#" data-action="edit" data-sec="properties" data-id="${esc(p.id)}"><span class="grow"><strong>${esc(p.name)}</strong><div class="sub">Rent · ${money(p.monthlyRent, p.currency)}/mo${cf ? ` · same as income item “${esc(cf.name)}”` : ''}</div></span><span class="num">${money(toBase(p.monthlyRent, p.currency), base(), 0)}</span><span class="chev" aria-hidden="true">›</span></a>` };
+    const now = rentThisMonth(p);
+    return { v: now, html: `<a class="ex-row" href="#" data-action="edit" data-sec="properties" data-id="${esc(p.id)}"><span class="grow"><strong>${esc(p.name)}</strong><div class="sub">Rent · ${money(p.monthlyRent, p.currency)}/mo${cf ? ` · same as income item “${esc(cf.name)}”` : ''}${rentNote(p)}</div></span><span class="num">${money(now, base(), 0)}</span><span class="chev" aria-hidden="true">›</span></a>` };
   }).sort(sortDesc).map((r) => r.html);
   const dividendRows = (onlyReinvested) => state.stocks.filter((h) => Calc.dividendPerYear(h) > 0 && (!onlyReinvested || h.dividendReinvest)).map((h) => {
     const m = toBase(Calc.dividendPerYear(h) / 12, h.currency) || 0;
@@ -631,7 +632,7 @@ function explain(what, param) {
       const bv = Calc.balanceValue(b, t);
       if (bv.daily > 0) savers.push({ v: toBase(bv.daily, b.currency) || 0, html: row(acctHref(a.id), `${esc(a.name)} · ${esc(b.currency)}`, `Saver · ${num(b.rate, 2)}% on ${money(bv.amount, b.currency, 0)}`, `${money(bv.daily * k, b.currency)}${unit}`) });
     }
-    const rents = daily ? [] : state.properties.filter((p) => +p.monthlyRent).map((p) => ({ v: toBase(p.monthlyRent, p.currency) || 0, html: row('#properties', esc(p.name), 'Rent', `${money(p.monthlyRent, p.currency)}/mo`) }));
+    const rents = daily ? [] : state.properties.filter((p) => +p.monthlyRent).map((p) => ({ v: rentThisMonth(p), html: row('#properties', esc(p.name), `Rent${rentNote(p)}`, `${money(rentThisMonth(p))}/mo`) }));
     const divs = daily ? [] : dividendRows(false);
     body = group('Fixed deposits & regular savers', fds.sort(sortDesc).map((r) => r.html)) + group('Savers', savers.sort(sortDesc).map((r) => r.html)) + group('Dividends', divs) + group('Rent', rents.sort(sortDesc).map((r) => r.html));
     if (!body) body = '<p class="sub">No interest, dividends or rent yet. Add a fixed deposit, set a rate on a saver account, add dividends to a stock, or add rent to a property.</p>';
