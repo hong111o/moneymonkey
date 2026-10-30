@@ -883,3 +883,18 @@ th.sorted .sort-ic { color: var(--text); opacity: 1; }
   th.num.sortable .sort-btn { padding-right: 10px; }
 }
 @media (min-width: 861px) { table.data td { padding-left: 10px; padding-right: 10px; } table.data td.actions .btn.small { padding: 4px 8px; } }
+
+/* Amount changes on a cash-flow item: rows of "from date · new amount". */
+.changes-field { display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; color: var(--text-2); }
+.changes-field small { color: var(--muted); font-size: 0.78rem; }
+.changes-field > .btn { align-self: flex-start; }
+.chg-rows { display: flex; flex-direction: column; gap: 8px; }
+.chg-rows:empty { display: none; }
+.chg-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.chg-row label { font-size: 0.78rem; }
+.chg-row input { width: 100%; }
+.flow-group li .btn.small { margin-left: 8px; align-self: center; }
+/* "Just this time / From now on" in the payment box. */
+.pay-scope { gap: 16px; flex-wrap: wrap; }
+.pay-scope label.check { flex-direction: row; align-items: center; gap: 8px; min-height: 32px; width: auto; flex: 0 0 auto; font-size: 0.9rem; }
+.pay-scope input[type="radio"] { width: 18px; height: 18px; min-height: 0; margin: 0; padding: 0; flex: none; }

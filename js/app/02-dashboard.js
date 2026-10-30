@@ -430,6 +430,13 @@ function setupAlerts() {
   if (Calc.checkinDue(state, todayISO())) {
     out.push({ level: 'info', html: `Monthly check-in (due ${fmtDate(Calc.checkinDate(state, todayISO()))}): update your balances, confirm what’s been paid, and record last month’s card spending. <a href="#" data-action="checkin">Start</a>` });
   }
+  // Recurring items about to end (or just ended) that you haven't answered yet.
+  const soon = Calc.toISO(Calc.addDays(new Date(), 7));
+  const since = Calc.toISO(Calc.addDays(new Date(), -30));
+  for (const c of state.cashflows) {
+    if (!c.endDate || c.endAsked === c.endDate || c.frequency === 'once' || c.active === false || c.endDate > soon || c.endDate < since) continue;
+    out.push({ level: 'info', html: `“${esc(c.name)}” ${c.endDate < todayISO() ? 'ended' : 'ends'} on ${fmtDate(c.endDate)}: extend it or let it end? <a href="#" data-action="extend-cf" data-id="${esc(c.id)}">Decide</a>` });
+  }
   if (syncCfg.token && !sessionPass) out.push({ level: 'warn', html: 'Sync is locked on this device. <a href="#" data-action="unlock">Enter your passphrase</a> to sync.' });
   if (lastErrors.length) out.push({ level: 'warn', text: `Last price update had problems: ${lastErrors.slice(0, 3).join('; ')}${lastErrors.length > 3 ? '…' : ''}` });
   return out;

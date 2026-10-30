@@ -825,3 +825,50 @@ test('diluted cost (like Futu): profit from sales lowers the cost; the profit % 
   close(s.investPnlPct, 0.1);
   assert.equal(s.noCostPnl, 4350);
 });
+
+// ---------- start / end dates and amount changes on cash-flow items ----------
+
+test('amountOn follows dated changes; earlier dates keep the earlier amount', () => {
+  const cf = { amount: 88, changes: [{ from: '2026-12-01', amount: 98 }, { from: '2027-06-01', amount: 108 }] };
+  assert.equal(C.amountOn(cf, '2026-11-30'), 88);
+  assert.equal(C.amountOn(cf, '2026-12-01'), 98);
+  assert.equal(C.amountOn(cf, '2027-07-01'), 108);
+});
+
+test('monthlyAmount with a month: counts only between start and end, at that month’s amount', () => {
+  const cf = { amount: 1000, frequency: 'monthly', startDate: '2026-11-25', endDate: '2027-03-10', changes: [{ from: '2027-01-01', amount: 1200 }] };
+  assert.equal(C.monthlyAmount(cf, '2026-10'), 0);
+  assert.equal(C.monthlyAmount(cf, '2026-11'), 1000);
+  assert.equal(C.monthlyAmount(cf, '2027-01'), 1200);
+  assert.equal(C.monthlyAmount(cf, '2027-03'), 1200);
+  assert.equal(C.monthlyAmount(cf, '2027-04'), 0);
+  assert.equal(C.monthlyAmount({ ...cf, active: false }, '2026-12'), 0);
+  // Without a month it behaves as before (first amount, ignoring dates).
+  assert.equal(C.monthlyAmount(cf), 1000);
+});
+
+test('occurrences start at the start date and stop after the end date', () => {
+  const cf = { frequency: 'monthly', nextDate: '2026-10-25', startDate: '2026-11-25', endDate: '2027-01-31' };
+  assert.deepEqual(C.occurrences(cf, '2026-10-01', '2027-06-30'), ['2026-11-25', '2026-12-25', '2027-01-25']);
+  assert.equal(C.hasEnded(cf, '2027-02-01'), true);
+  assert.equal(C.hasEnded(cf, '2027-01-31'), false);
+});
+
+test('an item starting next month is not in this month’s income; a price change applies from its month', () => {
+  const state = {
+    settings: { baseCurrency: 'USD' }, fx: { base: 'USD', rates: { USD: 1 } },
+    accounts: [], stocks: [], crypto: [], deposits: [], properties: [], others: [], liabilities: [], goals: [],
+    cashflows: [
+      { id: 'pay', kind: 'income', amount: 3000, frequency: 'monthly', currency: 'USD', nextDate: '2026-11-25', startDate: '2026-11-25' },
+      { id: 'tv', kind: 'subscription', amount: 10, frequency: 'monthly', currency: 'USD', nextDate: '2026-11-05', changes: [{ from: '2026-12-01', amount: 12 }] },
+    ],
+  };
+  const oct = C.summarize(state, '2026-10-30');
+  assert.equal(oct.flow.income, 0);
+  assert.equal(oct.flow.subscription, 10);
+  const dec = C.summarize(state, '2026-12-02');
+  assert.equal(dec.flow.income, 3000);
+  assert.equal(dec.flow.subscription, 12);
+  const ev = dec.events.find((e) => e.ref === 'tv');
+  assert.equal(ev.orig, 12);
+});

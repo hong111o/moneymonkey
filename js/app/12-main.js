@@ -36,6 +36,7 @@ document.addEventListener('click', (e) => {
       return editItem(sec, null, preset);
     }
     case 'review-payments': return reviewPayments();
+    case 'extend-cf': return openExtend(b.dataset.id);
     case 'checkin': return openCheckin();
     case 'transfer': return openTransfer(b.dataset.account);
     case 'open-account': location.hash = `#account/${encodeURIComponent(id)}`; return;
@@ -242,14 +243,15 @@ function fillDatalists() {
 // typed; short joining words stay lowercase unless they come first. Elements marked `.keep-case`
 // (the greeting, account and card names) are left alone.
 const SMALL_WORDS = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'to', 'in', 'on', 'at', 'for', 'per', 'by', 'vs', 'via', 'from', 'with']);
-const TITLE_SEL = 'h1, h2, h3, h4, .tile-label, th, .nav-group, .bal-head, button, .btn, label, summary, option, .badge, .leg, strong, b, .menu-list a, .tabbar a, .choice, .grow, .goal-head, dt';
+const TITLE_SEL = 'h1, h2, h3, h4, .tile-label, th, .nav-group, .bal-head, .field-label, button, .btn, label, summary, option, .badge, .leg, strong, b, .menu-list a, .tabbar a, .choice, .grow, .goal-head, dt';
 const TITLE_SKIP = '.keep-case, .sub, small, p, .intro, input, textarea, select:not(:has(option)), .toast, .ev-label, .tile-value, .hero-value';
 function titleCase(text, first = true) {
   return text.replace(/[A-Za-z][A-Za-z'’]*/g, (w, i) => {
     if (w.length < 2 || w !== w.toLowerCase()) return w;
     const before = text.slice(0, i);
     if (/\d$|\d\/$/.test(before)) return w; // units after a number: "6d", "HK$20/day"
-    if (SMALL_WORDS.has(w) && !(first && !before.trim())) return w;
+    // Short joining words stay lowercase, except as the first or last word ("From Now On").
+    if (SMALL_WORDS.has(w) && !(first && !before.trim()) && /[A-Za-z]/.test(text.slice(i + w.length))) return w;
     return w[0].toUpperCase() + w.slice(1);
   });
 }
@@ -260,13 +262,15 @@ function titleCaseIn(root) {
   const els = root.matches(TITLE_SEL) ? [root] : [];
   els.push(...root.querySelectorAll(TITLE_SEL));
   for (const el of els) {
-    if (el.closest(TITLE_SKIP)) continue;
+    // Buttons are always Title Case, even inside a sentence ("… or keep it going. [+1 Month]").
+    const skip = el.matches('button, .btn') ? '.keep-case, input, textarea, .toast' : TITLE_SKIP;
+    if (el.closest(skip)) continue;
     // Bold words inside a sentence ("tap <b>Set up sync</b>, then…") stay as the sentence has them.
     if (/^(STRONG|B)$/.test(el.tagName) && el.parentElement && isSentence(el.parentElement.textContent.replace(/\s+/g, ' ').trim())) continue;
     const nodes = [];
     const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-      if (n.parentElement.closest(TITLE_SKIP)) continue;
+      if (n.parentElement.closest(skip)) continue;
       if (el.tagName !== 'OPTION' && n.parentElement.closest('select')) continue; // a label's own words, not its menu
       nodes.push(n);
     }

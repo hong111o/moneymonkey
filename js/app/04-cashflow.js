@@ -24,7 +24,7 @@ function renderCashflows() {
   for (const c of state.cashflows) {
     if (c.active === false || c.kind === 'income' || c.kind === 'saving' || matchedLoanBills.has(c.id)) continue;
     const k = c.category || (c.kind === 'subscription' ? 'Subscriptions' : 'Uncategorised');
-    byCat[k] = (byCat[k] || 0) + (toBase(Calc.monthlyAmount(c), c.currency) || 0);
+    byCat[k] = (byCat[k] || 0) + (toBase(Calc.monthlyAmount(c, thisMonth()), c.currency) || 0);
   }
   const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
   const max = cats.length ? cats[0][1] : 0;
@@ -37,7 +37,7 @@ function renderCashflows() {
   if (cfTab === 'items') return renderSection('cashflows', { tiles: tabBar, before: '', list: renderFlowGroups() });
   // Each part is a box you can move or hide (Edit layout).
   const part = (id, name, html) => (html ? `<div data-box="${id}" data-name="${name}">${html}</div>` : '');
-  const before = `<div class="boxes" data-layout="sections">${part('split', 'Where your income goes', renderIncomeSplit())}${part('history', 'Month by month', renderHistory())}${part('categories', 'Fixed bills by category', cats.length ? `<div class="card"><h2>Fixed bills by category</h2><div class="hbars" style="${barValueWidth(cats.map(([, v]) => money(v, base(), 0)))}">${catBars}</div></div>` : '')}</div>`;
+  const before = `<div class="boxes" data-layout="sections">${part('coming', 'Coming up', renderComingUp())}${part('split', 'Where your income goes', renderIncomeSplit())}${part('history', 'Month by month', renderHistory())}${part('categories', 'Fixed bills by category', cats.length ? `<div class="card"><h2>Fixed bills by category</h2><div class="hbars" style="${barValueWidth(cats.map(([, v]) => money(v, base(), 0)))}">${catBars}</div></div>` : '')}</div>`;
   return renderSection('cashflows', { tiles: tabBar + tiles, before, list: '' });
 }
 
@@ -48,20 +48,24 @@ function renderFlowGroups() {
     ['Income', (c) => c.kind === 'income'], ['Bills', (c) => c.kind === 'expense'], ['Subscriptions', (c) => c.kind === 'subscription'],
     ['Saving & investing', (c) => c.kind === 'saving'], ['Transfers between my accounts', (c) => c.kind === 'transfer'],
   ];
-  const active = state.cashflows.filter((c) => c.active !== false && c.frequency !== 'once');
-  const perMonth = (list) => list.reduce((t, c) => t + (toBase(Calc.monthlyAmount(c), c.currency) || 0), 0);
-  // One line per item: name and details on the left, amount and how often on the right.
   const t = todayISO();
+  // Ended items are kept in their own folded group, ready to restart.
+  const ended = state.cashflows.filter((c) => c.frequency !== 'once' && Calc.hasEnded(c, t));
+  const active = state.cashflows.filter((c) => c.active !== false && c.frequency !== 'once' && !Calc.hasEnded(c, t));
+  const perMonth = (list) => list.reduce((sum, c) => sum + (toBase(Calc.monthlyAmount(c, thisMonth()), c.currency) || 0), 0);
+  // One line per item: name and details on the left, amount and how often on the right.
   const line = (c) => {
+    const isEnded = ended.includes(c);
     const tags = [c.onCard ? `${icon('card')} card` : '', c.accountId && accountName(c.accountId) ? `↔ ${esc(accountName(c.accountId))}${c.toAccountId && accountName(c.toAccountId) ? ` → ${esc(accountName(c.toAccountId))}` : ''}` : '', esc(c.category || ''),
-      c.frequency === 'once' ? fmtDate(c.nextDate) : c.active !== false ? `next ${fmtDate(Calc.nextOccurrence(c, t))}` : ''].filter(Boolean).join(' · ');
-    const conv = c.currency !== base() && c.frequency !== 'once' ? `<div class="sub">≈ ${money(toBase(Calc.monthlyAmount(c), c.currency), base(), 0)}/mo</div>` : '';
-    return `<li class="clickable" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}" tabindex="0"><span class="grow"><strong>${esc(c.name)}</strong><div class="sub">${tags}</div></span><span class="num">${money(c.amount, c.currency)}<div class="sub">${esc(labelOf(FREQ, c.frequency))}</div>${conv}</span><span class="chev" aria-hidden="true">›</span></li>`;
+      c.frequency === 'once' ? fmtDate(c.nextDate) : isEnded ? `ended ${fmtDate(c.endDate)}` : c.active !== false ? `next ${fmtDate(Calc.nextOccurrence(c, t))}` : ''].filter(Boolean).join(' · ');
+    const conv = c.currency !== base() && c.frequency !== 'once' && !isEnded ? `<div class="sub">≈ ${money(toBase(Calc.monthlyAmount(c, cfStatus(c) === 'later' ? c.startDate.slice(0, 7) : thisMonth()), c.currency), base(), 0)}/mo</div>` : '';
+    return `<li class="clickable" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}" tabindex="0"><span class="grow"><strong>${esc(c.name)}</strong>${cfBadges(c)}<div class="sub">${tags}</div></span>${isEnded ? `<button class="btn small" data-action="restart-cf" data-id="${esc(c.id)}">Restart</button>` : ''}<span class="num">${money(Calc.amountOn(c, isEnded ? c.endDate : t), c.currency)}<div class="sub">${esc(labelOf(FREQ, c.frequency))}</div>${conv}</span><span class="chev" aria-hidden="true">›</span></li>`;
   };
   const block = (title, list, open, showTotal = true) => (list.length ? `<details class="flow-group card"${open ? ' open' : ''}><summary><strong>${title}</strong><span class="sub"> · ${list.length}${showTotal ? ` · ${money(perMonth(list), base(), 0)}/mo` : ''}</span></summary><ul class="flow-lines">${list.map(line).join('')}</ul></details>` : '');
   return groups.map(([title, pred]) => block(title, active.filter(pred), true)).join('')
     + block('One-off', state.cashflows.filter((c) => c.active !== false && c.frequency === 'once').sort((a, b) => (a.nextDate < b.nextDate ? 1 : -1)), false, false)
-    + block('Paused', state.cashflows.filter((c) => c.active === false), false, false);
+    + block('Paused', state.cashflows.filter((c) => c.active === false && !ended.includes(c)), false, false)
+    + block('Ended', ended.sort((a, b) => (a.endDate < b.endDate ? 1 : -1)), false, false);
 }
 
 const SPLIT_PARTS = [
@@ -263,4 +267,110 @@ function renderCard(id) {
     </section>
     <div class="section-head"><h2>Statements</h2></div>
     <div class="card">${entries.length ? `<ul class="acct-bals stmt-list">${list}</ul>` : '<p class="sub">No statements yet. Tap “+ Statement” after each monthly statement arrives, or record them in the monthly check-in.</p>'}</div>`;
+}
+
+// ---------------------------------------------------------------- start / end dates and amount changes
+
+const thisMonth = () => todayISO().slice(0, 7);
+// 'later' (starts after this month), 'ended' (ended before this month) or '' (counts now).
+function cfStatus(c) {
+  if (c.frequency === 'once' || c.active === false) return '';
+  if (c.startDate && c.startDate.slice(0, 7) > thisMonth()) return 'later';
+  if (c.endDate && c.endDate.slice(0, 7) < thisMonth()) return 'ended';
+  return '';
+}
+// The next amount change still to come, if any.
+const nextChange = (c) => (c.changes || []).filter((x) => x.from > todayISO()).sort((a, b) => (a.from < b.from ? -1 : 1))[0] || null;
+// Small badges in the Items list: when it starts or ends, and the next price change.
+function cfBadges(c) {
+  if (c.frequency === 'once') return '';
+  const t = todayISO();
+  const out = [];
+  if (c.startDate && c.startDate > t) out.push(`<span class="badge">Starts ${esc(fmtMonth(c.startDate.slice(0, 7)))}</span>`);
+  if (c.endDate && c.endDate >= t) out.push(`<span class="badge">Ends ${esc(fmtMonth(c.endDate.slice(0, 7)))}</span>`);
+  const ch = nextChange(c);
+  if (ch && !(c.endDate && ch.from > c.endDate)) out.push(`<span class="badge">→ ${money(ch.amount, c.currency)} from ${esc(fmtMonth(ch.from.slice(0, 7)))}</span>`);
+  return out.length ? ` ${out.join(' ')}` : '';
+}
+
+// End a recurring item today. It stays under "Ended" in Items, ready to restart.
+function endCashflow(id) {
+  const c = state.cashflows.find((x) => x.id === id);
+  if (!c) return false;
+  state.cashflows = state.cashflows.map((x) => (x.id === id ? { ...x, endDate: todayISO(), endAsked: todayISO(), _mt: Date.now() } : x));
+  commit();
+  toast(`“${c.name}” ended — find it under Ended in Items to restart it`);
+  return true;
+}
+// Restart an ended item: its form, filled in, starting today with no end date.
+function restartCashflow(id) {
+  editItem('cashflows', id, {}, { startDate: todayISO(), endDate: '', nextDate: todayISO() }, 'Restart');
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-action="restart-cf"]');
+  if (!b) return;
+  e.stopPropagation();
+  restartCashflow(b.dataset.id);
+});
+
+// Changes ahead in the next 12 months: items that start later, new amounts, items that end.
+function renderComingUp() {
+  const t = todayISO();
+  const until = Calc.toISO(Calc.addMonths(new Date(), 12));
+  const rows = [];
+  const sign = (c) => (c.kind === 'income' ? '+' : c.kind === 'transfer' ? '' : '−');
+  for (const c of state.cashflows) {
+    if (c.frequency === 'once' || c.active === false || Calc.hasEnded(c, t)) continue;
+    const per = labelOf(FREQ, c.frequency).toLowerCase();
+    if (c.startDate && c.startDate > t && c.startDate <= until) rows.push([c.startDate, c, `starts · ${sign(c)}${money(Calc.amountOn(c, c.startDate), c.currency)} ${per}`]);
+    for (const ch of c.changes || []) if (ch.from > t && ch.from <= until && !(c.endDate && ch.from > c.endDate)) rows.push([ch.from, c, `changes to ${money(ch.amount, c.currency)} (from ${money(Calc.amountOn(c, t), c.currency)})`]);
+    if (c.endDate && c.endDate >= t && c.endDate <= until) rows.push([c.endDate, c, 'ends']);
+  }
+  if (!rows.length) return '';
+  rows.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  return `<div class="card"><h2>Coming up</h2><ul class="events">${rows.map(([date, c, what]) => `<li class="clickable has-chev" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}" tabindex="0"><span class="ev-date">${fmtDate(date)}</span><span class="ev-label"><span class="keep-case">${esc(c.name)}</span> <span class="sub">${what}</span></span><span class="num"></span><span class="chev" aria-hidden="true">›</span></li>`).join('')}</ul></div>`;
+}
+
+// Extend an item near its end: a new end date (quick +1 month / +6 months / +1 year), no end,
+// and optionally a new amount from when it would have ended. Or let it end (asked once).
+function openExtend(id) {
+  const c = state.cashflows.find((x) => x.id === id);
+  if (!c || !c.endDate) return;
+  const after = (n) => Calc.toISO(Calc.addMonths(Calc.parseDate(c.endDate), n));
+  const form = openForm({
+    title: `Extend ${c.name}`,
+    intro: `It ${c.endDate < todayISO() ? 'ended' : 'ends'} on ${fmtDate(c.endDate)}. Pick a new end date, or keep it going with no end. <span class="quick-ext"><button type="button" class="btn small" data-ext="1">+1 month</button><button type="button" class="btn small" data-ext="6">+6 months</button><button type="button" class="btn small" data-ext="12">+1 year</button></span>`,
+    fields: [
+      { key: 'newEnd', label: 'New end date', type: 'date', showIf: (v) => !v.noEnd },
+      { key: 'noEnd', label: 'No end date', type: 'checkbox', span: true },
+      { key: 'newAmount', label: `New amount from ${fmtDate(Calc.toISO(Calc.addDays(Calc.parseDate(c.endDate), 1)))} (optional)`, type: 'number', span: true, help: `Leave empty to keep ${money(Calc.amountOn(c, c.endDate), c.currency)}.` },
+    ],
+    values: { newEnd: after(12), noEnd: false },
+    submitLabel: 'Extend',
+    validate: (v) => (!v.noEnd && (!v.newEnd || v.newEnd <= c.endDate) ? 'Pick an end date after the current one, or tick “No end date”.' : null),
+    buttons: [{ label: 'Let it end', onClick: () => { updateCashflow(id, { endAsked: c.endDate }); toast(`“${c.name}” will end on ${fmtDate(c.endDate)}`); } }],
+    onSave: (v) => {
+      const patch = { endAsked: undefined, endDate: v.noEnd ? undefined : v.newEnd };
+      if (v.newAmount != null && isFinite(v.newAmount)) patch.changes = [...(c.changes || []), { from: Calc.toISO(Calc.addDays(Calc.parseDate(c.endDate), 1)), amount: v.newAmount }];
+      updateCashflow(id, patch);
+      toast(v.noEnd ? `“${c.name}” keeps going` : `“${c.name}” extended to ${fmtDate(v.newEnd)}`);
+    },
+  });
+  form.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-ext]');
+    if (!b) return;
+    form.elements.noEnd.checked = false;
+    form.elements.newEnd.value = after(+b.dataset.ext);
+    form.dispatchEvent(new Event('change'));
+  });
+}
+// Changes some fields of one cash-flow item (undefined removes a field) and saves.
+function updateCashflow(id, patch) {
+  state.cashflows = state.cashflows.map((x) => {
+    if (x.id !== id) return x;
+    const next = { ...x, ...patch, _mt: Date.now() };
+    for (const k of Object.keys(patch)) if (patch[k] === undefined) delete next[k];
+    return next;
+  });
+  commit();
 }

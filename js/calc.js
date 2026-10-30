@@ -391,9 +391,30 @@
 
   const PER_MONTH = { weekly: 52 / 12, biweekly: 26 / 12, monthly: 1, quarterly: 1 / 3, semiannually: 1 / 6, yearly: 1 / 12, once: 0 };
 
-  function monthlyAmount(cf) {
-    return (+cf.amount || 0) * (PER_MONTH[cf.frequency] ?? 1);
+  // An item's amount on a date: its first amount, or the latest change (`changes`: [{ from, amount }])
+  // that has started by then. Earlier months keep the amount they had.
+  function amountOn(cf, iso) {
+    let amount = +cf.amount || 0;
+    const list = [...(cf.changes || [])].filter((c) => c && c.from && isFinite(+c.amount)).sort((a, b) => (a.from < b.from ? -1 : 1));
+    for (const c of list) if (!iso || c.from <= iso) amount = +c.amount;
+    return amount;
   }
+  // Whether an item counts in a month ("YYYY-MM"): on, and between its optional start and end.
+  // A start or end on any day counts that whole month.
+  function inMonth(cf, ym) {
+    if (cf.active === false) return false;
+    if (cf.startDate && cf.startDate.slice(0, 7) > ym) return false;
+    if (cf.endDate && cf.endDate.slice(0, 7) < ym) return false;
+    return true;
+  }
+  // Average per month. With a month: 0 outside the item's dates, at the amount in force that month.
+  function monthlyAmount(cf, ym) {
+    if (ym === undefined) return (+cf.amount || 0) * (PER_MONTH[cf.frequency] ?? 1);
+    if (!inMonth(cf, ym)) return 0;
+    return amountOn(cf, `${ym}-31`) * (PER_MONTH[cf.frequency] ?? 1);
+  }
+  // Ended: its end date has passed.
+  const hasEnded = (cf, today) => !!cf.endDate && cf.endDate < today;
 
   function stepDate(d, frequency, n) {
     switch (frequency) {
@@ -409,8 +430,13 @@
 
   // All occurrence dates (ISO) of a recurring item within [from, to] inclusive.
   function occurrences(cf, from, to) {
-    const anchor = parseDate(cf.nextDate);
+    // Nothing before the item's start or after its end.
+    const startIso = cf.startDate && (!cf.nextDate || cf.startDate > cf.nextDate) ? cf.startDate : cf.nextDate;
+    const anchor = parseDate(startIso);
     if (!anchor) return [];
+    if (cf.startDate && from < cf.startDate) from = cf.startDate;
+    if (cf.endDate && to > cf.endDate) to = cf.endDate;
+    if (from > to) return [];
     const f = parseDate(from);
     const t = parseDate(to);
     const out = [];
@@ -571,11 +597,11 @@
       .filter((l) => l.type !== 'credit' && +l.payment > 0 && loanBalance(l, today).balance > 0);
     const loanMatches = [];
     for (const cf of state.cashflows || []) {
-      if (cf.active === false || cf.kind !== 'expense' || cf.notLoan) continue;
+      if (!inMonth(cf, today.slice(0, 7)) || cf.kind !== 'expense' || cf.notLoan) continue;
       const taken = new Set(loanMatches.map((m) => m.loanId));
       const hit = cf.loanId
         ? loans.find((l) => l.id === cf.loanId)
-        : loans.find((l) => !taken.has(l.id) && l.currency === cf.currency && cf.frequency === 'monthly' && Math.abs(+cf.amount - +l.payment) <= Math.max(1, 0.01 * +l.payment));
+        : loans.find((l) => !taken.has(l.id) && l.currency === cf.currency && cf.frequency === 'monthly' && Math.abs(amountOn(cf, today) - +l.payment) <= Math.max(1, 0.01 * +l.payment));
       if (hit) loanMatches.push({ cashflowId: cf.id, loanId: hit.id, linked: !!cf.loanId });
     }
     // Property rent (the property's "monthly rent") is the single source of rent income. An income
@@ -583,11 +609,11 @@
     const rented = (state.properties || []).filter((p) => +p.monthlyRent > 0);
     const rentMatches = [];
     for (const cf of state.cashflows || []) {
-      if (cf.active === false || cf.kind !== 'income' || cf.notRent) continue;
+      if (!inMonth(cf, today.slice(0, 7)) || cf.kind !== 'income' || cf.notRent) continue;
       const taken = new Set(rentMatches.map((m) => m.propertyId));
       const hit = cf.propertyId
         ? rented.find((p) => p.id === cf.propertyId)
-        : rented.find((p) => !taken.has(p.id) && p.currency === cf.currency && cf.frequency === 'monthly' && Math.abs(+cf.amount - +p.monthlyRent) <= Math.max(1, 0.01 * +p.monthlyRent));
+        : rented.find((p) => !taken.has(p.id) && p.currency === cf.currency && cf.frequency === 'monthly' && Math.abs(amountOn(cf, today) - +p.monthlyRent) <= Math.max(1, 0.01 * +p.monthlyRent));
       if (hit) rentMatches.push({ cashflowId: cf.id, propertyId: hit.id, linked: !!cf.propertyId });
     }
 
@@ -615,16 +641,16 @@
     let notOnCard = 0, cardPaidBills = 0;
     for (const cf of state.cashflows || []) {
       if (cf.active === false) continue;
-      const monthly = toBase(monthlyAmount(cf), cf.currency);
+      const monthly = toBase(monthlyAmount(cf, today.slice(0, 7)), cf.currency);
       const isBill = cf.kind === 'expense' || cf.kind === 'subscription';
-      if (cf.kind === 'transfer') { for (const date of occurrences(cf, today, horizon)) events.push({ date, label: cf.name, amount: toBase(cf.amount, cf.currency), kind: 'transfer', ref: cf.id, orig: +cf.amount, currency: cf.currency }); continue; }
+      if (cf.kind === 'transfer') { for (const date of occurrences(cf, today, horizon)) events.push({ date, label: cf.name, amount: toBase(amountOn(cf, date), cf.currency), kind: 'transfer', ref: cf.id, orig: amountOn(cf, date), currency: cf.currency }); continue; }
       if (!matchedIds.has(cf.id)) {
         flow[cf.kind] = (flow[cf.kind] || 0) + monthly;
         if (isBill && !cf.onCard) notOnCard += monthly;
         if (isBill && cf.onCard) cardPaidBills += monthly;
       }
       for (const date of occurrences(cf, today, horizon)) {
-        events.push({ date, label: cf.name, amount: toBase(cf.amount, cf.currency), kind: cf.kind, ref: cf.id, orig: +cf.amount, currency: cf.currency });
+        events.push({ date, label: cf.name, amount: toBase(amountOn(cf, date), cf.currency), kind: cf.kind, ref: cf.id, orig: amountOn(cf, date), currency: cf.currency });
       }
     }
     // Overdue card bills first, then by date.
@@ -838,7 +864,7 @@
       // Dates re-opened by undoing an answer come back too.
       const dates = [...new Set([...occurrences(cf, from, today), ...(cf.reask || []).filter((d) => d <= today)])].sort();
       for (const date of dates) {
-        out.push({ key: `cf:${cf.id}:${date}`, type: 'cashflow', id: cf.id, date, name: cf.name, amount: +cf.amount || 0, currency: cf.currency, accountId: cf.accountId, toAccountId: cf.toAccountId || null, sign: OUTGOING[cf.kind] ? -1 : 1 });
+        out.push({ key: `cf:${cf.id}:${date}`, type: 'cashflow', id: cf.id, date, name: cf.name, amount: amountOn(cf, date), currency: cf.currency, accountId: cf.accountId, toAccountId: cf.toAccountId || null, sign: OUTGOING[cf.kind] ? -1 : 1 });
       }
     }
     for (const e of unpaidCardBills(state)) {
@@ -968,11 +994,11 @@
     const savers = (state.deposits || []).filter((d) => d.kind === 'regular' && +d.monthlyAmount > 0 && !depositValue(d, today).matured);
     const out = [];
     for (const cf of state.cashflows || []) {
-      if (cf.active === false || cf.kind !== 'saving' || cf.notSaver) continue;
+      if (!inMonth(cf, today.slice(0, 7)) || cf.kind !== 'saving' || cf.notSaver) continue;
       const taken = new Set(out.map((m) => m.depositId));
       const hit = cf.saverId
         ? savers.find((d) => d.id === cf.saverId)
-        : savers.find((d) => !taken.has(d.id) && d.currency === cf.currency && cf.frequency === 'monthly' && Math.abs(+cf.amount - +d.monthlyAmount) <= Math.max(1, 0.01 * +d.monthlyAmount));
+        : savers.find((d) => !taken.has(d.id) && d.currency === cf.currency && cf.frequency === 'monthly' && Math.abs(amountOn(cf, today) - +d.monthlyAmount) <= Math.max(1, 0.01 * +d.monthlyAmount));
       if (hit) out.push({ cashflowId: cf.id, depositId: hit.id, linked: !!cf.saverId });
     }
     return out;
@@ -1324,7 +1350,7 @@
     otherAssetValue,
     latestValuation, propertyValue,
     holdingValue, holdingView, costMethod, dilutedRealised, dividendPerYear,
-    monthlyAmount, occurrences, nextOccurrence,
+    monthlyAmount, amountOn, inMonth, hasEnded, occurrences, nextOccurrence,
     upsertHistory, monthsToGoal, spendingByMonth,
     summarize,
     itemValue, itemParts, itemValues, migratePlatforms, platformBreakdown,

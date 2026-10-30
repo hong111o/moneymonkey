@@ -319,6 +319,9 @@ const SECTIONS = {
       currencyField,
       { key: 'frequency', label: 'How often', type: 'select', options: FREQ, default: () => 'monthly' },
       { key: 'nextDate', label: 'Next payment date', type: 'date', default: todayISO, help: 'For a one-off: the date it happened (or will). It counts in that month only.' },
+      { key: 'startDate', label: 'Starts (optional)', type: 'date', showIf: (v) => v.frequency !== 'once', help: 'Leave empty to count it from now. Before this month it isn’t counted.' },
+      { key: 'endDate', label: 'Ends (optional)', type: 'date', showIf: (v) => v.frequency !== 'once', help: 'Leave empty if it keeps going. After this month it stops counting.' },
+      { key: 'changes', label: 'Amount changes', type: 'changes', span: true, showIf: (v) => v.frequency !== 'once', help: 'A new amount and the date it starts, e.g. a price rise from next month. Earlier months keep the old amount.' },
       { key: 'onCard', label: 'Paid by credit card (already included in the card spending I record)', type: 'checkbox', span: true, showIf: (v) => v.kind === 'expense' || v.kind === 'subscription' },
       {
         key: 'rentLink', label: 'Is this rent from one of your properties?', type: 'select', span: true, transient: true, showIf: (v) => v.kind === 'income' && state.properties.some((p) => +p.monthlyRent > 0),
@@ -348,7 +351,15 @@ const SECTIONS = {
       },
       { key: 'active', label: 'Active', type: 'checkbox', default: () => true },
     ],
-    validate: (v) => (v.kind === 'transfer' && (!v.accountId || !v.toAccountId) ? 'A transfer needs both accounts: where it comes from and where it goes.' : null),
+    validate: (v) => {
+      if (v.kind === 'transfer' && (!v.accountId || !v.toAccountId)) return 'A transfer needs both accounts: where it comes from and where it goes.';
+      if (v.startDate && v.endDate && v.endDate < v.startDate) return 'The end date is before the start date.';
+      return null;
+    },
+    // In the form: end a recurring item now (it's kept under Ended), or restart an ended one.
+    formButtons: (c, overrides) => (c.frequency === 'once' || overrides ? [] : Calc.hasEnded(c, todayISO())
+      ? [{ label: 'Restart', onClick: () => { setTimeout(() => restartCashflow(c.id)); return true; } }]
+      : [{ label: 'End now', onClick: () => endCashflow(c.id) }]),
     editValues: (item) => ({ ...item, loanLink: item.notLoan ? '__none' : item.loanId || '', rentLink: item.notRent ? '__none' : item.propertyId || '', saverLink: item.notSaver ? '__none' : item.saverId || '' }),
     beforeSave: (item, prev) => {
       if (item.rentLink !== undefined) {
@@ -369,6 +380,15 @@ const SECTIONS = {
         if (!item.loanId) delete item.loanId;
         if (!item.notLoan) delete item.notLoan;
       }
+      // Start / end dates and amount changes (recurring items only).
+      if (item.frequency === 'once') { delete item.startDate; delete item.endDate; delete item.changes; }
+      for (const k of ['startDate', 'endDate']) if (!item[k]) delete item[k];
+      if (item.startDate && (!item.nextDate || item.nextDate < item.startDate)) item.nextDate = item.startDate;
+      if (item.changes) {
+        item.changes = item.changes.filter((c) => c.from && isFinite(c.amount)).sort((a, b) => (a.from < b.from ? -1 : 1));
+        if (!item.changes.length) delete item.changes;
+      }
+      if (!prev || prev.endDate !== item.endDate) delete item.endAsked;
       if (item.onCard && (item.kind === 'expense' || item.kind === 'subscription')) item.accountId = '';
       if (!item.toAccountId || !item.accountId) delete item.toAccountId;
       if (!item.accountId) {
@@ -381,11 +401,11 @@ const SECTIONS = {
       }
     },
     columns: [
-      { label: 'Item', render: (c) => `<strong>${esc(c.name)}</strong><div class="sub"><span class="badge kind-${esc(c.kind)}">${esc(labelOf(FLOW_KINDS, c.kind))}</span>${c.onCard ? ` <span class="badge" title="Paid by credit card">${icon('card')} card</span>` : ''}${c.accountId && accountName(c.accountId) ? ` <span class="badge" title="Linked account — you confirm each payment">↔ ${esc(accountName(c.accountId))}${c.toAccountId && accountName(c.toAccountId) ? ` → ${esc(accountName(c.toAccountId))}` : ''}</span>` : ''} ${esc(c.category || '')}</div>` },
-      { label: 'Amount', num: true, primary: true, render: (c) => `${money(c.amount, c.currency)}<div class="sub">${esc(labelOf(FREQ, c.frequency))}</div>` },
-      { label: 'Per month', num: true, render: (c) => money(toBase(Calc.monthlyAmount(c), c.currency)) },
-      { label: 'Per year', num: true, render: (c) => money(toBase(Calc.monthlyAmount(c) * 12, c.currency)) },
-      { label: 'Next', render: (c) => (c.active === false ? '<span class="badge">Paused</span>' : fmtDate(Calc.nextOccurrence(c, todayISO()))) },
+      { label: 'Item', render: (c) => `<strong>${esc(c.name)}</strong><div class="sub"><span class="badge kind-${esc(c.kind)}">${esc(labelOf(FLOW_KINDS, c.kind))}</span>${c.onCard ? ` <span class="badge" title="Paid by credit card">${icon('card')} card</span>` : ''}${c.accountId && accountName(c.accountId) ? ` <span class="badge" title="Linked account — you confirm each payment">↔ ${esc(accountName(c.accountId))}${c.toAccountId && accountName(c.toAccountId) ? ` → ${esc(accountName(c.toAccountId))}` : ''}</span>` : ''}${cfBadges(c)} ${esc(c.category || '')}</div>` },
+      { label: 'Amount', num: true, primary: true, render: (c) => `${money(Calc.amountOn(c, todayISO()), c.currency)}<div class="sub">${esc(labelOf(FREQ, c.frequency))}</div>` },
+      { label: 'Per month', num: true, render: (c) => (cfStatus(c) ? '<span class="sub">—</span>' : money(toBase(Calc.monthlyAmount(c, thisMonth()), c.currency))) },
+      { label: 'Per year', num: true, render: (c) => (cfStatus(c) ? '<span class="sub">—</span>' : money(toBase(Calc.monthlyAmount(c, thisMonth()) * 12, c.currency))) },
+      { label: 'Next', render: (c) => (c.active === false ? '<span class="badge">Paused</span>' : Calc.hasEnded(c, todayISO()) ? `<span class="badge">Ended ${esc(fmtMonth(c.endDate.slice(0, 7)))}</span>` : fmtDate(Calc.nextOccurrence(c, todayISO()))) },
     ],
   },
 

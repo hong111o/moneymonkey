@@ -112,8 +112,8 @@ function exportReportCsv(what) {
     for (const k of ['stocks', 'crypto']) for (const h of state[k]) { const v = hv(h); rows.push([h.symbol || h.coinId, h.name || h.coinId || '', h.platform || '', h.quantity, r2(h.avgCost), r2(v.price), h.currency, r2(v.marketValue), r2(toBase(v.marketValue, h.currency)), r2(v.pnl)]); }
     name = `moneymonkey-holdings-${t}.csv`;
   } else if (what === 'cashflows') {
-    rows = [['Name', 'Type', 'Category', 'Amount', 'Currency', 'How often', `Per month (${base()})`, 'Next date', 'Active', 'Account', 'Paid by card']];
-    for (const c of state.cashflows) rows.push([c.name, labelOf(FLOW_KINDS, c.kind), c.category || '', c.amount, c.currency, labelOf(FREQ, c.frequency), r2(toBase(Calc.monthlyAmount(c), c.currency)), c.nextDate || '', c.active === false ? 'no' : 'yes', accountName(c.accountId) || '', c.onCard ? 'yes' : '']);
+    rows = [['Name', 'Type', 'Category', 'Amount', 'Currency', 'How often', `Per month (${base()})`, 'Next date', 'Active', 'Account', 'Paid by card', 'Starts', 'Ends', 'Amount changes']];
+    for (const c of state.cashflows) rows.push([c.name, labelOf(FLOW_KINDS, c.kind), c.category || '', Calc.amountOn(c, todayISO()), c.currency, labelOf(FREQ, c.frequency), r2(toBase(Calc.monthlyAmount(c, thisMonth()), c.currency)), c.nextDate || '', c.active === false ? 'no' : 'yes', accountName(c.accountId) || '', c.onCard ? 'yes' : '', c.startDate || '', c.endDate || '', (c.changes || []).map((x) => `${x.from}: ${x.amount}`).join('; ')]);
     name = `moneymonkey-cashflow-${t}.csv`;
   } else if (what === 'statements') {
     rows = [['Card', 'Month', 'Amount', 'Currency', 'Due date', 'Paid on', 'Note']];

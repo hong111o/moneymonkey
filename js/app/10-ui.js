@@ -115,6 +115,7 @@ function demoState() {
   const t = new Date();
   const d = (days) => Calc.toISO(Calc.addDays(t, days));
   const m = (months) => Calc.toISO(Calc.addMonths(t, months));
+  const firstOfNextMonth = Calc.toISO(new Date(t.getFullYear(), t.getMonth() + 1, 1));
   // Balances last confirmed 5 days ago, so payments since then ask to be confirmed without a warning.
   const now = Calc.addDays(t, -5).toISOString();
   const s = defaultState();
@@ -166,8 +167,10 @@ function demoState() {
     { id: uid(), name: 'Rent (HK)', kind: 'expense', category: 'Housing', amount: 18000, currency: 'HKD', frequency: 'monthly', nextDate: d(1), active: true },
     { id: uid(), name: 'Groceries', kind: 'expense', category: 'Food', amount: 1200, currency: 'HKD', frequency: 'weekly', nextDate: d(2), active: true, onCard: true },
     { id: uid(), name: 'Octopus & transport', kind: 'expense', category: 'Transport', amount: 1000, currency: 'HKD', frequency: 'monthly', nextDate: d(12), active: true },
-    { id: uid(), name: 'Netflix', kind: 'subscription', category: 'Entertainment', amount: 93, currency: 'HKD', frequency: 'monthly', nextDate: d(7), active: true, onCard: true },
-    { id: uid(), name: 'Spotify', kind: 'subscription', category: 'Entertainment', amount: 11.99, currency: 'GBP', frequency: 'monthly', nextDate: d(16), active: true },
+    { id: uid(), name: 'Netflix', kind: 'subscription', category: 'Entertainment', amount: 93, currency: 'HKD', frequency: 'monthly', nextDate: d(7), active: true, onCard: true, changes: [{ from: firstOfNextMonth, amount: 98 }] },
+    { id: uid(), name: 'Spotify', kind: 'subscription', category: 'Entertainment', amount: 11.99, currency: 'GBP', frequency: 'monthly', nextDate: d(5), endDate: d(5), active: true },
+    { id: uid(), name: 'Tutoring income', kind: 'income', category: 'Side income', amount: 4000, currency: 'HKD', frequency: 'monthly', nextDate: d(40), startDate: d(40), active: true },
+    { id: uid(), name: 'Disney+', kind: 'subscription', category: 'Entertainment', amount: 68, currency: 'HKD', frequency: 'monthly', nextDate: d(-75), endDate: d(-45), active: true, onCard: true },
     { id: uid(), name: 'Monthly investing', kind: 'saving', category: 'Investing', amount: 8000, currency: 'HKD', frequency: 'monthly', nextDate: d(10), active: true },
     // Same payment as the regular saver: counted once.
     { id: uid(), name: 'Into regular saver', kind: 'saving', category: 'Saving', amount: 300, currency: 'GBP', frequency: 'monthly', nextDate: d(30), active: true },

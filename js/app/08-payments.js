@@ -24,13 +24,15 @@ const payName = (p) => esc(p.name).replace(/\((\d{4}-\d{2})\)/, (_, m) => `(${fm
 // One box per payment; `getList` is re-read after each tap (another device may have handled one).
 // `ui` keeps what the person changed in the box between redraws: another account for a payment
 // (`acct`), whether to always use it (`always`), the typed amount (`amt`), open account pickers.
-function paymentSheet(getList, onEmpty, ui = { acct: new Map(), always: new Map(), amt: new Map(), open: new Set() }) {
+function paymentSheet(getList, onEmpty, ui = { acct: new Map(), always: new Map(), amt: new Map(), open: new Set(), scope: new Map(), extend: [] }) {
   const withUi = (p) => (ui.acct.has(p.key) ? { ...p, accountId: ui.acct.get(p.key) || null } : p);
   const current = () => getList().map(withUi);
   const redraw = () => paymentSheet(getList, onEmpty, ui);
   const list = current();
   if (!list.length) {
     if (dialog().open) dialog().close();
+    // The last payment of an item with an end date: ask whether to extend it.
+    if (ui.extend.length) return openExtend(ui.extend[0]);
     if (onEmpty) onEmpty();
     return;
   }
@@ -69,6 +71,10 @@ function paymentSheet(getList, onEmpty, ui = { acct: new Map(), always: new Map(
       ${picker}
       ${confirmedAfter ? `<div class="hint">You updated this balance on ${fmtDate(acct.updatedAt)}, so it may already include this.</div>` : ''}
       ${cross ? `<div class="pay-row">${amtInput}</div>${cross}<div class="pay-row">${buttons}</div>` : `<div class="pay-row">${amtInput}${buttons}</div>`}
+      ${p.type === 'cashflow' ? `<div class="pay-row pay-scope" data-base="${p.amount}" ${Math.abs((+(ui.amt.get(p.key) ?? p.amount)) - p.amount) > 0.005 ? '' : 'hidden'}>
+        <label class="check"><input type="radio" name="scope-${esc(p.key)}" value="once" ${ui.scope.get(p.key) !== 'always' ? 'checked' : ''}> Just this time</label>
+        <label class="check"><input type="radio" name="scope-${esc(p.key)}" value="always" ${ui.scope.get(p.key) === 'always' ? 'checked' : ''}> From now on</label>
+      </div>` : ''}
     </div>`;
   }).join('');
   const keepAmounts = () => { for (const box of dialog().querySelectorAll('.pay-item')) ui.amt.set(box.dataset.key, $('.pay-amt', box).value); };
@@ -100,8 +106,19 @@ function paymentSheet(getList, onEmpty, ui = { acct: new Map(), always: new Map(
       const recv = $('.pay-recv', box);
       const pp = recv ? { ...p, toCurrency: recv.dataset.cur, received: +recv.value } : p;
       const res = Calc.resolvePayment(state, none ? { ...pp, paidIn: false } : pp, apply, amt, Date.now(), from);
+      if (p.type === 'cashflow' && !none) {
+        // A different amount "from now on" becomes an amount change from this payment's date.
+        const scope = box.querySelector('.pay-scope:not([hidden]) input:checked');
+        const c = state.cashflows.find((x) => x.id === p.id);
+        if (c && scope && scope.value === 'always' && isFinite(amt)) {
+          const changes = (c.changes || []).filter((x) => x.from !== p.date).concat({ from: p.date, amount: amt });
+          state.cashflows = state.cashflows.map((x) => (x.id === c.id ? { ...x, changes, _mt: Date.now() } : x));
+        }
+        // That was its last payment: ask about extending once the payments are done.
+        if (c && c.endDate && c.endAsked !== c.endDate && !Calc.occurrences(c, Calc.toISO(Calc.addDays(Calc.parseDate(p.date), 1)), c.endDate).length && !ui.extend.includes(c.id)) ui.extend.push(c.id);
+      }
       if (ui.always.get(p.key) && ui.acct.has(p.key)) setPayingAccount(p, p.accountId || '');
-      ui.acct.delete(p.key); ui.amt.delete(p.key); ui.open.delete(p.key); ui.always.delete(p.key);
+      ui.acct.delete(p.key); ui.amt.delete(p.key); ui.open.delete(p.key); ui.always.delete(p.key); ui.scope.delete(p.key);
       commit();
       const used = res && res.paidAmount != null ? ` (${money(res.paidAmount, res.paidCurrency)})` : '';
       const nm = p.name.replace(/\((\d{4}-\d{2})\)/, (_, m) => `(${fmtMonth(m)})`);
@@ -123,6 +140,10 @@ function paymentSheet(getList, onEmpty, ui = { acct: new Map(), always: new Map(
         return redraw();
       }
       if (box && e.target.classList.contains('pay-always')) { ui.always.set(box.dataset.key, e.target.checked); return; }
+      // A different amount: show "Just this time / From now on".
+      if (box && e.target.matches('.pay-scope input')) { ui.scope.set(box.dataset.key, e.target.value); return; }
+      const scope = box && $('.pay-scope', box);
+      if (scope && e.target.classList.contains('pay-amt')) scope.hidden = !(Math.abs(+e.target.value - +scope.dataset.base) > 0.005);
       if (box && e.target.classList.contains('pay-amt') && $('.pay-recv', box)) { const r = $('.pay-recv', box); r.value = convertedPay(e.target.value, box.dataset.cur, r.dataset.cur); }
       if (!box || !$('.pay-from', box) || e.target.classList.contains('pay-conv')) return;
       $('.pay-conv', box).value = convertedPay($('.pay-amt', box).value, box.dataset.cur, $('.pay-from', box).value);

@@ -6,7 +6,7 @@
 
 const dialog = () => $('#dialog');
 
-function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview, validate, submitLabel = 'Save', intro = '' }) {
+function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview, validate, submitLabel = 'Save', intro = '', buttons = [] }) {
   const d = dialog();
   const vals = { ...values };
   const optionsOf = (f) => (typeof f.options === 'function' ? f.options(vals) : f.options);
@@ -24,6 +24,12 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
         <div class="bal-head" aria-hidden="true"><span>Currency</span><span>Amount</span><span class="bal-rate-h">Interest % p.a.</span><span></span></div>
         <div class="bal-rows">${rows}</div>
         <button type="button" class="btn small" data-add-balance>+ Add currency</button>${f.help ? `<small>${f.help}</small>` : ''}</div>`;
+    }
+    if (f.type === 'changes') {
+      const rows = [...(v || [])].sort((a, b) => (a.from < b.from ? -1 : 1)).map(changeRow).join('');
+      return `<div class="changes-field ${cls}" data-field="${f.key}"><span class="field-label">${f.label}</span>
+        <div class="chg-rows">${rows}</div>
+        <button type="button" class="btn small" data-add-change>+ Change amount</button>${f.help ? `<small>${f.help}</small>` : ''}</div>`;
     }
     let input;
     if (f.type === 'select') input = `<select name="${f.key}">${optionsOf(f).map((o) => `<option value="${esc(o.value)}" ${o.value === v ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
@@ -51,7 +57,7 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
       <div class="form-extra"></div>
       <p class="form-error" role="alert"></p>
     </div>
-    <footer>${onDelete ? '<button type="button" class="btn ghost danger" data-delete>Delete</button>' : ''}<span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn primary">${esc(submitLabel)}</button></footer>
+    <footer>${onDelete ? '<button type="button" class="btn ghost danger" data-delete>Delete</button>' : ''}${buttons.map((b, i) => `<button type="button" class="btn ghost" data-extra="${i}">${esc(b.label)}</button>`).join('')}<span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn primary">${esc(submitLabel)}</button></footer>
   </form>`;
   const form = $('form', d);
   const read = () => {
@@ -65,6 +71,12 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
             return { currency: $('.bal-cur', r).value.trim().toUpperCase(), amount: amt === '' ? null : +amt, rate: rate === '' ? null : +rate };
           })
           .filter((b) => b.currency || b.amount != null);
+        continue;
+      }
+      if (f.type === 'changes') {
+        out[f.key] = [...form.querySelectorAll(`[data-field="${f.key}"] .chg-row`)]
+          .map((r) => ({ from: $('.chg-from', r).value, amount: $('.chg-amt', r).value === '' ? null : +$('.chg-amt', r).value }))
+          .filter((c) => c.from || c.amount != null);
         continue;
       }
       const el = form.elements[f.key];
@@ -108,6 +120,17 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
       $('.bal-rows', box).insertAdjacentHTML('beforeend', balanceRow({ currency: next, amount: null }));
       $('.bal-row:last-child .bal-amt', box).focus();
     }
+    if (e.target.closest('[data-add-change]')) {
+      const box = e.target.closest('.changes-field');
+      // A new amount usually starts next month.
+      const next = Calc.toISO(Calc.addMonths(Calc.parseDate(`${todayISO().slice(0, 7)}-01`), 1));
+      $('.chg-rows', box).insertAdjacentHTML('beforeend', changeRow({ from: next, amount: null }));
+      $('.chg-row:last-child .chg-amt', box).focus();
+    }
+    const rmc = e.target.closest('[data-remove-change]');
+    if (rmc) rmc.closest('.chg-row').remove();
+    const extra = e.target.closest('[data-extra]');
+    if (extra && buttons[+extra.dataset.extra].onClick(read()) !== false) d.close();
     const rm = e.target.closest('[data-remove-balance]');
     if (rm) {
       const box = rm.closest('.balances-field');
@@ -127,6 +150,11 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
         if (err) return showError(form, err);
         continue;
       }
+      if (f.type === 'changes') {
+        const bad = (v[f.key] || []).find((c) => !c.from || c.amount == null || !isFinite(c.amount));
+        if (bad) return showError(form, 'Each amount change needs a date and a new amount.');
+        continue;
+      }
       const empty = v[f.key] == null || v[f.key] === '';
       if (f.required && empty) return showError(form, `${f.label} is required.`);
       if (f.type === 'number' && !empty && !isFinite(v[f.key])) return showError(form, `${f.label} must be a number.`);
@@ -144,6 +172,15 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
     if (firstInput) firstInput.focus();
   }
   return form;
+}
+
+// One dated amount change: "from 1 Dec 2026, HK$98".
+function changeRow(c) {
+  return `<div class="chg-row">
+    <label><span>From</span><input class="chg-from" type="date" value="${esc(c.from || '')}" aria-label="Date the new amount starts"></label>
+    <label><span>New amount</span>${pmWrap(`<input class="chg-amt" type="number" step="any" inputmode="decimal" placeholder="0.00" value="${esc(c.amount ?? '')}" aria-label="New amount">`)}</label>
+    <button type="button" class="icon-btn" data-remove-change aria-label="Remove this change">✕</button>
+  </div>`;
 }
 
 function balanceRow(b) {
@@ -183,7 +220,7 @@ function openSheet(title, html, onClick) {
   if (!d.open) d.showModal();
 }
 
-function editItem(sec, id, preset = {}) {
+function editItem(sec, id, preset = {}, overrides = null, verb = null) {
   const def = SECTIONS[sec];
   const prev = id ? state[sec].find((x) => x.id === id) : null;
   if (id && !prev) return;
@@ -208,9 +245,10 @@ function editItem(sec, id, preset = {}) {
     delete preset.platform;
   }
   openForm({
-    title: `${prev ? 'Edit' : 'Add'} ${sec === 'deposits' && (prev || preset).kind === 'regular' ? 'regular saver' : def.singular}`,
+    title: `${verb || (prev ? 'Edit' : 'Add')} ${sec === 'deposits' && (prev || preset).kind === 'regular' ? 'regular saver' : def.singular}`,
     fields: def.fields,
-    values: prev ? (def.editValues ? def.editValues(prev) : { ...prev }) : preset,
+    values: prev ? { ...(def.editValues ? def.editValues(prev) : { ...prev }), ...(overrides || {}) } : preset,
+    buttons: prev && def.formButtons ? def.formButtons(prev, overrides) : [],
     isNew: !prev,
     // A deposit's preview also needs what the form doesn't show (a regular saver's confirmed payments).
     preview: def.preview && sec === 'deposits' && prev ? (v) => def.preview({ ...prev, ...v }) : def.preview,
@@ -329,7 +367,7 @@ function explain(what, param) {
   const sortDesc = (a, b) => b.v - a.v;
   // Cash-flow lines open that item's edit form.
   const active = state.cashflows.filter((c) => c.active !== false);
-  const monthly = (c) => toBase(Calc.monthlyAmount(c), c.currency) || 0;
+  const monthly = (c) => toBase(Calc.monthlyAmount(c, thisMonth()), c.currency) || 0;
   const flowSub = (c) => [`${esc(labelOf(FREQ, c.frequency))} ${money(c.amount, c.currency)}`, c.category ? esc(c.category) : '', c.onCard ? 'paid by card' : (c.accountId && accountName(c.accountId) ? `↔ ${esc(accountName(c.accountId))}` : ''), c.frequency !== 'once' || c.nextDate >= t ? `next ${fmtDate(Calc.nextOccurrence(c, t))}` : ''].filter(Boolean).join(' · ');
   const flowRow = (c) => ({ v: monthly(c), html: `<a class="ex-row" href="#" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}"><span class="grow"><strong>${esc(c.name)}</strong><div class="sub">${flowSub(c)}</div></span><span class="num">${money(monthly(c), base(), 0)}</span><span class="chev" aria-hidden="true">›</span></a>` });
   const flowRows = (list) => list.map(flowRow).sort(sortDesc).map((r) => r.html);
@@ -610,7 +648,7 @@ function explain(what, param) {
   } else if (what === 'subscriptions') {
     title = 'Subscriptions';
     const subs = state.cashflows.filter((c) => c.kind === 'subscription');
-    const rows = subs.map((c) => ({ v: c.active === false ? -1 : toBase(Calc.monthlyAmount(c), c.currency) || 0, html: row(`#" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}`, `${esc(c.name)}${c.active === false ? ' <span class="badge">Paused</span>' : ''}`, [`${esc(labelOf(FREQ, c.frequency))} ${money(c.amount, c.currency)}`, c.onCard ? 'paid by card' : (c.accountId ? `↔ ${esc(accountName(c.accountId))}` : ''), c.active === false ? '' : `next ${fmtDate(Calc.nextOccurrence(c, t))}`].filter(Boolean).join(' · '), `${money(toBase(Calc.monthlyAmount(c), c.currency), base(), 0)}/mo`) }));
+    const rows = subs.map((c) => ({ v: c.active === false ? -1 : toBase(Calc.monthlyAmount(c, thisMonth()), c.currency) || 0, html: row(`#" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}`, `${esc(c.name)}${c.active === false ? ' <span class="badge">Paused</span>' : ''}`, [`${esc(labelOf(FREQ, c.frequency))} ${money(c.amount, c.currency)}`, c.onCard ? 'paid by card' : (c.accountId ? `↔ ${esc(accountName(c.accountId))}` : ''), c.active === false ? '' : `next ${fmtDate(Calc.nextOccurrence(c, t))}`].filter(Boolean).join(' · '), `${money(toBase(Calc.monthlyAmount(c, thisMonth()), c.currency), base(), 0)}/mo`) }));
     body = (rows.length ? group('Most expensive first', rows.sort(sortDesc).map((r) => r.html)) : '<p class="sub">No subscriptions yet. Add them in Cash flow with the type “Subscription”.</p>')
       + total('Per month', money(s.flow.subscription, base(), 0)) + total('Per year', money(s.flow.subscription * 12, base(), 0));
   } else return;

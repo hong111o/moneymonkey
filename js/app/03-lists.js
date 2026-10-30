@@ -126,7 +126,7 @@ const SORT_VALUES = {
   'deposits:Period': (d) => Calc.depositValue(d, todayISO()).maturityDate,
   'properties:Last valued': (p) => Calc.propertyValue(p, todayISO()).lastDate,
   'liabilities:Debt-free': (l) => { const m = Calc.loanBalance(l, todayISO()).monthsLeft; return m == null || !isFinite(m) ? null : m; },
-  'cashflows:Amount': (c) => toBase(Calc.monthlyAmount(c), c.currency),
+  'cashflows:Amount': (c) => toBase(Calc.monthlyAmount(c, thisMonth()), c.currency),
   'cashflows:Next': (c) => (c.active === false ? null : Calc.nextOccurrence(c, todayISO())),
 };
 // The value of one cell for sorting: a number (in your base currency) or text.

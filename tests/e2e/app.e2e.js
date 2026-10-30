@@ -325,3 +325,40 @@ test('lists sort by a column: high to low, low to high, then back to your own or
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('cash-flow items: a later start isn’t counted yet, the end reminder extends, End now and Restart', { skip: skip() }, async () => {
+  const { page, ctx, errors, state, go } = await demo();
+  const income = () => page.evaluate(() => summary.flow.income);
+  const before = await income();
+  const today = await page.evaluate(() => todayISO());
+  // The demo's tutoring income starts next month: not in this month's income.
+  const s0 = await state();
+  const tutor = s0.cashflows.find((c) => c.name === 'Tutoring income');
+  assert.ok(tutor.startDate > today);
+  // Starting it today adds it.
+  await page.evaluate((id) => updateCashflow(id, { startDate: todayISO(), nextDate: todayISO() }), tutor.id);
+  assert.ok(Math.abs((await income()) - before - 4000) < 1);
+  // Spotify ends within a week: Needs attention asks; extend by a year.
+  await go('#dashboard');
+  await page.click('[data-action="attention"]');
+  await page.click('dialog [data-action="extend-cf"]');
+  await page.click('dialog [data-ext="12"]');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(200);
+  const spotify = (await state()).cashflows.find((c) => c.name === 'Spotify');
+  assert.ok(spotify.endDate > await page.evaluate(() => Calc.toISO(Calc.addDays(new Date(), 300))), 'extended about a year');
+  // End now keeps it under Ended; Restart brings it back with no end.
+  await page.evaluate((id) => endCashflow(id), spotify.id);
+  await go('#cashflows');
+  await page.click('[data-tab="items"]');
+  await page.evaluate(() => document.querySelectorAll('details.flow-group').forEach((d) => { d.open = true; }));
+  const s1 = await state();
+  assert.equal(s1.cashflows.find((c) => c.id === spotify.id).endDate, today);
+  await page.click('[data-action="restart-cf"]'); // Disney+ (ended in the demo)
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(200);
+  const disney = (await state()).cashflows.find((c) => c.name === 'Disney+');
+  assert.ok(!disney.endDate && disney.startDate === today);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
