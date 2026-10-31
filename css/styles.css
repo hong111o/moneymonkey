@@ -956,3 +956,7 @@ th.sorted .sort-ic { color: var(--text); opacity: 1; }
 @media (min-width: 1100px) and (max-width: 1499px) {
   body.side-open:not([data-view="dashboard"]) .layout { grid-template-columns: 64px minmax(0, 1fr); }
 }
+/* Value / profit chart on Stocks and Crypto. */
+.invest-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.invest-note { margin: 8px 0 0; font-size: 0.78rem; }
+@media (max-width: 860px) { .invest-card .nw-head { flex-wrap: wrap; } .invest-controls { width: 100%; justify-content: space-between; } }

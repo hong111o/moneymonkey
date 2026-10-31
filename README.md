@@ -182,6 +182,10 @@ On a computer, the menu is a column of icons on the left (hover for names). The 
 
 Set what % of your assets you'd like in each area: Cash & Bank, Stocks & ETFs, Crypto, Fixed Deposits, Other Assets, and Property if you switch on **Include property** (off by default). The targets must add up to 100%. Goals then shows each area's current share against its target, whether it's on target (within ±5 points by default, adjustable), how much to add or how much it's over, suggested moves to rebalance, and how to split this month's surplus to get closer without selling. Shares use your assets in your base currency; debts aren't counted.
 
+### Charts on Stocks and Crypto
+
+At the top of Stocks & ETFs and of Crypto, a chart like the net worth one shows the **Value** of those holdings (the default) or their **Profit**: what they've gained (value minus cost) plus profit already taken by selling, so buying or selling doesn't move that line. Pick 1W, 1M, 3M, 1Y or All; hover or touch the line for any day. Value history starts from 28 Oct 2026 and profit history from 31 Oct 2026, one point a day.
+
 ### Sort any list
 
 Tap a column heading in a list (Stocks, Crypto, Cash & Bank, Fixed Deposits, Property, Other Assets, Debts, Cash Flow items, Platforms) to sort by it: high to low, tap again for low to high, a third time for your own order again. On a phone, use the **Sort** menu above the list. Amounts in different currencies are compared in your base currency. The sort is remembered for each list on that device.

@@ -85,6 +85,7 @@ function renderSection(key, opts = {}) {
         <button class="btn primary" data-action="add" data-sec="${key}">+ Add</button>
       </div>
     </div>
+    ${(key === 'stocks' || key === 'crypto') && all.length ? investChart(key) : ''}
     ${opts.tiles ?? sectionTiles(key, items)}
     ${opts.before || ''}
     ${opts.listTitle && items.length && opts.list === undefined ? `<div class="section-head" id="all-items"><h2>${opts.listTitle}</h2><button class="btn small primary" data-action="add" data-sec="${key}">+ Add</button></div>` : ''}
@@ -453,3 +454,57 @@ function editPlatform(name) {
     },
   });
 }
+
+// ---------------------------------------------------------------- value / profit chart (Stocks, Crypto)
+
+// Shown per device: which line (profit or value) and how far back.
+const investView = (() => { try { return { mode: 'value', range: '30', ...JSON.parse(localStorage.getItem('moneymonkey.investChart') || '{}') }; } catch (e) { return { mode: 'value', range: '30' }; } })();
+const INVEST_RANGES = [['7', '1W', 'last week'], ['30', '1M', 'last month'], ['90', '3M', '3 months ago'], ['365', '1Y', 'a year ago'], ['all', 'All', 'the start']];
+
+// A line of either the profit / loss or the value of a section's holdings, like the net worth chart.
+function investChart(key) {
+  const cat = key === 'stocks' ? 'stocks' : 'crypto';
+  const profit = investView.mode === 'pnl';
+  const from = investView.range === 'all' ? '' : Calc.toISO(Calc.addDays(new Date(), -+investView.range));
+  const t = todayISO();
+  const pts = state.history
+    .filter((h) => h.date >= from && h.date < t && (h.currency || base()) === base())
+    .map((h) => ({ date: h.date, value: profit ? h.pnl && h.pnl[key] : h.cats && h.cats[cat] }))
+    .filter((p) => p.value != null && isFinite(p.value));
+  // Today: the live figure, so the line ends where the boxes below are.
+  const now = profit ? investProfit(key) : summary.totals[cat] || 0;
+  pts.push({ date: t, value: round2(now) });
+  const first = pts[0];
+  const change = pts.length > 1 ? now - first.value : null;
+  const rangeName = (INVEST_RANGES.find((r) => r[0] === investView.range) || INVEST_RANGES[1])[2];
+  const pctText = change != null && !profit && first.value ? ` (${change >= 0 ? '+' : ''}${((change / Math.abs(first.value)) * 100).toFixed(1)}%)` : '';
+  const seg = [['value', 'Value'], ['pnl', 'Profit']].map(([m, l]) => `<button class="${investView.mode === m ? 'on' : ''}" data-invest-mode="${m}" aria-pressed="${investView.mode === m}">${l}</button>`).join('');
+  return `<section class="card nw-card invest-card">
+      <div class="nw-head">
+        <div>
+          <div class="tile-label">${profit ? 'Profit / loss' : 'Value'}</div>
+          <div class="hero-value">${profit ? signed(now) : money(now)}</div>
+          ${profit && Math.abs(investProfitParts(key).realised) >= 0.5 ? `<div class="sub">incl. ${money(investProfitParts(key).realised, base(), 0)} from sales · ${signed(now - investProfitParts(key).realised, base(), 0)} on what you hold</div>` : ''}
+          <div class="nw-change">${change != null ? `${signed(change)} <span class="${change >= 0 ? 'pos' : 'neg'}">${pctText}</span> <span class="sub">vs ${rangeName}</span>` : '<span class="sub">History builds up day by day</span>'}</div>
+        </div>
+        <div class="invest-controls"><div class="seg">${seg}</div>
+          <select class="range-select" data-invest-range aria-label="Chart period">${INVEST_RANGES.map(([v, l]) => `<option value="${v}" ${investView.range === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      </div>
+      ${Charts.lineChart(pts, { format: (v) => (profit ? signed(v).replace(/<[^>]+>/g, '') : money(v)), height: 180 })}
+      <p class="sub invest-note">${profit ? 'What your holdings have gained (value minus cost) plus profit already taken by selling. Buying or selling doesn’t move this line.' : 'What your holdings are worth. Buying more moves this line up too.'}</p>
+    </section>`;
+}
+const saveInvestView = () => { try { localStorage.setItem('moneymonkey.investChart', JSON.stringify(investView)); } catch (e) { /* storage unavailable */ } };
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-invest-mode]');
+  if (!b) return;
+  investView.mode = b.dataset.investMode;
+  saveInvestView();
+  render();
+});
+document.addEventListener('change', (e) => {
+  if (!e.target.matches('[data-invest-range]')) return;
+  investView.range = e.target.value;
+  saveInvestView();
+  render();
+});

@@ -61,6 +61,29 @@ async function refreshPrices({ force = false, announce = false } = {}) {
   }
 }
 
+// Total profit / loss of a section ('stocks' or 'crypto') in the base currency: what the holdings
+// gained (value − cost) plus profit already taken by selling. Buying or selling doesn't move it.
+function investProfit(sec) {
+  return investProfitParts(sec).total;
+}
+// The same, split into what's still held (unrealised) and profit already taken by selling (realised).
+function investProfitParts(sec) {
+  const list = state[sec] || [];
+  const ids = new Set(list.map((h) => h.id));
+  let total = 0;
+  for (const h of list) {
+    const v = hv(h);
+    // The diluted cost already includes some sale profit; that part isn't counted twice.
+    total += (toBase(v.pnl, h.currency) || 0) - (toBase(v.realisedIn, h.currency) || 0);
+  }
+  let realised = 0;
+  for (const t of state.trades || []) {
+    if (t.realised == null || !(t.section === sec || ids.has(t.holdingId))) continue;
+    realised += toBase(t.realised, t.currency) || 0;
+  }
+  return { total: total + realised, realised };
+}
+
 function recordSnapshot() {
   const s = Calc.summarize(state, todayISO());
   if (!s.assets && !s.liabilities) return;
@@ -70,7 +93,9 @@ function recordSnapshot() {
   // Each category's and item's value too, for the trend lines in the Assets card and side panel.
   const cats = { ...Object.fromEntries(Object.entries(s.totals).map(([k, v]) => [k, round2(v)])), debt: round2(s.liabilities), loans: round2(SECTIONS.liabilities.total(state.liabilities)) };
   const items = Calc.itemValues(state, todayISO());
-  state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), ...plan, cats, items, t: Date.now() }, HISTORY_MAX);
+  // Profit / loss of stocks and of crypto, for the charts on those pages.
+  const pnl = { stocks: round2(investProfit('stocks')), crypto: round2(investProfit('crypto')) };
+  state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), ...plan, cats, items, pnl, t: Date.now() }, HISTORY_MAX);
   // Item values are only kept for the last 400 days, so the saved history stays small.
   const keepItems = Calc.toISO(Calc.addDays(new Date(), -400));
   for (const h of state.history) if (h.items && h.date < keepItems) delete h.items;
@@ -87,11 +112,15 @@ function recordSnapshot() {
     // Loans were a little higher in the past (repayments bring them down).
     const ago = Math.max(0, (Date.parse(todayISO()) - Date.parse(h.date)) / 864e5);
     const owed = h.demo * (1 + ago * 0.0003);
-    const wave = (key, amp) => { let seed = 0; for (const ch of key) seed = (seed * 31 + ch.charCodeAt(0)) % 997; return h.demo * (1 + amp * Math.sin(day / 9 + seed) + amp * 0.4 * Math.sin(day / 2.7 + seed * 2)); };
+    // The wave settles over the last ten days, so the lines meet today's real figures.
+    const settle = Math.min(1, ago / 10);
+    const wave = (key, amp) => { let seed = 0; for (const ch of key) seed = (seed * 31 + ch.charCodeAt(0)) % 997; return h.demo * (1 + settle * (amp * Math.sin(day / 9 + seed) + amp * 0.4 * Math.sin(day / 2.7 + seed * 2))); };
     const amp = (k) => (k === 'stocks' || k === 'crypto' ? 0.05 : k === 'property' ? 0.01 : 0.004);
     h.cats = Object.fromEntries(Object.entries(cats).map(([k, v]) => [k, round2(v * (k === 'debt' || k === 'loans' ? owed : wave(k, amp(k))))]));
     const kindOf = (id) => (state.stocks.some((x) => x.id === id) ? 'stocks' : state.crypto.some((x) => x.id === id) ? 'crypto' : state.properties.some((x) => x.id === id) ? 'property' : 'cash');
     h.items = Object.fromEntries(Object.entries(items).map(([id, v]) => [id, round2(v * (state.liabilities.some((x) => x.id === id) ? owed : wave(id, amp(kindOf(id)))))]));
+    // Profit moved with the market: today's profit less what the value has gained since that day.
+    h.pnl = { stocks: round2(pnl.stocks - (cats.stocks - h.cats.stocks)), crypto: round2(pnl.crypto - (cats.crypto - h.cats.crypto)) };
     // The demo's past plans are filled in once, then kept like real saved months.
     if (h.raise != null && h.income == null) Object.assign(h, plan, { income: round2(plan.income - h.raise) });
   }

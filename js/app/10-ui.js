@@ -147,7 +147,7 @@ function demoState() {
     { id: uid(), platform: 'HSBC HK', name: '12-month HKD', currency: 'HKD', principal: 200000, startDate: m(-5), termMonths: 12, compounding: 'simple', rate: 3.8, onMaturity: 'cash' },
     { id: uid(), platform: 'ZA Bank', name: '3-month promo', currency: 'HKD', principal: 100000, startDate: Calc.toISO(Calc.addDays(Calc.addMonths(t, -3), 9)), termMonths: 3, compounding: 'simple', rate: 4.2, onMaturity: 'renew' },
     { id: uid(), platform: 'Monzo', name: '1-year fixed saver', currency: 'GBP', principal: 5000, startDate: m(-2), endDate: m(10), termMonths: 12, compounding: 'annually', rate: 4.1, onMaturity: 'cash' },
-    { id: uid(), kind: 'regular', platform: 'Monzo', name: '12-month saver', currency: 'GBP', monthlyAmount: 300, startDate: m(-4), termMonths: 12, rate: 6.5, onMaturity: 'cash', trackFrom: m(0) },
+    { id: uid(), kind: 'regular', platform: 'Monzo', name: '12-month saver', currency: 'GBP', monthlyAmount: 300, startDate: m(-4), termMonths: 12, rate: 6.5, onMaturity: 'cash', trackFrom: d(-5) },
   ];
   s.properties = [{
     id: uid(), name: 'Flat', address: 'Manchester', platform: 'UK property', currency: 'GBP', purchasePrice: 240000, purchaseDate: m(-40), updateFrequency: 'monthly', monthlyRent: 1150,
