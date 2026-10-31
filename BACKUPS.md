@@ -42,3 +42,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 27 | 2026-10-30 | `d838f74` | Property rent and Cash Flow rent are one record |
 | 28 | 2026-10-30 | `6e0408c` | Target mix on Goals |
 | 29 | 2026-10-30 | `a24bfa8` | Side panel: Today, and details of the row you click |
+| 30 | 2026-10-31 | `b4ba885` | Side panel layout fix on laptop screens |
