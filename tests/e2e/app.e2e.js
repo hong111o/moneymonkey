@@ -575,6 +575,12 @@ test('Home: the Liquid view leaves out property and its mortgage, and is remembe
   assert.ok(Math.abs(liquid - expected) < 0.05, `${liquid} vs ${expected}`);
   assert.notEqual(Math.round(liquid), Math.round(all));
   assert.match(await page.textContent('.nw-card'), /Liquid net worth/i);
+  // What changed follows the switch and still shows its lines.
+  assert.ok(await page.isVisible('[data-box="changed"] .chg-row'), 'What changed shows lines in Liquid');
+  assert.match(await page.textContent('[data-box="changed"]'), /liquid net worth/i);
+  await page.click('[data-changed="last"]');
+  assert.ok(await page.isVisible('[data-box="changed"] .chg-row'), 'and for last month');
+  await page.click('[data-changed="this"]');
   await page.reload();
   await page.waitForTimeout(800);
   assert.match(await page.textContent('.nw-card'), /Liquid net worth/i, 'remembered');

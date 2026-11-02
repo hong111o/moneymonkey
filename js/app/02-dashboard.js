@@ -650,7 +650,7 @@ function changePeriod(which) {
   if (!start) return null;
   let end;
   if (which === 'this') {
-    end = { date: t, netWorth: summary.netWorth, pnl: { stocks: investProfit('stocks'), crypto: investProfit('crypto') }, items: Calc.itemValues(state, t), fx: usedFx() };
+    end = { date: t, netWorth: summary.netWorth, pnl: { stocks: investProfit('stocks'), crypto: investProfit('crypto') }, items: Calc.itemValues(state, t), cats: summary.totals, fx: usedFx() };
   } else {
     end = [...hist].reverse().find((h) => h.date < first(ym));
     if (!end || end.date <= start.date) return null;
