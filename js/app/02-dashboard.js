@@ -22,9 +22,10 @@ const VIEWS = [
   { id: 'platform', hidden: true },
   { id: 'region', hidden: true },
   { id: 'card', hidden: true },
+  { id: 'history', hidden: true },
 ];
 // Detail pages highlight their parent in the navigation.
-const NAV_PARENT = { account: 'accounts', deposits: 'accounts', platform: 'platforms', region: 'platforms', card: 'cashflows' };
+const NAV_PARENT = { account: 'accounts', deposits: 'accounts', platform: 'platforms', region: 'platforms', card: 'cashflows', history: 'stocks' };
 
 let currentView = 'dashboard';
 let viewParam = null;
@@ -48,7 +49,7 @@ function route() {
 
 function renderNav() {
   let group = null;
-  const active = NAV_PARENT[currentView] || currentView;
+  const active = currentView === 'history' ? (viewParam === 'crypto' ? 'crypto' : 'stocks') : NAV_PARENT[currentView] || currentView;
   $('#nav').innerHTML = VIEWS.filter((v) => !v.hidden).map((v) => {
     const head = v.group !== group ? `${(group = v.group) ? `<div class="nav-group">${v.group}</div>` : '<div class="nav-sep"></div>'}` : '';
     return `${head}<a href="#${v.id}" class="${v.id === active ? 'active' : ''}" title="${v.label}"><span class="icon">${icon(v.icon)}</span><span>${v.label}</span>${navCount(v.id)}</a>`;
@@ -102,6 +103,7 @@ function render() {
   else if (currentView === 'platform') main.innerHTML = renderPlatformDetail(viewParam ?? '');
   else if (currentView === 'region') main.innerHTML = renderRegion(viewParam ?? '');
   else if (currentView === 'card') main.innerHTML = renderCard(viewParam);
+  else if (currentView === 'history') main.innerHTML = renderHistoryPage(viewParam === 'crypto' ? 'crypto' : 'stocks');
   else main.innerHTML = renderSection(currentView);
   applyLayout();
   Charts.bindLineHover(main, tooltip);
@@ -155,7 +157,7 @@ function activityText(e) {
   }
   if (e.kind === 'trade' && e.side === 'dividend') return `Dividend from ${esc(e.symbol)}: ${money(e.amount, e.currency)}${e.reinvestQty ? ` reinvested in ${num(e.reinvestQty, 8)} shares` : e.cashAmount != null ? ` — +${money(e.cashAmount, e.cashCurrency)}` : ''}.`;
   if (e.kind === 'trade' && e.side === 'split') return `${esc(e.symbol)} split ${num(e.ratio, 6)}-for-1: ${num(e.before.quantity, 8)} → ${num(e.quantity, 8)}.`;
-  if (e.kind === 'trade') return `${e.side === 'buy' ? 'Bought' : 'Sold'} ${num(e.quantity, 8)} ${esc(e.symbol)} at ${money(e.price, e.currency)}${e.fee ? ` (fee ${money(e.fee, e.currency)})` : ''}${e.cashAmount != null ? ` — ${e.side === 'buy' ? '−' : '+'}${money(e.cashAmount, e.cashCurrency)}` : ''}${e.side === 'sell' && e.realised != null ? `, profit ${signed(e.realised, e.currency)}` : ''}.`;
+  if (e.kind === 'trade') return `${e.side === 'buy' ? 'Bought' : 'Sold'} ${num(e.quantity, 8)} ${esc(e.symbol)} at ${money(e.price, e.currency)}${e.fee ? ` (fee ${money(e.fee, e.currency)})` : ''}${e.cashAmount != null ? ` · ${e.side === 'buy' ? 'paid' : 'received'} ${money(e.cashAmount, e.cashCurrency)}` : ''}${e.side === 'sell' && e.realised != null ? `, profit ${signed(e.realised, e.currency)}` : ''}.`;
   if (e.kind === 'transfer') return `Transferred ${money(e.amount, e.currency)} from “${esc(e.accountName)}” to “${esc(e.toAccountName)}”${e.toCurrency !== e.currency ? ` (received ${money(e.received, e.toCurrency)})` : ''}${e.note ? ` — ${esc(e.note)}` : ''}.`;
   return esc(e.text || '');
 }
@@ -178,7 +180,9 @@ function renderDashboard() {
 
   const hist = filteredHistory();
   const first = hist[0];
-  const histChange = first && hist.length > 1 ? s.netWorth - first.value : null;
+  const nwNow = nwValueNow();
+  if (hist.length) hist[hist.length - 1] = { ...hist[hist.length - 1], value: nwNow };
+  const histChange = first && hist.length > 1 ? nwNow - first.value : null;
   const RANGES = [['7', '1W', 'last week'], ['30', '1M', 'last month'], ['90', '3M', '3 months ago'], ['365', '1Y', 'a year ago'], ['all', 'All', 'the start']];
   const rangeName = (RANGES.find((r) => r[0] === historyRange) || RANGES[1])[2];
 
@@ -215,12 +219,14 @@ function renderDashboard() {
         <section class="card nw-card">
           <div class="nw-head">
             <div>
-              <div class="tile-label">Net worth</div>
-              <div class="hero-value">${money(s.netWorth)}</div>
+              <div class="tile-label">${liquidView ? 'Liquid net worth' : 'Net worth'}</div>
+              <div class="hero-value">${money(nwNow)}</div>
               <div class="nw-change">${histChange != null ? `${signed(histChange)} <span class="${histChange >= 0 ? 'pos' : 'neg'}">(${first.value ? `${histChange >= 0 ? '+' : ''}${((histChange / Math.abs(first.value)) * 100).toFixed(1)}%` : '—'})</span> <span class="sub">vs ${rangeName}</span>` : '<span class="sub">History builds up day by day</span>'}</div>
             </div>
-            <select class="range-select" data-range-select aria-label="Chart period">${RANGES.map(([v, l]) => `<option value="${v}" ${historyRange === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+            <div class="invest-controls"><div class="seg">${[['all', 'All'], ['liquid', 'Liquid']].map(([k, l]) => `<button class="${(liquidView ? 'liquid' : 'all') === k ? 'on' : ''}" data-nw-view="${k}" aria-pressed="${(liquidView ? 'liquid' : 'all') === k}" title="${k === 'liquid' ? 'Leaves out property, other assets and the loans secured on them' : 'Everything you own and owe'}">${l}</button>`).join('')}</div>
+            <select class="range-select" data-range-select aria-label="Chart period">${RANGES.map(([v, l]) => `<option value="${v}" ${historyRange === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
           </div>
+          ${liquidView ? `<p class="sub nw-liquid-note">Leaves out property, other assets and the loans secured on them (${money(s.netWorth - nwNow, base(), 0)} net). Change what counts on each other asset or loan.</p>` : ''}
           ${Charts.lineChart(hist, { format: (v) => money(v), height: 200 })}
           <div class="nw-foot">
             ${state.stocks.length + state.crypto.length ? `<span>Markets today ${signed(s.dayChange)}</span>` : ''}
@@ -228,6 +234,7 @@ function renderDashboard() {
           </div>
         </section>
       </div>
+      <div class="wide" data-box="changed" data-name="What changed">${whatChangedCard()}</div>
       ${alerts ? `<div class="wide" data-box="attention" data-name="Needs attention"><ul class="alerts">${alerts}</ul></div>` : ''}
       <div class="wide" data-box="assets" data-name="Assets">${assetsCard(assetGroups(), 'Assets', s.assets)}</div>
       ${debts.length ? `<div class="wide" data-box="debts" data-name="Debts">${assetsCard(debts, 'Debts', s.liabilities, true)}</div>` : ''}
@@ -242,8 +249,9 @@ function renderDashboard() {
         ${events ? `<ul class="events">${events}</ul>${soon.length > 5 ? `<button class="btn small ghost see-all" data-events-all>${eventsAll ? 'Show fewer' : `See all ${soon.length}`}</button>` : ''}` : '<p class="sub">Nothing due this week. Add bills, income and subscriptions in <a href="#cashflows">Cash flow</a>.</p>'}
       </div>
       <div class="card wide" data-box="goals" data-name="Goals">
-        <h2>Goals</h2>
-        ${state.goals.length ? state.goals.map(goalCard).join('') : '<p class="sub">No goals yet. <a href="#goals">Set one</a> — e.g. an emergency fund of 6 months’ expenses.</p>'}
+        <div class="card-head"><h2>Goals</h2><a href="#goals" class="sub">All goals →</a></div>
+        ${homeMixSummary()}
+        ${state.goals.length ? state.goals.map(goalCard).join('') : state.settings.targetMix ? '' : '<p class="sub">No goals yet. <a href="#goals">Set one</a> — e.g. an emergency fund of 6 months’ expenses.</p>'}
       </div>
     </section>`;
 }
@@ -442,7 +450,31 @@ function setupAlerts() {
   return out;
 }
 
+// Net worth shown on Home: everything, or liquid only (remembered on this device).
+let liquidView = (() => { try { return localStorage.getItem('moneymonkey.nwView') === 'liquid'; } catch (e) { return false; } })();
+const liquidSets = () => ({ skip: Calc.illiquidIds(state), debts: new Set(state.liabilities.map((l) => l.id)) });
+function nwValueNow() {
+  if (!liquidView) return summary.netWorth;
+  const { skip, debts } = liquidSets();
+  return Calc.liquidOf({ netWorth: summary.netWorth, items: Calc.itemValues(state, todayISO()) }, skip, debts);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-nw-view]');
+  if (!b) return;
+  liquidView = b.dataset.nwView === 'liquid';
+  try { localStorage.setItem('moneymonkey.nwView', liquidView ? 'liquid' : 'all'); } catch (err) { /* storage unavailable */ }
+  render();
+});
+
 function filteredHistory() {
+  // Liquid: from days that saved each item's value (since 28 Oct 2026), in the base currency.
+  if (liquidView) {
+    const { skip, debts } = liquidSets();
+    const pts = state.history.filter((h) => (h.currency || base()) === base()).map((h) => ({ date: h.date, value: Calc.liquidOf(h, skip, debts) })).filter((p) => p.value != null && isFinite(p.value));
+    if (historyRange === 'all') return pts;
+    const from = Calc.toISO(Calc.addDays(new Date(), -+historyRange));
+    return pts.filter((p) => p.date >= from);
+  }
   // Days saved while the base currency was different are converted at today's rate.
   const pts = state.history.map((h) => ({ date: h.date, value: !h.currency || h.currency === base() ? h.netWorth : Calc.convert(h.netWorth, h.currency, base(), state.fx) })).filter((p) => isFinite(p.value));
   if (historyRange === 'all') return pts;
@@ -578,4 +610,93 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-side-close]')) { sideSel = null; renderSide(); }
   const end = e.target.closest('[data-side-end]');
   if (end && confirm('End this now? It moves to Ended in Cash Flow → Items, ready to restart.')) endCashflow(end.dataset.sideEnd);
+});
+
+
+// ---------------------------------------------------------------- Home: target mix in the Goals box
+
+// One line per area that's off target (or "on target"), linking to the full Target mix on Goals.
+function homeMixSummary() {
+  const cfg = state.settings.targetMix;
+  if (!cfg) return '';
+  const mix = Calc.targetMix(summary.totals, cfg, 0);
+  const off = mix.rows.filter((r) => !r.onTarget).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+  const rows = off.slice(0, 4).map((r) => `<div class="mix-mini"><span><span class="dot" style="background:${CATEGORY_COLORS[r.key]}"></span>${esc(CATEGORY_LABELS[r.key])}</span><span class="sub">${r.pct.toFixed(1)}% → ${r.target}%</span><span class="badge warn">${r.gap > 0 ? `Add ${moneyShort(r.gap)}` : `Over by ${moneyShort(-r.gap)}`}</span></div>`).join('');
+  return `<a class="mix-home" href="#goals"><div class="mix-head"><strong>Target mix</strong>${mix.onTarget ? '<span class="badge good">On target</span>' : `<span class="badge warn">${plural(off.length, 'area')} off target</span>`}</div>${rows}</a>`;
+}
+
+// ---------------------------------------------------------------- Home: what changed
+
+let changedPeriod = 'this';
+const CHANGE_LABELS = { markets: 'Markets (stocks & crypto)', values: 'Property & other asset values', debt: 'Debt paid down', interest: 'Interest earned (est.)', currency: 'Currency moves', saved: 'Saved, spent & other' };
+const CHANGE_NOTES = {
+  markets: 'What your holdings gained or lost in price, incl. profit from sales.',
+  values: 'New valuations of property and other assets you already had.',
+  debt: 'How much less you owe on loans you already had.',
+  interest: 'From savers and fixed deposits, at today’s rates.',
+  currency: 'Exchange rates alone, on what you hold in other currencies.',
+  saved: 'Income in, spending out, and anything else (new items, transfers…).',
+};
+
+// The figures of a period: start and end snapshots, live for this month.
+function changePeriod(which) {
+  const t = todayISO();
+  const ym = t.slice(0, 7);
+  const first = (m) => `${m}-01`;
+  const lastYm = Calc.toISO(Calc.addMonths(Calc.parseDate(first(ym)), -1)).slice(0, 7);
+  const hist = state.history.filter((h) => (h.currency || base()) === base() && h.netWorth != null);
+  const from = which === 'this' ? first(ym) : first(lastYm);
+  const start = [...hist].reverse().find((h) => h.date < from) || hist.find((h) => h.date >= from && h.date < t);
+  if (!start) return null;
+  let end;
+  if (which === 'this') {
+    end = { date: t, netWorth: summary.netWorth, pnl: { stocks: investProfit('stocks'), crypto: investProfit('crypto') }, items: Calc.itemValues(state, t), fx: usedFx() };
+  } else {
+    end = [...hist].reverse().find((h) => h.date < first(ym));
+    if (!end || end.date <= start.date) return null;
+  }
+  return { start, end, days: Math.max(0, Calc.daysBetween(start.date, end.date)), label: which === 'this' ? `Since ${fmtDate(start.date)}` : `${fmtMonth(lastYm)} (${fmtDate(start.date)} – ${fmtDate(end.date)})` };
+}
+
+function whatChangedCard() {
+  const p = changePeriod(changedPeriod);
+  const seg = [['this', 'This month'], ['last', 'Last month']].map(([k, l]) => `<button class="${changedPeriod === k ? 'on' : ''}" data-changed="${k}" aria-pressed="${changedPeriod === k}">${l}</button>`).join('');
+  const head = `<div class="card-head"><h2>What changed</h2><div class="seg">${seg}</div></div>`;
+  if (!p) return `<div class="card changed-card">${head}<p class="sub">This fills in once the app has saved a few days — it saves one snapshot a day you open it.</p></div>`;
+  const kinds = {};
+  for (const sec of ['properties', 'others', 'liabilities']) for (const x of state[sec] || []) kinds[x.id] = sec;
+  // Liquid: the same, without property, other assets and the loans secured on them.
+  let { start, end } = p;
+  let skip = null;
+  if (liquidView) {
+    const ls = liquidSets();
+    skip = ls.skip;
+    const strip = (h) => (h.items ? { ...h, netWorth: Calc.liquidOf(h, ls.skip, ls.debts), items: Object.fromEntries(Object.entries(h.items).filter(([id]) => !ls.skip.has(id))) } : { ...h, netWorth: null });
+    start = strip(start);
+    end = strip(end);
+    if (start.netWorth == null || end.netWorth == null) return `<div class="card changed-card">${head}<p class="sub">Liquid net worth is tracked from 28 Oct 2026 — switch to All for this period.</p></div>`;
+  }
+  const currency = start.fx && end.fx ? Calc.currencyEffect(state, start.fx, end.fx, todayISO(), skip) : null;
+  const r = Calc.changeBreakdown(start, end, { kinds, interest: summary.interestDaily * p.days, currency });
+  const max = Math.max(1, ...r.parts.map((x) => Math.abs(x.value || 0)));
+  // In the liquid view, property values and secured debts are left out, so their empty lines go.
+  const parts = liquidView ? r.parts.filter((x) => !((x.key === 'values' || x.key === 'debt') && !x.value)) : r.parts;
+  const rows = parts.map((x) => {
+    const v = x.value;
+    if (v == null) return `<div class="chg-row muted"><span class="chg-label">${CHANGE_LABELS[x.key]}<span class="sub">Tracked from ${x.key === 'currency' ? 'today' : 'the next few days'} — included in “${CHANGE_LABELS.saved}” for now.</span></span><span class="chg-bar"></span><span class="num sub">—</span></div>`;
+    const w = (Math.abs(v) / max) * 50;
+    return `<div class="chg-row" title="${esc(CHANGE_NOTES[x.key])}"><span class="chg-label">${CHANGE_LABELS[x.key]}<span class="sub">${CHANGE_NOTES[x.key]}</span></span>
+      <span class="chg-bar"><span class="${v >= 0 ? 'up' : 'down'}" style="width:${w}%;${v >= 0 ? 'left:50%' : `left:${50 - w}%`}"></span></span>
+      <span class="num">${signed(v, base(), 0)}</span></div>`;
+  }).join('');
+  return `<div class="card changed-card">${head}
+      <div class="changed-total"><span class="sub">${esc(p.label)}</span><strong>${signed(r.total, base(), 0)}</strong><span class="sub">${liquidView ? 'liquid net worth' : 'net worth'}</span></div>
+      <div class="chg-rows">${rows}</div>
+    </div>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-changed]');
+  if (!b) return;
+  changedPeriod = b.dataset.changed;
+  render();
 });

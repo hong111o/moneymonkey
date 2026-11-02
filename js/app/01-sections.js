@@ -282,6 +282,7 @@ const SECTIONS = {
       currencyField,
       { key: 'value', label: 'Value', type: 'number', required: true },
       { key: 'valueDate', label: 'Valued on', type: 'date', default: todayISO },
+      { key: 'liquid', label: 'Count it in liquid net worth (you could sell it quickly, e.g. gold, a fund)', type: 'checkbox', span: true },
       { key: 'annualChangePct', label: 'Expected change per year (%)', type: 'number', help: 'Negative for depreciation. Leave blank to keep the value fixed.' },
     ],
     columns: [
@@ -309,6 +310,11 @@ const SECTIONS = {
       { key: 'principal', label: 'Original loan amount', type: 'number', required: true, showIf: (v) => v.mode !== 'manual' },
       { key: 'startDate', label: 'Loan start date', type: 'date', required: true, showIf: (v) => v.mode !== 'manual', help: 'First repayment is assumed one month after this date.' },
       { key: 'rate', label: 'Interest rate (% per year)', type: 'number' },
+      {
+        key: 'liquidMode', label: 'In liquid net worth', type: 'select', showIf: (v) => v.type !== 'credit',
+        options: () => [{ value: '', label: 'Automatic' }, { value: 'out', label: 'Leave it out' }, { value: 'in', label: 'Count it' }],
+        help: 'Liquid net worth leaves out property and other assets, and the loans secured on them. Automatic leaves out mortgages and car loans and counts other loans.',
+      },
       { key: 'payment', label: 'Monthly repayment', type: 'number', required: true, showIf: (v) => v.mode !== 'manual' },
       { key: 'paymentManual', label: 'Monthly repayment (optional)', type: 'number', showIf: (v) => v.mode === 'manual', transient: true },
     ],

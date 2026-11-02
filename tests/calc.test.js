@@ -918,3 +918,39 @@ test('targetMix: shares, gaps, on/off target, moves and how to split new money',
   // With property included, it counts in the total.
   assert.equal(C.targetMix(totals, { targets: { property: 90, cash: 10 }, includeProperty: true }).total, 5500);
 });
+
+test('changeBreakdown splits a net worth change into its causes', () => {
+  const start = { netWorth: 1000, pnl: { stocks: 100, crypto: 0 }, items: { flat: 500, loan: 300, cash: 600 } };
+  const end = { netWorth: 1300, pnl: { stocks: 150, crypto: 10 }, items: { flat: 520, loan: 280, cash: 700, newCar: 50 } };
+  const r = C.changeBreakdown(start, end, { kinds: { flat: 'properties', loan: 'liabilities', newCar: 'others' }, interest: 5, currency: -15 });
+  const v = Object.fromEntries(r.parts.map((p) => [p.key, p.value]));
+  assert.equal(r.total, 300);
+  assert.equal(v.markets, 60);
+  assert.equal(v.values, 20); // the new car isn't a value change
+  assert.equal(v.debt, 20);
+  assert.equal(v.saved, 300 - 60 - 20 - 20 - 5 + 15);
+  // Missing data: that cause is null and falls into the rest.
+  const r2 = C.changeBreakdown({ netWorth: 1000 }, { netWorth: 1100 }, {});
+  assert.equal(r2.parts.find((p) => p.key === 'markets').value, null);
+  assert.equal(r2.parts.find((p) => p.key === 'saved').value, 100);
+});
+
+test('currencyEffect: rates alone, debts the other way round, holdings at cost', () => {
+  const state = { settings: { baseCurrency: 'HKD' }, accounts: [{ balances: [{ currency: 'GBP', amount: 100 }] }], stocks: [{ quantity: 1, avgCost: 50, lastPrice: 80, currency: 'USD' }], crypto: [], deposits: [], properties: [], others: [], liabilities: [{ mode: 'manual', balance: 10, currency: 'GBP' }] };
+  const from = { base: 'HKD', rates: { HKD: 1, GBP: 0.1, USD: 0.125 } }; // £1 = HK$10, $1 = HK$8
+  const to = { base: 'HKD', rates: { HKD: 1, GBP: 0.095, USD: 0.125 } }; // £ up ~5.3%
+  const e = C.currencyEffect(state, from, to, '2026-11-02');
+  // (100 − 10) × (1/0.095 − 1/0.1) ≈ 47.37; USD unchanged
+  assert.ok(Math.abs(e - 47.37) < 0.01, e);
+});
+
+test('liquid net worth leaves out property, other assets and the loans secured on them', () => {
+  const state = { properties: [{ id: 'flat' }], others: [{ id: 'car' }, { id: 'gold', liquid: true }], liabilities: [{ id: 'mort', type: 'mortgage' }, { id: 'pl', type: 'personal' }, { id: 'carloan', type: 'car', liquidMode: 'in' }] };
+  const skip = C.illiquidIds(state);
+  assert.deepEqual([...skip].sort(), ['car', 'flat', 'mort']);
+  const debts = new Set(['mort', 'pl', 'carloan']);
+  // net worth 1000 = cash 400 + flat 900 + car 100 + gold 50 − mortgage 400 − personal 50
+  const entry = { netWorth: 1000, items: { cash: 400, flat: 900, car: 100, gold: 50, mort: 400, pl: 50 } };
+  assert.equal(C.liquidOf(entry, skip, debts), 1000 - 900 - 100 + 400); // 400 cash + 50 gold − 50 personal
+  assert.equal(C.liquidOf({ netWorth: 5 }, skip, debts), null);
+});

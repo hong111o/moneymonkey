@@ -84,6 +84,18 @@ function investProfitParts(sec) {
   return { total: total + realised, realised };
 }
 
+// Today's exchange rates for the currencies in use (null until rates have loaded).
+function usedFx() {
+  const fxNow = state.fx || {};
+  if (!fxNow.rates || fxNow.base !== base()) return null;
+  const used = new Set();
+  for (const a of state.accounts) for (const b of Calc.accountBalances(a)) used.add(b.currency);
+  for (const sec of ['stocks', 'crypto', 'deposits', 'properties', 'others', 'liabilities']) for (const x of state[sec] || []) if (x.currency) used.add(x.currency);
+  const rates = {};
+  for (const c of used) if (c && c !== base() && fxNow.rates[c]) rates[c] = fxNow.rates[c];
+  return Object.keys(rates).length ? { base: base(), rates } : null;
+}
+
 function recordSnapshot() {
   const s = Calc.summarize(state, todayISO());
   if (!s.assets && !s.liabilities) return;
@@ -100,7 +112,9 @@ function recordSnapshot() {
   summary = s;
   const breakdown = monthBreakdown(todayISO().slice(0, 7));
   summary = prevSummary;
-  state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), ...plan, cats, items, pnl, breakdown, t: Date.now() }, HISTORY_MAX);
+  // The day's exchange rates for the currencies you hold, to show how much currency moves changed things.
+  const fx = usedFx();
+  state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), ...plan, cats, items, pnl, breakdown, ...(fx ? { fx } : {}), t: Date.now() }, HISTORY_MAX);
   // Only each month's latest day keeps its breakdown.
   for (let i = 0; i < state.history.length - 1; i++) if (state.history[i].breakdown && state.history[i].date.slice(0, 7) === state.history[i + 1].date.slice(0, 7)) delete state.history[i].breakdown;
   // Item values are only kept for the last 400 days, so the saved history stays small.
@@ -118,7 +132,7 @@ function recordSnapshot() {
     const day = Date.parse(h.date) / 864e5;
     // Loans were a little higher in the past (repayments bring them down).
     const ago = Math.max(0, (Date.parse(todayISO()) - Date.parse(h.date)) / 864e5);
-    const owed = h.demo * (1 + ago * 0.0003);
+    const owed = 1 + ago * 0.0003;
     // The wave settles over the last ten days, so the lines meet today's real figures.
     const settle = Math.min(1, ago / 10);
     const wave = (key, amp) => { let seed = 0; for (const ch of key) seed = (seed * 31 + ch.charCodeAt(0)) % 997; return h.demo * (1 + settle * (amp * Math.sin(day / 9 + seed) + amp * 0.4 * Math.sin(day / 2.7 + seed * 2))); };
@@ -126,6 +140,8 @@ function recordSnapshot() {
     h.cats = Object.fromEntries(Object.entries(cats).map(([k, v]) => [k, round2(v * (k === 'debt' || k === 'loans' ? owed : wave(k, amp(k))))]));
     const kindOf = (id) => (state.stocks.some((x) => x.id === id) ? 'stocks' : state.crypto.some((x) => x.id === id) ? 'crypto' : state.properties.some((x) => x.id === id) ? 'property' : 'cash');
     h.items = Object.fromEntries(Object.entries(items).map(([id, v]) => [id, round2(v * (state.liabilities.some((x) => x.id === id) ? owed : wave(id, amp(kindOf(id)))))]));
+    // Made-up exchange rates that drift a little (and meet today's), so the demo shows currency moves.
+    if (fx) h.fx = { base: fx.base, rates: Object.fromEntries(Object.entries(fx.rates).map(([c, v]) => [c, c === fx.base ? v : +(v * (1 + settle * 0.03 * Math.sin(day / 11 + c.charCodeAt(0)))).toFixed(6)])) };
     // Profit moved with the market: today's profit less what the value has gained since that day.
     h.pnl = { stocks: round2(pnl.stocks - (cats.stocks - h.cats.stocks)), crypto: round2(pnl.crypto - (cats.crypto - h.cats.crypto)) };
     // The demo's past plans are filled in once, then kept like real saved months.

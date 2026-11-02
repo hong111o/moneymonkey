@@ -458,6 +458,84 @@
     return occ[0] || null;
   }
 
+  // ---------- what changed ----------
+
+  // How much exchange rates alone moved your net worth between two sets of rates, on what you
+  // hold now. Stocks and crypto count at their cost (their profit's own move is "markets").
+  function currencyEffect(state, fxFrom, fxTo, today, skip = null) {
+    const base = state.settings.baseCurrency;
+    let sum = 0;
+    for (const section of Object.keys(PLATFORM_GROUPS)) {
+      const sign = section === 'liabilities' ? -1 : 1;
+      for (const item of state[section] || []) {
+        if (skip && skip.has(item.id)) continue;
+        const parts = section === 'stocks' || section === 'crypto' ? [{ currency: item.currency, value: holdingValue(item).cost }] : itemParts(section, item, today);
+        for (const p of parts) {
+          if (!p.currency || p.currency === base || !isFinite(p.value)) continue;
+          const a = convert(p.value, p.currency, base, fxTo);
+          const b = convert(p.value, p.currency, base, fxFrom);
+          if (isFinite(a) && isFinite(b)) sum += sign * (a - b);
+        }
+      }
+    }
+    return round2(sum);
+  }
+
+  // Splits a net worth change between two snapshots ({ netWorth, pnl, items }) into its causes:
+  // markets (stocks & crypto profit), property & other asset values, debt paid down, interest,
+  // currency moves, and the rest (money saved and spent). `kinds` maps item ids to their section.
+  // A cause without data on both days is null and falls into the rest.
+  function changeBreakdown(start, end, { kinds = {}, interest = null, currency = null } = {}) {
+    const total = round2((end.netWorth || 0) - (start.netWorth || 0));
+    const both = (k) => start[k] && end[k];
+    const markets = both('pnl') ? round2(((end.pnl.stocks || 0) + (end.pnl.crypto || 0)) - ((start.pnl.stocks || 0) + (start.pnl.crypto || 0))) : null;
+    let values = null;
+    let debt = null;
+    if (both('items')) {
+      values = 0; debt = 0;
+      for (const [id, v] of Object.entries(end.items)) {
+        if (start.items[id] == null) continue; // bought or added since: that's money moved, not a value change
+        const k = kinds[id];
+        if (k === 'properties' || k === 'others') values += v - start.items[id];
+        if (k === 'liabilities') debt += start.items[id] - v;
+      }
+      values = round2(values); debt = round2(debt);
+    }
+    const parts = [
+      { key: 'markets', value: markets },
+      { key: 'values', value: values },
+      { key: 'debt', value: debt },
+      { key: 'interest', value: interest == null ? null : round2(interest) },
+      { key: 'currency', value: currency == null ? null : round2(currency) },
+    ];
+    const known = parts.reduce((t, p) => t + (p.value || 0), 0);
+    parts.push({ key: 'saved', value: round2(total - known) });
+    return { total, parts };
+  }
+
+  // ---------- liquid net worth ----------
+
+  // Items left out of liquid net worth: property, other assets (unless marked liquid), and loans
+  // secured on them (mortgages and car loans automatically, or as set on the loan).
+  function illiquidIds(state) {
+    const out = new Set();
+    for (const p of state.properties || []) out.add(p.id);
+    for (const o of state.others || []) if (!o.liquid) out.add(o.id);
+    for (const l of state.liabilities || []) {
+      const auto = l.type === 'mortgage' || l.type === 'car';
+      if (l.liquidMode === 'out' || (!l.liquidMode && auto)) out.add(l.id);
+    }
+    return out;
+  }
+  // Liquid net worth of a snapshot: net worth less left-out assets, plus left-out debts (`debtIds`).
+  // Needs the snapshot's item values; null without them.
+  function liquidOf(entry, skip, debtIds) {
+    if (!entry || !entry.items) return null;
+    let v = entry.netWorth || 0;
+    for (const [id, x] of Object.entries(entry.items)) if (skip.has(id)) v += debtIds.has(id) ? x : -x;
+    return round2(v);
+  }
+
   // ---------- target mix ----------
 
   // How the assets are spread against target percentages (`targets`: { cash: 20, stocks: 50, … },
@@ -1417,7 +1495,7 @@
     otherAssetValue,
     latestValuation, propertyValue,
     holdingValue, holdingView, costMethod, dilutedRealised, dividendPerYear,
-    monthlyAmount, amountOn, inMonth, hasEnded, occurrences, nextOccurrence, targetMix, MIX_KEYS,
+    monthlyAmount, amountOn, inMonth, hasEnded, occurrences, nextOccurrence, targetMix, MIX_KEYS, currencyEffect, changeBreakdown, illiquidIds, liquidOf,
     upsertHistory, monthsToGoal, spendingByMonth,
     summarize,
     itemValue, itemParts, itemValues, migratePlatforms, platformBreakdown,

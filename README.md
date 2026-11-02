@@ -186,9 +186,17 @@ On a computer, the menu is a column of icons on the left (hover for names). The 
 
 Set what % of your assets you'd like in each area: Cash & Bank, Stocks & ETFs, Crypto, Fixed Deposits, Other Assets, and Property if you switch on **Include property** (off by default). The targets must add up to 100%. Goals then shows each area's current share against its target, whether it's on target (within ±5 points by default, adjustable), how much to add or how much it's over, suggested moves to rebalance, and how to split this month's surplus to get closer without selling. Shares use your assets in your base currency; debts aren't counted.
 
-### Trade history and closed positions
+### Trade history
 
-Stocks and Crypto list every buy, sell, dividend and split under **Trade history**, newest first, with a platform filter — including holdings you've sold out of or deleted (marked "no longer held").
+On Stocks and Crypto, the **History** button opens every buy, sell, dividend and split, grouped by month, newest first — including holdings you've sold out of or deleted (marked "no longer held"). Filter by platform and by type; boxes at the top total what you bought and sold, the realised profit and dividends for what's listed.
+
+### What changed (Home)
+
+Splits your net worth change for **this month** or **last month** into its causes: markets (stocks & crypto), property & other asset values, debt paid down, interest earned (estimated), currency moves, and saved, spent & other. The lines always add up to the change; buying something new moves money between lines rather than counting as a gain. Markets is tracked from 31 Oct 2026 and currency moves from 2 Nov 2026; until a period has them, they're included in "saved, spent & other".
+
+### Liquid net worth
+
+The **All / Liquid** switch on the Net Worth card shows your net worth without property and other assets, and without the loans secured on them (mortgages and car loans automatically). Tick **Count it in liquid net worth** on an other asset you could sell quickly (e.g. gold), or change **In liquid net worth** on a loan. The chart and What changed follow the switch; liquid history starts 28 Oct 2026. Home's Goals box also shows your **target mix** status.
 
 ### Ticker currency
 

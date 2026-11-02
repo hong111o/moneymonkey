@@ -1012,3 +1012,31 @@ table.data td.actions:has(.lock-btn) { display: flex !important; align-items: ce
 .month-lines .num { display: flex; flex-direction: column; align-items: flex-end; }
 .m-chg { font-size: 0.75rem; font-weight: 400; }
 .m-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* What changed (Home) */
+.changed-total { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
+.changed-total strong { font-size: 1.5rem; }
+.chg-rows { display: flex; flex-direction: column; }
+.chg-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(80px, 1fr) auto; gap: 12px; align-items: center; padding: 9px 0; border-top: 1px solid var(--border); }
+.chg-label { display: flex; flex-direction: column; min-width: 0; }
+.chg-label .sub { font-size: 0.75rem; }
+.chg-bar { position: relative; height: 10px; background: linear-gradient(var(--axis), var(--axis)) 50% 0 / 1px 100% no-repeat; }
+.chg-bar span { position: absolute; top: 1px; bottom: 1px; border-radius: 3px; }
+.chg-bar .up { background: var(--pos); }
+.chg-bar .down { background: var(--neg); }
+.chg-row .num { text-align: right; white-space: nowrap; min-width: 96px; }
+.chg-row.muted { opacity: 0.7; }
+@media (max-width: 860px) {
+  .chg-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .chg-bar { grid-column: 1 / -1; grid-row: 2; }
+  .chg-label .sub { display: none; }
+}
+/* Target mix summary in Home's Goals box */
+.mix-home { display: block; text-decoration: none; color: inherit; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); margin-bottom: 12px; }
+.mix-home .mix-head { margin-bottom: 4px; }
+.mix-mini { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; font-size: 0.86rem; padding: 4px 0; }
+.hist-month-head { display: block !important; font-weight: 600; font-size: 0.85rem; color: var(--text-2); padding: 14px 0 4px; border-bottom: 0 !important; }
+.trade-history li:first-child.hist-month-head { padding-top: 0; }
+.count-pill { font-size: 0.75rem; background: var(--surface-2); border-radius: 99px; padding: 0 7px; margin-left: 2px; }
+.nw-liquid-note { margin: -2px 0 6px; font-size: 0.8rem; }
+@media (max-width: 860px) { .nw-card .nw-head { flex-wrap: wrap; } .nw-card .nw-head > div:first-child { flex: 1 1 100%; } .nw-card .invest-controls { width: 100%; justify-content: space-between; } }

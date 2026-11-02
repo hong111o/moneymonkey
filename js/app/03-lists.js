@@ -79,7 +79,7 @@ function renderSection(key, opts = {}) {
       <div class="row-actions">
         ${showFilter ? `<select class="filter" data-filter="${key}" aria-label="Filter by platform"><option value="__all">All platforms</option>${platformNames.map((p) => `<option value="${esc(p)}" ${filter === p ? 'selected' : ''}>${esc(p || 'No platform')}</option>`).join('')}</select>` : ''}
         ${currencies.length > 1 ? `<select class="filter" data-filter="accountsCurrency" aria-label="Filter by currency"><option value="__all">All currencies</option>${currencies.map((c) => `<option value="${esc(c)}" ${curFilter === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : ''}
-        ${key === 'stocks' || key === 'crypto' ? `<button class="btn" data-action="refresh">${icon('refresh')} Prices</button><button class="btn" data-action="trade-buy" data-sec="${key}">Buy / sell</button>` : ''}
+        ${key === 'stocks' || key === 'crypto' ? `<button class="btn" data-action="refresh">${icon('refresh')} Prices</button><button class="btn" data-action="trade-buy" data-sec="${key}">Buy / sell</button><a class="btn" href="#history/${key}">${icon('report')} History${sectionTrades(key).length ? ` <span class="count-pill">${sectionTrades(key).length}</span>` : ''}</a>` : ''}
         ${key === 'accounts' && state.accounts.length ? '<button class="btn" data-action="checkin">Check-in</button><button class="btn" data-action="transfer">Transfer / exchange</button>' : ''}
         ${key === 'cashflows' ? '<button class="btn" data-action="add" data-sec="cashflows" data-once="1">+ Add extra / one-off</button>' : ''}
         <button class="btn primary" data-action="add" data-sec="${key}">+ Add</button>
@@ -94,7 +94,6 @@ function renderSection(key, opts = {}) {
       : `<div class="card empty">No ${sec.singular}s${filter != null || curFilter ? ' match this filter' : ' yet'}. <button class="btn primary" data-action="add" data-sec="${key}">+ Add ${sec.singular}</button></div>`}
     ${key === 'deposits' ? renderDepositHistory() : ''}
     ${key === 'stocks' || key === 'crypto' ? renderBrokerCard(key) : ''}
-    ${key === 'stocks' || key === 'crypto' ? renderTradeHistory(key) : ''}
     ${opts.after || ''}`;
 }
 
@@ -515,26 +514,63 @@ document.addEventListener('change', (e) => {
 
 // Every buy, sell, dividend and split of a section, newest first — also for holdings that were
 // sold out or deleted. Filter by platform; the latest 20 show until "Show all".
-const tradeView = { platform: {}, all: {} };
+const tradeView = { platform: {}, all: {}, side: {} };
 function sectionTrades(key) {
   const ids = new Set((state[key] || []).map((h) => h.id));
   return (state.trades || []).filter((t) => (t.section ? t.section === key : ids.has(t.holdingId)))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b._mt || 0) - (a._mt || 0)));
 }
-function renderTradeHistory(key) {
+// The trade history page (#history/stocks, #history/crypto): every buy, sell, dividend and split,
+// newest first, with filters by platform and type and a summary of the period.
+function renderHistoryPage(key) {
+  const title = key === 'crypto' ? 'Crypto' : 'Stocks & ETFs';
+  const back = `<a class="back" href="#${key}">‹ ${title}</a>`;
   const all = sectionTrades(key);
-  if (!all.length) return '';
   const platforms = [...new Set(all.map((t) => t.platform || ''))].sort();
   const pf = tradeView.platform[key];
-  const list = pf == null ? all : all.filter((t) => (t.platform || '') === pf);
-  const shown = tradeView.all[key] ? list : list.slice(0, 20);
+  const side = tradeView.side[key] || '';
+  const list = all.filter((t) => (pf == null || (t.platform || '') === pf) && (!side || t.side === side));
+  const shown = tradeView.all[key] ? list : list.slice(0, 50);
   const held = new Set((state[key] || []).map((h) => h.id));
   const sideLabel = { buy: 'Buy', sell: 'Sell', dividend: 'Dividend', split: 'Split' };
-  const rows = shown.map((t) => `<li><span class="ev-date">${fmtDate(t.date)}</span><span class="ev-label"><span class="badge ${t.side === 'sell' ? 'kind-income' : t.side === 'buy' ? 'kind-expense' : ''}">${sideLabel[t.side] || t.side}</span> ${activityText({ ...t, kind: 'trade' })}<span class="sub">${esc(t.platform || 'No platform')}${held.has(t.holdingId) ? '' : ' · no longer held'}</span></span></li>`).join('');
-  return `<div class="section-head"><h2>Trade history</h2>${platforms.length > 1 ? `<select class="filter" data-trade-platform="${key}" aria-label="Filter trades by platform"><option value="__all">All platforms</option>${platforms.map((p) => `<option value="${esc(p)}" ${pf === p ? 'selected' : ''}>${esc(p || 'No platform')}</option>`).join('')}</select>` : ''}</div>
-    <div class="card"><ul class="events trade-history">${rows || '<li class="sub">No trades on this platform.</li>'}</ul>
-      ${list.length > 20 ? `<button class="btn small ghost" data-trade-all="${key}">${tradeView.all[key] ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}</div>`;
+  // Totals in the base currency for what's listed.
+  const tot = { buy: 0, sell: 0, dividend: 0, realised: 0 };
+  for (const t of list) {
+    if (t.side === 'buy') tot.buy += toBase(t.total, t.currency) || 0;
+    if (t.side === 'sell') { tot.sell += toBase(t.total, t.currency) || 0; tot.realised += toBase(t.realised || 0, t.currency) || 0; }
+    if (t.side === 'dividend') tot.dividend += toBase(t.amount, t.currency) || 0;
+  }
+  // Grouped by month.
+  let lastMonth = '';
+  const rows = shown.map((t) => {
+    const m = (t.date || '').slice(0, 7);
+    const head = m !== lastMonth ? `<li class="hist-month-head">${esc(fmtMonth((lastMonth = m)))}</li>` : '';
+    return `${head}<li><span class="ev-date">${fmtDate(t.date)}</span><span class="ev-label"><span class="badge ${t.side === 'sell' ? 'kind-income' : t.side === 'buy' ? 'kind-expense' : ''}">${sideLabel[t.side] || t.side}</span> ${activityText({ ...t, kind: 'trade' })}<span class="sub">${esc(t.platform || 'No platform')}${held.has(t.holdingId) ? '' : ' · no longer held'}</span></span></li>`;
+  }).join('');
+  const sel = (attr, opts, cur, label) => `<select class="filter" ${attr} aria-label="${label}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  return `${back}
+    <div class="page-head"><div><h1>${title} history</h1><p class="sub intro">Every buy, sell, dividend and split — including holdings you’ve sold out of or deleted.</p></div>
+      <div class="row-actions">
+        ${platforms.length > 1 ? sel(`data-trade-platform="${key}"`, [['__all', 'All platforms'], ...platforms.map((p) => [p, p || 'No platform'])], pf == null ? '__all' : pf, 'Platform') : ''}
+        ${sel(`data-trade-side="${key}"`, [['', 'All types'], ['buy', 'Buys'], ['sell', 'Sells'], ['dividend', 'Dividends'], ['split', 'Splits']], side, 'Type')}
+        <button class="btn primary" data-action="trade-buy" data-sec="${key}">Buy / sell</button>
+      </div></div>
+    ${all.length ? `<section class="tiles">
+      ${tile('Bought', money(tot.buy, base(), 0), plural(list.filter((t) => t.side === 'buy').length, 'buy'))}
+      ${tile('Sold', money(tot.sell, base(), 0), plural(list.filter((t) => t.side === 'sell').length, 'sale'))}
+      ${tile('Realised profit', signed(tot.realised, base(), 0), 'from those sales')}
+      ${key === 'stocks' ? tile('Dividends', money(tot.dividend, base(), 0), plural(list.filter((t) => t.side === 'dividend').length, 'payment')) : ''}
+    </section>
+    <div class="card"><ul class="events trade-history">${rows || '<li class="sub">Nothing matches these filters.</li>'}</ul>
+      ${list.length > 50 ? `<button class="btn small ghost" data-trade-all="${key}">${tradeView.all[key] ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}</div>`
+    : '<div class="card empty">No trades yet. Use Buy / sell to record one.</div>'}`;
 }
+document.addEventListener('change', (e) => {
+  const t = e.target.closest('[data-trade-side]');
+  if (!t) return;
+  tradeView.side[t.dataset.tradeSide] = t.value;
+  render();
+});
 document.addEventListener('change', (e) => {
   const sel = e.target.closest('[data-trade-platform]');
   if (!sel) return;

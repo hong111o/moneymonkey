@@ -464,7 +464,11 @@ test('selling everything keeps the sale in Trade History and the platform stays 
   await page.click('dialog button[type=submit]');
   await page.waitForTimeout(300);
   assert.equal(await page.evaluate(() => state.stocks.some((h) => h.symbol === 'VUSA.L')), false, 'holding removed');
+  await page.click('a[href="#history/stocks"]');
+  await page.waitForTimeout(300);
   assert.match(await page.textContent('.trade-history'), /Sold 60 VUSA\.L[\s\S]*no longer held/);
+  await page.selectOption('[data-trade-side="stocks"]', 'buy');
+  assert.doesNotMatch(await page.textContent('.trade-history'), /Sold 60/);
   await go('#platforms');
   assert.ok(await page.isVisible('[data-layout="list-platforms"] tr:has-text("Trading 212")'), 'locked platform still listed');
   // Unlocking an empty platform lets it go.
@@ -532,6 +536,48 @@ test('the Months tab: switch months, see the summary, the comparison and the yea
   assert.ok(second < first, 'went back a month');
   assert.match(await page.textContent('#main'), /Compared with/);
   assert.match(await page.textContent('#main'), /so far/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('Home: What changed adds up to the net worth change, and Goals shows the target mix', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#dashboard');
+  assert.ok(await page.isVisible('[data-box="changed"] .chg-row'));
+  const ok = await page.evaluate(() => {
+    const p = changePeriod('this');
+    const r = Calc.changeBreakdown(p.start, p.end, {});
+    return Math.abs(r.parts.reduce((t, x) => t + (x.value || 0), 0) - r.total) < 0.02;
+  });
+  assert.ok(ok, 'the causes add up to the total');
+  await page.click('[data-changed="last"]');
+  assert.match(await page.textContent('[data-box="changed"]'), /\(/);
+  assert.equal(await page.isVisible('[data-box="goals"] .mix-home'), false);
+  await page.evaluate(() => setTargetMix({ targets: { cash: 50, stocks: 50 }, includeProperty: false, tolerance: 5 }));
+  await page.waitForTimeout(200);
+  assert.ok(await page.isVisible('[data-box="goals"] .mix-home'), 'target mix on Home');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('Home: the Liquid view leaves out property and its mortgage, and is remembered', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#dashboard');
+  const all = await page.evaluate(() => summary.netWorth);
+  await page.click('[data-nw-view="liquid"]');
+  const liquid = await page.evaluate(() => nwValueNow());
+  const expected = await page.evaluate(() => {
+    const v = Calc.itemValues(state, todayISO());
+    const prop = state.properties.reduce((t, p) => t + v[p.id], 0) + state.others.reduce((t, o) => t + v[o.id], 0);
+    const mort = state.liabilities.filter((l) => l.type === 'mortgage' || l.type === 'car').reduce((t, l) => t + v[l.id], 0);
+    return summary.netWorth - prop + mort;
+  });
+  assert.ok(Math.abs(liquid - expected) < 0.05, `${liquid} vs ${expected}`);
+  assert.notEqual(Math.round(liquid), Math.round(all));
+  assert.match(await page.textContent('.nw-card'), /Liquid net worth/i);
+  await page.reload();
+  await page.waitForTimeout(800);
+  assert.match(await page.textContent('.nw-card'), /Liquid net worth/i, 'remembered');
   assert.deepEqual(errors, []);
   await ctx.close();
 });
