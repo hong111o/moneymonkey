@@ -336,6 +336,15 @@ const SECTIONS = {
       { key: 'kind', label: 'Type', type: 'select', options: FLOW_KINDS },
       { key: 'category', label: 'Category', placeholder: 'e.g. Housing, Food', list: 'category-list' },
       { key: 'amount', label: 'Amount', type: 'number', required: true },
+      {
+        // Changing the amount of an existing item: a new amount from now on, or a correction of past months.
+        key: 'fixFrom', label: 'This new amount…', type: 'select', span: true, transient: true,
+        showIf: (v) => v._origAmount != null && v.amount != null && Math.abs(+v.amount - +v._origAmount) > 0.0001 && v.frequency !== 'once',
+        options: () => [{ value: '', label: 'Is new — from now on (earlier months keep the old amount)' }, ...pastMonths().map((m) => ({ value: m, label: `Was wrong — correct it from ${fmtMonth(m)}` }))],
+        help: 'Correcting fixes the figures saved for those months too (Month by month, Left over, the yearly report).',
+      },
+      // The amount before this edit (hidden; read by the choice above, so it comes after it).
+      { key: '_origAmount', label: '', type: 'number', transient: true, showIf: () => false },
       currencyField,
       { key: 'frequency', label: 'How often', type: 'select', options: FREQ, default: () => 'monthly' },
       { key: 'nextDate', label: 'Next payment date', type: 'date', default: todayISO, help: 'For a one-off: the date it happened (or will). It counts in that month only.' },
@@ -380,7 +389,8 @@ const SECTIONS = {
     formButtons: (c, overrides) => (c.frequency === 'once' || overrides ? [] : Calc.hasEnded(c, todayISO())
       ? [{ label: 'Restart', onClick: () => { setTimeout(() => restartCashflow(c.id)); return true; } }]
       : [{ label: 'End now', onClick: () => endCashflow(c.id) }]),
-    editValues: (item) => ({ ...item, loanLink: item.notLoan ? '__none' : item.loanId || '', rentLink: item.notRent ? '__none' : item.propertyId || '', saverLink: item.notSaver ? '__none' : item.saverId || '' }),
+    preview: (v) => (v.fixFrom && v._origAmount != null ? correctionPreview(v) : ''),
+    editValues: (item) => ({ ...item, _origAmount: +item.amount, loanLink: item.notLoan ? '__none' : item.loanId || '', rentLink: item.notRent ? '__none' : item.propertyId || '', saverLink: item.notSaver ? '__none' : item.saverId || '' }),
     beforeSave: (item, prev) => {
       if (item.rentLink !== undefined) {
         item.propertyId = item.rentLink && item.rentLink !== '__none' ? item.rentLink : '';
@@ -400,6 +410,8 @@ const SECTIONS = {
         if (!item.loanId) delete item.loanId;
         if (!item.notLoan) delete item.notLoan;
       }
+      // A wrong amount corrected for past months: fix their saved figures too.
+      if (prev && item.fixFrom) correctPastMonths(prev, item, item.fixFrom);
       // Start / end dates and amount changes (recurring items only).
       if (item.frequency === 'once') { delete item.startDate; delete item.endDate; delete item.changes; }
       for (const k of ['startDate', 'endDate']) if (!item[k]) delete item[k];
@@ -517,7 +529,7 @@ const SECTIONS = {
 
 function holdingColumns(kind) {
   return [
-    { label: kind === 'coin' ? 'Coin' : 'Holding', render: (h) => `<strong>${esc(kind === 'coin' ? h.symbol || h.coinId : h.symbol)}</strong><div class="sub">${platformLine(h, kind === 'coin' ? h.coinId : h.name)}</div>` },
+    { label: kind === 'coin' ? 'Coin' : 'Holding', render: (h) => `<strong>${esc(kind === 'coin' ? h.symbol || h.coinId : h.symbol)}</strong>${kind !== 'coin' && currencyMismatch(h) ? ` <span class="badge warn" title="${esc(h.symbol)} trades in ${currencyMismatch(h)}, so its price is read as ${currencyMismatch(h)}. Edit the holding and set its currency to ${currencyMismatch(h)}.">Check currency</span>` : ''}<div class="sub">${platformLine(h, kind === 'coin' ? h.coinId : h.name)}</div>` },
     { label: 'Qty', num: true, render: (h) => num(h.quantity, 8) },
     { label: 'Avg cost', num: true, render: (h) => { const v = hv(h); return `${money(v.avgCost, h.currency)}${Calc.costMethod(state, h) === 'diluted' ? '<div class="sub">diluted</div>' : ''}`; } },
     { label: 'Price', num: true, render: (h) => { const v = hv(h); return `${money(v.price, h.currency)}<div class="sub">${v.live ? '<span class="live-dot"></span>live' : h.source === 'manual' ? 'manual' : 'waiting…'}</div>`; } },

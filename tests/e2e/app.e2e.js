@@ -434,3 +434,104 @@ test('side panel on a laptop: pages other than Home keep their full width', { sk
   assert.ok(await width('#dashboard') > 800, 'Home shares the width with the panel');
   await ctx.close();
 });
+
+test('a stock’s currency is filled in from its ticker, with a warning and a badge when it doesn’t match', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#stocks');
+  await page.evaluate(() => editItem('stocks', null));
+  await page.fill('dialog [name=symbol]', 'LLY');
+  assert.equal(await page.inputValue('dialog [name=currency]'), 'USD', 'US ticker → USD');
+  await page.fill('dialog [name=symbol]', '0700.HK');
+  assert.equal(await page.inputValue('dialog [name=currency]'), 'HKD', 'follows the ticker until you pick one');
+  await page.fill('dialog [name=symbol]', 'LLY');
+  await page.fill('dialog [name=currency]', 'GBP');
+  assert.match(await page.textContent('dialog .cur-warn'), /trades in USD/);
+  await page.fill('dialog [name=quantity]', '1');
+  await page.fill('dialog [name=avgCost]', '1052.20');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(200);
+  assert.ok(await page.isVisible('[data-layout="list-stocks"] tr:has-text("LLY") .badge.warn'), 'Check currency badge');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('selling everything keeps the sale in Trade History and the platform stays (locked)', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#stocks');
+  const id = await page.evaluate(() => { state.accounts = state.accounts.filter((a) => a.platform !== 'Trading 212'); commit(); return state.stocks.find((h) => h.symbol === 'VUSA.L').id; });
+  await page.evaluate((x) => openTrade('stocks', x, 'sell'), id);
+  await page.selectOption('dialog [name=accountId]', '');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => state.stocks.some((h) => h.symbol === 'VUSA.L')), false, 'holding removed');
+  assert.match(await page.textContent('.trade-history'), /Sold 60 VUSA\.L[\s\S]*no longer held/);
+  await go('#platforms');
+  assert.ok(await page.isVisible('[data-layout="list-platforms"] tr:has-text("Trading 212")'), 'locked platform still listed');
+  // Unlocking an empty platform lets it go.
+  await page.click('[data-layout="list-platforms"] tr:has-text("Trading 212") [data-lock-platform]');
+  await page.waitForTimeout(200);
+  assert.equal(await page.isVisible('[data-layout="list-platforms"] tr:has-text("Trading 212")'), false);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('a past month opens with what it included, and a wrong amount can be corrected from that month', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#cashflows');
+  const month = await page.$eval('[data-action="month-detail"]', (r) => r.dataset.month);
+  await page.click(`[data-action="month-detail"][data-month="${month}"]`);
+  assert.match(await page.textContent('.month-card'), /Income[\s\S]*Rent \(HK\)/);
+  const before = await page.evaluate((m) => monthFigures().find((x) => x.month === m).fixed, month);
+  await page.evaluate(() => editItem('cashflows', state.cashflows.find((c) => c.name === 'Rent (HK)').id));
+  await page.fill('dialog [name=amount]', '18500');
+  await page.dispatchEvent('dialog form', 'change');
+  await page.selectOption('dialog [name=fixFrom]', month);
+  await page.dispatchEvent('dialog form', 'change');
+  assert.match(await page.textContent('dialog .form-preview'), /Corrects/);
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(200);
+  const after = await page.evaluate((m) => monthFigures().find((x) => x.month === m).fixed, month);
+  assert.ok(Math.abs(after - before - 500) < 0.01, `fixed costs +500 (${before} → ${after})`);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('one past month can be corrected on its own from its breakdown, and reset', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#cashflows');
+  const month = await page.$eval('[data-action="month-detail"]', (r) => r.dataset.month);
+  const fig = () => page.evaluate((m) => monthFigures().find((x) => x.month === m).fixed, month);
+  const others = () => page.evaluate((m) => monthFigures().filter((x) => x.month !== m).map((x) => x.fixed), month);
+  const before = await fig();
+  const othersBefore = await others();
+  await page.click(`[data-action="month-detail"][data-month="${month}"]`);
+  await page.click('.month-card [data-month-line]:has-text("Electricity")');
+  await page.click('dialog [data-ml="one"]');
+  await page.fill('dialog [name=amount]', '750');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  assert.ok(Math.abs((await fig()) - before - 150) < 0.01, 'only that month: +150');
+  assert.deepEqual(await others(), othersBefore, 'other months unchanged');
+  assert.match(await page.textContent('.month-card'), /corrected \(was/i);
+  await page.click('.month-card [data-month-line]:has-text("Electricity")');
+  await page.click('dialog [data-ml="reset"]');
+  await page.waitForTimeout(300);
+  assert.ok(Math.abs((await fig()) - before) < 0.01, 'reset');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('the Months tab: switch months, see the summary, the comparison and the year so far', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#cashflows');
+  await page.click('[data-tab="months"]');
+  assert.ok(await page.isVisible('.month-card'));
+  const first = await page.inputValue('[data-month-select]');
+  await page.click('.m-switch [aria-label="Earlier month"]');
+  const second = await page.inputValue('[data-month-select]');
+  assert.ok(second < first, 'went back a month');
+  assert.match(await page.textContent('#main'), /Compared with/);
+  assert.match(await page.textContent('#main'), /so far/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

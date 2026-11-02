@@ -381,6 +381,7 @@ function openTransfer(fromId) {
 }
 
 function commit() {
+  lockNewPlatforms();
   Calc.linkDeposits(state);
   Calc.linkCards(state);
   const settled = Calc.settleDeposits(state, todayISO(), Date.now());

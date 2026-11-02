@@ -89,6 +89,8 @@ function openTrade(section, holdingId, side) {
   openForm({
     title: `${{ buy: 'Buy', sell: 'Sell', dividend: 'Dividend', split: 'Split' }[side]}${h0 ? ` ${h0.symbol || h0.coinId}` : ''}`,
     intro: 'Moves money between the holding and a cash account, so your net worth only changes by the fee. Buying updates the average cost; selling keeps it and records your profit.',
+    // A new stock: its currency from the ticker, with a warning if they don't match.
+    onChange: section === 'stocks' ? stockCurrencyHelper : null,
     fields: [
       { key: 'side', label: 'Action', type: 'select', options: opt([['buy', 'Buy'], ['sell', 'Sell'], ...(section === 'stocks' ? [['dividend', 'Dividend received']] : []), ['split', 'Split / consolidation']]) },
       { key: 'holdingId', label: kind === 'coin' ? 'Coin' : 'Holding', type: 'select', span: true, options: (v) => [...list.map((h) => ({ value: h.id, label: label(h) })), ...(v.side === 'buy' ? [{ value: '__new', label: `+ New ${kind === 'coin' ? 'coin' : 'holding'}…` }] : [])] },

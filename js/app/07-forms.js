@@ -6,7 +6,7 @@
 
 const dialog = () => $('#dialog');
 
-function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview, validate, submitLabel = 'Save', intro = '', buttons = [] }) {
+function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview, validate, submitLabel = 'Save', intro = '', buttons = [], onChange = null }) {
   const d = dialog();
   const vals = { ...values };
   const optionsOf = (f) => (typeof f.options === 'function' ? f.options(vals) : f.options);
@@ -111,7 +111,13 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
   };
   form.addEventListener('change', refresh);
   form.addEventListener('input', () => { if (preview) $('.form-preview', form).innerHTML = preview(read()) || ''; });
+  // A form can react as you type (e.g. a stock's currency from its ticker).
+  if (onChange) {
+    form.addEventListener('input', (e) => onChange(form, read(), e.target));
+    form.addEventListener('change', (e) => onChange(form, read(), e.target));
+  }
   refresh();
+  if (onChange) onChange(form, read(), null);
   form.addEventListener('click', (e) => {
     if (e.target.closest('[data-add-balance]')) {
       const box = e.target.closest('.balances-field');
@@ -249,9 +255,10 @@ function editItem(sec, id, preset = {}, overrides = null, verb = null) {
     fields: def.fields,
     values: prev ? { ...(def.editValues ? def.editValues(prev) : { ...prev }), ...(overrides || {}) } : preset,
     buttons: prev && def.formButtons ? def.formButtons(prev, overrides) : [],
+    onChange: sec === 'stocks' ? stockCurrencyHelper : null,
     isNew: !prev,
     // A deposit's preview also needs what the form doesn't show (a regular saver's confirmed payments).
-    preview: def.preview && sec === 'deposits' && prev ? (v) => def.preview({ ...prev, ...v }) : def.preview,
+    preview: def.preview && (sec === 'deposits' || sec === 'cashflows') && prev ? (v) => def.preview({ ...prev, ...v }) : def.preview,
     validate: def.validate,
     onDelete: prev ? () => {
       const deps = sec === 'accounts' ? accountDeposits(prev) : [];

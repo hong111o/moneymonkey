@@ -155,7 +155,7 @@ function activityText(e) {
   }
   if (e.kind === 'trade' && e.side === 'dividend') return `Dividend from ${esc(e.symbol)}: ${money(e.amount, e.currency)}${e.reinvestQty ? ` reinvested in ${num(e.reinvestQty, 8)} shares` : e.cashAmount != null ? ` — +${money(e.cashAmount, e.cashCurrency)}` : ''}.`;
   if (e.kind === 'trade' && e.side === 'split') return `${esc(e.symbol)} split ${num(e.ratio, 6)}-for-1: ${num(e.before.quantity, 8)} → ${num(e.quantity, 8)}.`;
-  if (e.kind === 'trade') return `${e.side === 'buy' ? 'Bought' : 'Sold'} ${num(e.quantity, 8)} ${esc(e.symbol)} at ${money(e.price, e.currency)}${e.fee ? ` (fee ${money(e.fee, e.currency)})` : ''} — ${e.side === 'buy' ? '−' : '+'}${money(e.cashAmount, e.cashCurrency)}${e.side === 'sell' && e.realised != null ? `, profit ${signed(e.realised, e.currency)}` : ''}.`;
+  if (e.kind === 'trade') return `${e.side === 'buy' ? 'Bought' : 'Sold'} ${num(e.quantity, 8)} ${esc(e.symbol)} at ${money(e.price, e.currency)}${e.fee ? ` (fee ${money(e.fee, e.currency)})` : ''}${e.cashAmount != null ? ` — ${e.side === 'buy' ? '−' : '+'}${money(e.cashAmount, e.cashCurrency)}` : ''}${e.side === 'sell' && e.realised != null ? `, profit ${signed(e.realised, e.currency)}` : ''}.`;
   if (e.kind === 'transfer') return `Transferred ${money(e.amount, e.currency)} from “${esc(e.accountName)}” to “${esc(e.toAccountName)}”${e.toCurrency !== e.currency ? ` (received ${money(e.received, e.toCurrency)})` : ''}${e.note ? ` — ${esc(e.note)}` : ''}.`;
   return esc(e.text || '');
 }

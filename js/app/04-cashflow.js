@@ -31,8 +31,9 @@ function renderCashflows() {
   const catBars = cats.map(([k, v]) => `<div class="hbar link clickable" data-action="explain" data-what="category" data-cat="${esc(k)}" tabindex="0" role="button"><span class="hbar-label">${esc(k)}</span><span class="hbar-track"><span style="width:${max ? (v / max) * 100 : 0}%"></span></span><span class="num">${money(v, base(), 0)}</span></div>`).join('');
   const tiles = cashflowTiles();
   // Three tabs keep the page short: the plan and history, cards & statements, and the item list.
-  const tabs = [['overview', 'Overview'], ['cards', 'Cards & spending'], ['items', `Items (${state.cashflows.length})`]];
+  const tabs = [['overview', 'Overview'], ['months', 'Months'], ['cards', 'Cards & spending'], ['items', `Items (${state.cashflows.length})`]];
   const tabBar = `<div class="seg tabs" role="tablist" aria-label="Cash flow">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${cfTab === k}" data-action="cf-tab" data-tab="${k}" class="${cfTab === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  if (cfTab === 'months') return renderSection('cashflows', { tiles: tabBar, before: renderMonthsTab(), list: '' });
   if (cfTab === 'cards') return renderSection('cashflows', { tiles: tabBar, before: renderCardsCard(), list: '' });
   if (cfTab === 'items') return renderSection('cashflows', { tiles: tabBar, before: '', list: renderFlowGroups() });
   // Each part is a box you can move or hide (Edit layout).
@@ -126,7 +127,7 @@ function renderIncomeSplit() {
 // Every month with a card statement or a one-off (extra income / one-off cost), newest first,
 // with that month's regular income and fixed costs as saved then (the last day recorded; months
 // from before these were saved use today's — `todayPlan`). One-offs count in their own month only.
-function monthFigures() {
+function monthFigures({ withCurrent = false } = {}) {
   const s = summary;
   const thisMonth = todayISO().slice(0, 7);
   const extras = new Map();
@@ -144,7 +145,10 @@ function monthFigures() {
   const saved = new Map();
   for (const h of state.history) if (h.income != null && (h.currency || base()) === base()) saved.set(h.date.slice(0, 7), h);
   const cardByMonth = new Map(s.spendMonths.map((m) => [m.month, m.total]));
-  return [...new Set([...cardByMonth.keys(), ...extras.keys()])].sort().reverse().map((month) => {
+  // Months with a card statement or a one-off, and every earlier month the app saved figures for.
+  const savedMonths = [...saved.keys()].filter((m) => m < thisMonth || (withCurrent && m === thisMonth));
+  if (withCurrent) savedMonths.push(thisMonth);
+  return [...new Set([...cardByMonth.keys(), ...extras.keys(), ...savedMonths])].sort().reverse().map((month) => {
     const pl = saved.get(month) || (month === thisMonth ? today : null);
     const plan = pl || today;
     const x = extras.get(month) || { in: 0, out: 0, names: [] };
@@ -182,7 +186,7 @@ function renderHistory() {
   } else h = used.slice().reverse();
   const extraSub = (m) => [m.xin ? `<span class="pos">+${money(m.xin, base(), 0)} extra</span>` : '', m.xout ? `−${money(m.xout, base(), 0)} one-off` : '', m.noStatement ? 'no card statement' : ''].filter(Boolean).join(' · ');
   const max = Math.max(1, ...h.map((m) => Math.max(m.income, m.spending)));
-  const rows = h.map((m) => `<div class="hist-row">
+  const rows = h.map((m) => `<div class="hist-row${byYear ? '' : ' clickable'}" ${byYear ? '' : `data-action="month-detail" data-month="${m.month}" tabindex="0" role="button"`}>
       <span class="hist-month">${m.label}${m.sub || extraSub(m) ? `<div class="sub">${[m.sub, extraSub(m)].filter(Boolean).join(' · ')}</div>` : ''}</span>
       <span class="hist-bars">
         <span class="hist-bar in" style="width:${(m.income / max) * 100}%" data-tip="Income: ${esc(money(m.income, base(), 0))}${m.xin ? ` (regular ${esc(money(m.regular, base(), 0))} + extra ${esc(money(m.xin, base(), 0))}${m.names ? ` — ${esc(m.names.join(', '))}` : ''})` : ''}"></span>
@@ -436,3 +440,280 @@ function rentNote(p) {
   if (cf.endDate && cf.endDate.slice(0, 7) < thisMonth()) return ` · ended ${fmtMonth(cf.endDate.slice(0, 7))}`;
   return '';
 }
+
+// ---------------------------------------------------------------- what a month included
+
+// The items behind a month's regular income and fixed costs, worked out from your items for that
+// month (their start / end dates and amount changes). Each line: [id, name, amount in base].
+// Interest, dividends and loan repayments use today's figures.
+function monthBreakdown(ym) {
+  const s = summary;
+  const rentIds = new Set(s.rentMatches.map((m) => m.cashflowId));
+  const loanIds = new Set(s.loanMatches.map((m) => m.cashflowId));
+  const amt = (c) => round2(toBase(Calc.monthlyAmount(c, ym), c.currency) || 0);
+  const flows = state.cashflows.filter((c) => c.frequency !== 'once' && c.active !== false);
+  const income = flows.filter((c) => c.kind === 'income' && !rentIds.has(c.id)).map((c) => [c.id, c.name, amt(c)]);
+  for (const p of state.properties.filter((x) => +x.monthlyRent > 0)) {
+    const cf = rentItem(p);
+    const v = cf ? amt(cf) : round2(toBase(p.monthlyRent, p.currency) || 0);
+    income.push([`p:${p.id}`, `Rent: ${p.name}`, v]);
+  }
+  if (s.interest.total > 0.5) income.push(['interest', 'Interest (savers & fixed deposits)', round2(s.interest.total)]);
+  if (s.dividends.total > 0.5) income.push(['dividends', 'Dividends', round2(s.dividends.total)]);
+  const isBill = (c) => c.kind === 'expense' || c.kind === 'subscription';
+  const bills = flows.filter((c) => isBill(c) && !c.onCard && !loanIds.has(c.id)).map((c) => [c.id, c.name, amt(c)]);
+  const cardBills = flows.filter((c) => isBill(c) && c.onCard).map((c) => [c.id, c.name, amt(c)]);
+  const t = todayISO();
+  const loans = state.liabilities.filter((l) => l.type !== 'credit' && +l.payment > 0 && Calc.loanBalance(l, t).balance > 0).map((l) => [`l:${l.id}`, l.name, round2(toBase(l.payment, l.currency) || 0)]);
+  const keep = (list) => list.filter((x) => Math.abs(x[2]) >= 0.005);
+  return { income: keep(income), bills: keep(bills), loans: keep(loans), cardBills: keep(cardBills) };
+}
+
+// What a month included: income, card spending, fixed bills, one-offs, left over, payments.
+function monthDetailHtml(ym, m) {
+  const saved = [...state.history].reverse().find((h) => h.date.slice(0, 7) === ym && (h.currency || base()) === base());
+  const recorded = saved && saved.breakdown;
+  const b = recorded || monthBreakdown(ym);
+  const sum = (list) => list.reduce((t, x) => t + x[2], 0);
+  // The month before, to show each line's change (▲▼).
+  const prevYm = Calc.toISO(Calc.addMonths(Calc.parseDate(`${ym}-01`), -1)).slice(0, 7);
+  const hasPrev = monthFigures({ withCurrent: true }).some((x) => x.month === prevYm);
+  const before = hasPrev ? monthLines(prevYm) : new Map();
+  const prevStatements = new Map(state.spending.filter((e) => e.month === prevYm).map((e) => [e.cardId, toBase(e.amount, e.currency) || 0]));
+  // Each line: name, share of its side (income or spent), change since last month, and what it was if corrected.
+  // `goodUp`: whether a rise is good (income) or bad (spending).
+  const row = ({ id, name, v, was, sub = '', group = '', tap = '', prev = null }, side, goodUp) => {
+    const tapAttr = tap || (id && group ? `data-month-line="${esc(id)}" data-group="${group}" data-ym="${ym}" tabindex="0"` : id && !group ? `data-action="edit" data-sec="cashflows" data-id="${esc(id)}" tabindex="0"` : '');
+    const share = side > 0 && v > 0 ? (v / side < 0.0005 ? '<0.1%' : `${((v / side) * 100).toFixed(1)}%`) : '';
+    const d = prev == null ? null : v - prev;
+    const chg = d != null && Math.abs(d) >= 0.5 ? `<span class="${(d > 0) === goodUp ? 'pos' : 'neg'}">${d > 0 ? '▲' : '▼'} ${money(Math.abs(d), base(), 0)}</span>` : hasPrev && prev == null && id && !/^(other)$/.test(id) && v >= 0.5 ? '<span class="sub">new</span>' : '';
+    const fixed = was != null ? `corrected (was ${money(was, base(), 0)})` : '';
+    const notes = [sub, share, fixed].filter(Boolean).join(' · ');
+    return `<li class="${tapAttr ? 'clickable' : ''}" ${tapAttr}><span class="grow"><span class="keep-case">${esc(name)}</span>${notes ? `<span class="sub">${notes}</span>` : ''}</span><span class="num">${money(v, base(), 0)}${chg ? `<span class="m-chg">${chg}</span>` : ''}</span></li>`;
+  };
+  // Biggest first; the "difference from what was saved" line always last.
+  const lines = (list, side, goodUp) => list.sort((x, y) => y.v - x.v).map((x) => row(x, side, goodUp)).join('');
+  const other = (want, have) => (Math.abs(want - have) >= 1 ? [{ id: '', name: 'Other (difference from what was saved)', v: want - have }] : []);
+  const fromBreak = (group, sub = '') => (b[group] || []).map(([id, name, v, was]) => ({ id, name, v, was, sub, group, prev: before.has(id) ? before.get(id).v : null }));
+  const statements = state.spending.filter((e) => e.month === ym);
+  const oneOffs = state.cashflows.filter((c) => c.frequency === 'once' && c.active !== false && (c.nextDate || '').slice(0, 7) === ym);
+  const paid = state.activity.filter((e) => e.kind === 'payment' && (e.date || '').slice(0, 7) === ym && e.outcome !== 'notpaid');
+  const oneOff = (c) => ({ id: c.id, name: c.name, v: toBase(c.amount, c.currency) || 0, sub: 'one-off' });
+  const income = fromBreak('income');
+  const incomeLines = lines(income, m.income, true) + lines(other(m.regular, sum(b.income)), 0, true) + lines(oneOffs.filter((c) => c.kind === 'income').map(oneOff), m.income, true);
+  const fixedLines = lines([...fromBreak('bills'), ...fromBreak('loans', 'loan repayment')], m.spending, false) + lines(other(m.fixed, sum(b.bills) + sum(b.loans)), 0, false);
+  const noStatement = !statements.length;
+  const cardLines = noStatement
+    ? lines(fromBreak('cardBills', 'bill paid by card'), m.spending, false)
+    : lines(statements.map((e) => { const c = cardById(e.cardId); return { name: c ? c.name : e.platform || 'Card', v: toBase(e.amount, e.currency) || 0, sub: 'statement', tap: `data-action="edit" data-sec="spending" data-id="${esc(e.id)}" tabindex="0"`, prev: hasPrev ? prevStatements.get(e.cardId) ?? null : null, id: `card:${e.cardId}` }; }), m.spending, false);
+  const oneOffOut = lines(oneOffs.filter((c) => c.kind === 'expense' || c.kind === 'subscription').map(oneOff), m.spending, false);
+  const group = (title, html, total, note = '') => (html ? `<h3>${title} <span class="sub">· ${money(total, base(), 0)}${note ? ` · ${note}` : ''}</span></h3><ul class="month-lines">${html}</ul>` : '');
+  const status = recorded && !recorded.rebuilt
+    ? '<span class="badge" title="Saved as it was during the month.">Saved</span>'
+    : `<span class="badge" title="This month’s item list wasn’t saved, so it’s worked out from your items’ amounts and dates${recorded ? ', with your corrections' : ''}.">Rebuilt from your items${recorded ? ' · corrected' : ''}</span>`;
+  return `<p class="sub m-status">${status} Tap a line to correct this month only, or to open it.${hasPrev ? ` ▲▼ vs ${esc(fmtMonth(prevYm))}.` : ''}</p>
+    <div class="m-sheet">
+      <div class="m-col m-in">
+        ${group('Income', incomeLines, m.income)}
+        <div class="m-col-total"><span>Total income</span><strong>${money(m.income, base(), 0)}</strong></div>
+      </div>
+      <div class="m-col m-out">
+        ${group('Card spending', cardLines, m.card, noStatement ? '<span class="warn-text">no statement yet</span>' : '')}
+        ${group('Fixed bills &amp; loan repayments', fixedLines, m.fixed)}
+        ${oneOffOut ? group('One-off costs', oneOffOut, m.xout) : ''}
+        <div class="m-col-total"><span>Total spent</span><strong>${money(m.spending, base(), 0)}</strong></div>
+      </div>
+    </div>
+    <div class="month-total"><span>Left over</span><strong class="${m.net >= 0 ? 'pos' : 'neg'}">${m.net >= 0 ? '+' : '−'}${money(Math.abs(m.net), base(), 0)}</strong></div>
+    ${paid.length ? `<h3>Payments confirmed</h3><ul class="month-lines">${paid.map((e) => `<li><span class="grow"><span class="sub">${fmtDate(e.date)}</span><span>${activityText(e)}</span></span></li>`).join('')}</ul>` : ''}`;
+}
+
+// ---------------------------------------------------------------- correcting past months
+
+// Months before this one that the app has saved figures for (newest first).
+function pastMonths() {
+  const tm = thisMonth();
+  return [...new Set(state.history.filter((h) => h.income != null).map((h) => h.date.slice(0, 7)))].filter((m) => m < tm).sort().reverse();
+}
+// Where an item's amount sits in a month's saved figures.
+const planField = (c) => (c.kind === 'income' ? 'income' : c.kind === 'expense' || c.kind === 'subscription' ? (c.onCard ? 'cardFixed' : 'fixed') : null);
+// The change an item's corrected amount makes to each month from `from` to last month.
+function correctionDeltas(prev, next, from) {
+  const field = planField(next);
+  if (!field) return [];
+  const months = pastMonths().filter((m) => m >= from).sort();
+  return months.map((m) => ({ month: m, field, delta: round2((toBase(Calc.monthlyAmount(next, m), next.currency) || 0) - (toBase(Calc.monthlyAmount(prev, m), prev.currency) || 0)) })).filter((x) => Math.abs(x.delta) >= 0.005);
+}
+// Rewrite the saved figures (and saved item lists) of those months.
+function correctPastMonths(prev, next, from) {
+  const byMonth = new Map(correctionDeltas(prev, next, from).map((x) => [x.month, x]));
+  for (const h of state.history) {
+    const x = byMonth.get(h.date.slice(0, 7));
+    if (!x || h[x.field] == null) continue;
+    h[x.field] = round2(h[x.field] + x.delta);
+    const list = h.breakdown && (x.field === 'income' ? h.breakdown.income : x.field === 'fixed' ? h.breakdown.bills : h.breakdown.cardBills);
+    const row = list && list.find((r) => r[0] === next.id);
+    if (row) row[2] = round2(row[2] + x.delta);
+  }
+}
+// "Corrects Jul–Oct 2026: fixed costs +HK$200 a month".
+function correctionPreview(v) {
+  const prev = state.cashflows.find((c) => c.id === v.id) || { ...v, amount: v._origAmount };
+  const next = { ...prev, ...v, amount: +v.amount };
+  const list = correctionDeltas({ ...prev, amount: v._origAmount }, next, v.fixFrom);
+  if (!list.length) return 'Nothing to correct: this item didn’t count in those months.';
+  const what = { income: 'income', fixed: 'fixed costs', cardFixed: 'card-paid bills (used when there’s no statement)' }[list[0].field];
+  const same = list.every((x) => Math.abs(x.delta - list[0].delta) < 0.01);
+  const span = list.length > 1 ? `${fmtMonth(list[0].month)} – ${fmtMonth(list[list.length - 1].month)}` : fmtMonth(list[0].month);
+  return `Corrects <strong>${span}</strong>: ${what} ${same ? `${list[0].delta > 0 ? '+' : '−'}${money(Math.abs(list[0].delta), base(), 0)} a month` : 'by each month’s difference'}.`;
+}
+
+
+// Tap a line in a month's breakdown: change it for that month only, or open the item.
+function openMonthLine(ym, group, id) {
+  const entry = monthEntry(ym);
+  const b = (entry && entry.breakdown) || monthBreakdown(ym);
+  const row = (b[group] || []).find((x) => x[0] === id);
+  if (!row) return;
+  const link = id.startsWith('p:') ? ['properties', id.slice(2)] : id.startsWith('l:') ? ['liabilities', id.slice(2)] : /^(interest|dividends)$/.test(id) ? null : ['cashflows', id];
+  const past = ym < thisMonth();
+  // This month is still being saved day by day, so only past months can be changed on their own.
+  if (!past && link) return editItem(link[0], link[1]);
+  openSheet(`${row[1]} · ${fmtMonth(ym)}`, `<p class="sub">${money(row[2], base(), 0)} this month${row[3] != null ? ` (corrected — was ${money(row[3], base(), 0)})` : ''}.</p>
+    <div class="choice-list">
+      ${past ? `<button class="btn" data-ml="one">Change for ${esc(fmtMonth(ym))} only</button>` : ''}
+      ${past && row[3] != null ? `<button class="btn" data-ml="reset">Reset to ${money(row[3], base(), 0)}</button>` : ''}
+      ${link ? `<button class="btn" data-ml="open">Open the item (change it from now on, or correct several months)</button>` : ''}
+    </div>`, (e) => {
+    const b2 = e.target.closest('[data-ml]');
+    if (!b2) return;
+    if (b2.dataset.ml === 'open') return editItem(link[0], link[1]);
+    if (b2.dataset.ml === 'reset') { setMonthLine(ym, group, id, row[3]); toast(`${row[1]}: back to ${money(row[3], base(), 0)} for ${fmtMonth(ym)}`); return openMonth(ym); }
+    openForm({
+      title: `${row[1]} · ${fmtMonth(ym)}`,
+      intro: `What it actually was in ${fmtMonth(ym)}, in ${base()}. Only this month changes; the item and other months stay as they are.`,
+      fields: [{ key: 'amount', label: `Amount in ${fmtMonth(ym)} (${base()})`, type: 'number', required: true }],
+      values: { amount: row[2] },
+      onSave: (v) => { setMonthLine(ym, group, id, v.amount); toast(`${row[1]}: ${money(v.amount, base(), 0)} for ${fmtMonth(ym)}`); setTimeout(() => openMonth(ym)); },
+    });
+  });
+}
+// The record that holds a month's saved figures: its latest day.
+const monthEntry = (ym) => [...state.history].reverse().find((h) => h.date.slice(0, 7) === ym && h.income != null && (h.currency || base()) === base()) || null;
+// Change one line of a past month (keeping what it was), and that month's saved total with it.
+function setMonthLine(ym, group, id, amount) {
+  const entry = monthEntry(ym);
+  if (!entry) return;
+  if (!entry.breakdown) entry.breakdown = { ...monthBreakdown(ym), rebuilt: true };
+  const row = (entry.breakdown[group] || []).find((x) => x[0] === id);
+  if (!row) return;
+  const delta = round2(+amount - row[2]);
+  if (row[3] == null) row[3] = row[2];
+  row[2] = round2(+amount);
+  if (Math.abs(row[2] - row[3]) < 0.005) row.length = 3; // back to what it was: no longer corrected
+  const field = group === 'income' ? 'income' : group === 'cardBills' ? 'cardFixed' : 'fixed';
+  entry[field] = round2((+entry[field] || 0) + delta);
+  entry.t = Date.now(); // the newest edit of this month syncs to your other devices
+  commit();
+}
+document.addEventListener('click', (e) => {
+  const li = e.target.closest('[data-month-line]');
+  if (!li) return;
+  openMonthLine(li.dataset.ym, li.dataset.group, li.dataset.monthLine);
+});
+
+
+// ---------------------------------------------------------------- Months tab
+
+let cfMonth = null; // the month shown on the Months tab ("YYYY-MM")
+
+// Open a month on the Months tab (from Month by month, or after correcting it).
+function openMonth(ym) {
+  if (dialog().open) dialog().close();
+  cfTab = 'months';
+  cfMonth = ym;
+  if (currentView !== 'cashflows') location.hash = '#cashflows';
+  else render();
+}
+
+// A month's lines by id (for comparing two months).
+function monthLines(ym) {
+  const entry = monthEntry(ym);
+  const b = (entry && entry.breakdown) || monthBreakdown(ym);
+  const out = new Map();
+  for (const g of ['income', 'bills', 'loans']) for (const [id, name, v] of b[g] || []) out.set(id, { name, v, income: g === 'income' });
+  return out;
+}
+
+function renderMonthsTab() {
+  const all = monthFigures({ withCurrent: true });
+  if (!all.length) return '<div class="card"><p class="sub">Months appear here once the app has saved your figures (it does every day you use it), or once you record a card statement.</p></div>';
+  if (!cfMonth || !all.some((m) => m.month === cfMonth)) cfMonth = all[0].month;
+  const i = all.findIndex((m) => m.month === cfMonth);
+  const m = all[i];
+  const prev = all[i + 1] || null; // older
+  const newer = all[i - 1] || null;
+  const isNow = cfMonth === thisMonth();
+  const rate = (x) => (x.income ? (x.net / x.income) * 100 : null);
+  const delta = (cur, old, goodUp = true) => {
+    if (old == null || !isFinite(cur - old) || Math.abs(cur - old) < 0.5) return '';
+    const up = cur > old;
+    return `<span class="${up === goodUp ? 'pos' : 'neg'}">${up ? '▲' : '▼'} ${money(Math.abs(cur - old), base(), 0)}</span>`;
+  };
+  const stat = (label, value, d) => `<div class="m-stat"><span class="tile-label">${label}</span><strong>${value}</strong><span class="sub">${d || '&nbsp;'}</span></div>`;
+  const sr = rate(m);
+  const psr = prev ? rate(prev) : null;
+  const summaryRow = `<div class="m-stats">
+      ${stat('Income', money(m.income, base(), 0), prev ? delta(m.income, prev.income) : '')}
+      ${stat('Spent', money(m.spending, base(), 0), prev ? delta(m.spending, prev.spending, false) : '')}
+      ${stat('Left over', `<span class="${m.net >= 0 ? 'pos' : 'neg'}">${m.net >= 0 ? '+' : '−'}${money(Math.abs(m.net), base(), 0)}</span>`, prev ? delta(m.net, prev.net) : '')}
+      ${stat('Savings rate', sr == null ? '—' : `${sr.toFixed(1)}%`, sr != null && psr != null && Math.abs(sr - psr) >= 0.05 ? `<span class="${sr > psr ? 'pos' : 'neg'}">${sr > psr ? '▲' : '▼'} ${Math.abs(sr - psr).toFixed(1)} pts</span>` : '')}
+    </div>`;
+  // What changed since the month before: card spending, then the items that moved.
+  let compare = '';
+  if (prev) {
+    const a = monthLines(prev.month);
+    const b = monthLines(cfMonth);
+    const changes = [];
+    if (Math.abs(m.card - prev.card) >= 0.5) changes.push({ v: m.card - prev.card, text: `Card spending ${m.card > prev.card ? '+' : '−'}${money(Math.abs(m.card - prev.card), base(), 0)}`, bad: m.card > prev.card });
+    for (const [id, x] of b) {
+      const old = a.get(id);
+      if (!old) { if (x.v >= 0.5) changes.push({ v: x.v, text: `New: ${esc(x.name)} ${money(x.v, base(), 0)}`, bad: !x.income }); continue; }
+      const d = x.v - old.v;
+      if (Math.abs(d) >= 0.5) changes.push({ v: d, text: `${esc(x.name)} ${d > 0 ? '+' : '−'}${money(Math.abs(d), base(), 0)}`, bad: x.income ? d < 0 : d > 0 });
+    }
+    for (const [id, x] of a) if (!b.has(id) && x.v >= 0.5) changes.push({ v: x.v, text: `Gone: ${esc(x.name)}`, bad: x.income });
+    if (Math.abs(m.xout - prev.xout) >= 0.5) changes.push({ v: m.xout - prev.xout, text: `One-off costs ${m.xout > prev.xout ? '+' : '−'}${money(Math.abs(m.xout - prev.xout), base(), 0)}`, bad: m.xout > prev.xout });
+    if (Math.abs(m.xin - prev.xin) >= 0.5) changes.push({ v: m.xin - prev.xin, text: `Extra income ${m.xin > prev.xin ? '+' : '−'}${money(Math.abs(m.xin - prev.xin), base(), 0)}`, bad: m.xin < prev.xin });
+    changes.sort((x, y) => Math.abs(y.v) - Math.abs(x.v));
+    const diffSpent = m.spending - prev.spending;
+    compare = `<div class="card"><h2>Compared with ${esc(fmtMonth(prev.month))}</h2>
+      <p>${Math.abs(diffSpent) < 0.5 ? 'Spent the same' : `Spent <strong>${money(Math.abs(diffSpent), base(), 0)} ${diffSpent > 0 ? 'more' : 'less'}</strong>`}, ${Math.abs(m.net - prev.net) < 0.5 ? 'left over the same' : `left over <strong class="${m.net - prev.net >= 0 ? 'pos' : 'neg'}">${money(Math.abs(m.net - prev.net), base(), 0)} ${m.net - prev.net >= 0 ? 'more' : 'less'}</strong>`}.</p>
+      ${changes.length ? `<ul class="m-changes">${changes.slice(0, 8).map((c) => `<li class="${c.bad ? 'neg' : 'pos'}">${c.text}</li>`).join('')}</ul>` : '<p class="sub">No item changed.</p>'}</div>`;
+  }
+  // The year so far (calendar year of the month shown).
+  const yr = cfMonth.slice(0, 4);
+  const yearMonths = all.filter((x) => x.month.slice(0, 4) === yr).slice().reverse();
+  const tot = yearMonths.reduce((t, x) => ({ income: t.income + x.income, spending: t.spending + x.spending, net: t.net + x.net }), { income: 0, spending: 0, net: 0 });
+  const year = `<div class="card"><h2>${yr} so far</h2>
+      <ul class="m-year">${yearMonths.map((x) => `<li class="clickable${x.month === cfMonth ? ' on' : ''}" data-action="month-pick" data-month="${x.month}" tabindex="0"><span class="grow">${esc(fmtMonth(x.month))}${x.month === thisMonth() ? ' <span class="sub">so far</span>' : ''}</span><span class="num sub">${money(x.income, base(), 0)} in · ${money(x.spending, base(), 0)} out</span><span class="num ${x.net >= 0 ? 'pos' : 'neg'}">${x.net >= 0 ? '+' : '−'}${money(Math.abs(x.net), base(), 0)}</span></li>`).join('')}</ul>
+      <div class="month-total"><span>Total · ${plural(yearMonths.length, 'month')}</span><strong class="${tot.net >= 0 ? 'pos' : 'neg'}">${tot.net >= 0 ? '+' : '−'}${money(Math.abs(tot.net), base(), 0)}</strong></div>
+      <p class="sub">${money(tot.income, base(), 0)} income · ${money(tot.spending, base(), 0)} spent.</p></div>`;
+  const switcher = `<div class="m-switch">
+      <button class="btn icon-only" data-action="month-pick" data-month="${prev ? prev.month : ''}" ${prev ? '' : 'disabled'} aria-label="Earlier month">‹</button>
+      <select class="range-select" data-month-select aria-label="Month">${all.map((x) => `<option value="${x.month}" ${x.month === cfMonth ? 'selected' : ''}>${esc(fmtMonth(x.month))}${x.month === thisMonth() ? ' (so far)' : ''}</option>`).join('')}</select>
+      <button class="btn icon-only" data-action="month-pick" data-month="${newer ? newer.month : ''}" ${newer ? '' : 'disabled'} aria-label="Later month">›</button>
+    </div>`;
+  return `${switcher}
+    <div class="card month-card"><div class="card-head"><h2>${esc(fmtMonth(cfMonth))}${isNow ? ' <span class="sub">so far</span>' : ''}</h2></div>
+      ${summaryRow}
+      ${monthDetailHtml(cfMonth, m)}
+    </div>
+    ${compare}
+    ${year}`;
+}
+document.addEventListener('change', (e) => {
+  if (!e.target.matches('[data-month-select]')) return;
+  cfMonth = e.target.value;
+  render();
+});

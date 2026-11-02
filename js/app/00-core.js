@@ -201,3 +201,38 @@ function billStatus(e) {
 const currenciesWord = (n) => `${n} ${n === 1 ? 'currency' : 'currencies'}`;
 const balanceList = (a) => `<div class="bal-list">${Calc.accountBalances(a).map((b) => `<div><span class="cur-tag">${esc(b.currency)}</span> ${money(Calc.balanceValue(b, todayISO()).value, b.currency)}${+b.rate ? ` <span class="sub">${num(b.rate, 2)}%</span>` : ''}</div>`).join('')}</div>`;
 const platformLine = (item, more = '') => [item.platform, more].filter(Boolean).map(esc).join(' · ');
+
+// ---------------------------------------------------------------- a ticker's trading currency
+
+// The currency a stock's live price comes in, from its ticker: US tickers have no suffix
+// (LLY, AAPL), others say where they trade (0700.HK, VUSA.L). Unknown suffixes give null.
+const TICKER_CURRENCIES = { HK: 'HKD', L: 'GBP', LON: 'GBP', TO: 'CAD', V: 'CAD', AX: 'AUD', SI: 'SGD', T: 'JPY', DE: 'EUR', F: 'EUR', PA: 'EUR', AS: 'EUR', MI: 'EUR', MC: 'EUR', BR: 'EUR', LS: 'EUR', SW: 'CHF', SS: 'CNY', SZ: 'CNY', KS: 'KRW', TW: 'TWD' };
+function tickerCurrency(symbol) {
+  const s = String(symbol || '').trim().toUpperCase();
+  if (!s) return null;
+  const m = /\.([A-Z]{1,4})$/.exec(s);
+  if (!m) return /^[A-Z][A-Z0-9-]{0,6}$/.test(s) ? 'USD' : null;
+  return TICKER_CURRENCIES[m[1]] || null;
+}
+// A live-priced holding whose currency doesn't match its ticker's market: its price is misread.
+const currencyMismatch = (h) => h && h.source !== 'manual' && tickerCurrency(h.symbol) && tickerCurrency(h.symbol) !== String(h.currency || '').toUpperCase() ? tickerCurrency(h.symbol) : null;
+
+// In a stock's form: fill in the currency from the ticker (until you pick one yourself), and warn
+// when the chosen currency doesn't match where the ticker trades.
+function stockCurrencyHelper(form, v, target) {
+  const sym = form.elements.symbol;
+  const cur = form.elements.currency;
+  if (!sym || !cur) return;
+  const guess = tickerCurrency(sym.value);
+  if (!target && !sym.value) cur.dataset.auto = '1';
+  if (target === cur) delete cur.dataset.auto;
+  if (target === sym && guess && (!cur.value.trim() || cur.dataset.auto === '1')) { cur.value = guess; cur.dataset.auto = '1'; }
+  const box = cur.closest('[data-field]');
+  let warn = box && box.querySelector('.cur-warn');
+  const manual = form.elements.source && form.elements.source.value === 'manual';
+  const chosen = cur.value.trim().toUpperCase();
+  if (box && guess && chosen && chosen !== guess && !manual) {
+    if (!warn) { warn = document.createElement('small'); warn.className = 'cur-warn warn-text'; box.appendChild(warn); }
+    warn.textContent = `${sym.value.trim().toUpperCase()} trades in ${guess}, and its live price is read as ${guess}. Pick ${guess} — you can still pay from a balance in another currency when you buy.`;
+  } else if (warn) warn.remove();
+}

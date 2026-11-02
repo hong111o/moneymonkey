@@ -94,6 +94,7 @@ function renderSection(key, opts = {}) {
       : `<div class="card empty">No ${sec.singular}s${filter != null || curFilter ? ' match this filter' : ' yet'}. <button class="btn primary" data-action="add" data-sec="${key}">+ Add ${sec.singular}</button></div>`}
     ${key === 'deposits' ? renderDepositHistory() : ''}
     ${key === 'stocks' || key === 'crypto' ? renderBrokerCard(key) : ''}
+    ${key === 'stocks' || key === 'crypto' ? renderTradeHistory(key) : ''}
     ${opts.after || ''}`;
 }
 
@@ -352,10 +353,10 @@ function renderPlatformTable(platforms) {
     ['Property & other', true, (p) => p.property + p.other], ['Debts', true, (p) => p.debt], ['Net', true, (p) => p.net]].map(([label, n, v]) => ({ label, num: n, render: () => '', value: v }));
   for (const c of cols) SORT_VALUES[`platforms:${c.label}`] = c.value;
   const rows = sortItems('platforms', cols, platforms).map((p) => `<tr class="clickable" data-action="open-platform" data-name="${esc(p.name)}" data-box="${esc(p.name || '__none')}" tabindex="0">
-      <td data-label="Platform"><strong>${esc(p.name || 'No platform set')}</strong><div class="sub">${p.region ? `${esc(p.region)}${p.regionGuessed ? ' <span class="badge" title="Guessed from currency — tap to set">guess</span>' : ''}` : (p.name ? 'Tap to set a region' : 'Edit items to add a platform')} · ${plural(p.count, 'item')} · ${esc(p.currencies.join(', '))}</div></td>
+      <td data-label="Platform"><strong>${esc(p.name || 'No platform set')}</strong><div class="sub">${p.region ? `${esc(p.region)}${p.regionGuessed ? ' <span class="badge" title="Guessed from currency — tap to set">guess</span>' : ''}` : (p.name ? 'Tap to set a region' : 'Edit items to add a platform')} · ${p.count ? `${plural(p.count, 'item')} · ${esc(p.currencies.join(', '))}` : 'nothing here now'}${p.locked ? ' · locked' : ''}</div></td>
       ${td('Cash', p.cash)}${td('Investments', p.invest)}${td('Deposits', p.deposits)}${td('Property &amp; other', p.property + p.other)}${td('Debts', -p.debt, 'neg')}
       <td class="num primary" data-label="Net">${money(p.net, base(), 0)}<div class="sub">${net > 0 ? `${((p.net / net) * 100).toFixed(1)}%` : ''}</div></td>
-      <td class="actions"><span class="chev" aria-hidden="true">›</span></td></tr>`).join('');
+      <td class="actions">${p.name ? lockButton(p.name, p.locked, true) : ''}<span class="chev" aria-hidden="true">›</span></td></tr>`).join('');
   const sorted = activeSort('platforms') && cols[activeSort('platforms').col];
   return `${layoutEditing === currentView ? '' : sortMenu('platforms', cols)}<div class="card table-card"><table class="data"><thead><tr>${cols.map((c, i) => sortHeader('platforms', i, c.label, c.num)).join('')}<th></th></tr></thead><tbody data-layout="list-platforms"${sorted ? ' data-sorted="1"' : ''}>${rows}</tbody></table></div>`;
 }
@@ -421,7 +422,7 @@ function renderPlatformDetail(name) {
   return `${back}
     <div class="page-head">
       <div><h1>${title}</h1><p class="sub">${meta}</p></div>
-      ${name ? `<div class="row-actions"><button class="btn" data-action="edit-platform" data-name="${esc(name)}">Edit name &amp; region</button></div>` : ''}
+      ${name ? `<div class="row-actions">${lockButton(name, p ? p.locked : true, false)}<button class="btn" data-action="edit-platform" data-name="${esc(name)}">Edit name &amp; region</button></div>` : ''}
     </div>
     <section class="tiles">${tiles}</section>
     ${groups}
@@ -444,7 +445,8 @@ function editPlatform(name) {
         for (const s of PLATFORM_SECTIONS) for (const item of state[s]) if (item.platform === name) { item.platform = v.name; item._mt = now; }
         delete state.platformMeta[name];
       }
-      state.platformMeta[v.name] = { region: v.region, _mt: now };
+      // Keep its other settings (e.g. the lock) when renaming or changing the region.
+      state.platformMeta[v.name] = { ...meta, ...(state.platformMeta[v.name] || {}), region: v.region, _mt: now };
       if (currentView === 'platform' && viewParam === name) {
         viewParam = v.name;
         history.replaceState(null, '', `#platform/${encodeURIComponent(v.name)}`);
@@ -508,3 +510,69 @@ document.addEventListener('change', (e) => {
   saveInvestView();
   render();
 });
+
+// ---------------------------------------------------------------- trade history (Stocks, Crypto)
+
+// Every buy, sell, dividend and split of a section, newest first — also for holdings that were
+// sold out or deleted. Filter by platform; the latest 20 show until "Show all".
+const tradeView = { platform: {}, all: {} };
+function sectionTrades(key) {
+  const ids = new Set((state[key] || []).map((h) => h.id));
+  return (state.trades || []).filter((t) => (t.section ? t.section === key : ids.has(t.holdingId)))
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b._mt || 0) - (a._mt || 0)));
+}
+function renderTradeHistory(key) {
+  const all = sectionTrades(key);
+  if (!all.length) return '';
+  const platforms = [...new Set(all.map((t) => t.platform || ''))].sort();
+  const pf = tradeView.platform[key];
+  const list = pf == null ? all : all.filter((t) => (t.platform || '') === pf);
+  const shown = tradeView.all[key] ? list : list.slice(0, 20);
+  const held = new Set((state[key] || []).map((h) => h.id));
+  const sideLabel = { buy: 'Buy', sell: 'Sell', dividend: 'Dividend', split: 'Split' };
+  const rows = shown.map((t) => `<li><span class="ev-date">${fmtDate(t.date)}</span><span class="ev-label"><span class="badge ${t.side === 'sell' ? 'kind-income' : t.side === 'buy' ? 'kind-expense' : ''}">${sideLabel[t.side] || t.side}</span> ${activityText({ ...t, kind: 'trade' })}<span class="sub">${esc(t.platform || 'No platform')}${held.has(t.holdingId) ? '' : ' · no longer held'}</span></span></li>`).join('');
+  return `<div class="section-head"><h2>Trade history</h2>${platforms.length > 1 ? `<select class="filter" data-trade-platform="${key}" aria-label="Filter trades by platform"><option value="__all">All platforms</option>${platforms.map((p) => `<option value="${esc(p)}" ${pf === p ? 'selected' : ''}>${esc(p || 'No platform')}</option>`).join('')}</select>` : ''}</div>
+    <div class="card"><ul class="events trade-history">${rows || '<li class="sub">No trades on this platform.</li>'}</ul>
+      ${list.length > 20 ? `<button class="btn small ghost" data-trade-all="${key}">${tradeView.all[key] ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}</div>`;
+}
+document.addEventListener('change', (e) => {
+  const sel = e.target.closest('[data-trade-platform]');
+  if (!sel) return;
+  tradeView.platform[sel.dataset.tradePlatform] = sel.value === '__all' ? null : sel.value;
+  render();
+});
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-trade-all]');
+  if (!b) return;
+  tradeView.all[b.dataset.tradeAll] = !tradeView.all[b.dataset.tradeAll];
+  render();
+});
+
+// ---------------------------------------------------------------- platform lock
+
+// A locked platform stays (with its name and region) even when nothing is held there any more.
+// New platforms start locked; unlock one to let it disappear once nothing uses it.
+function lockNewPlatforms() {
+  const now = Date.now();
+  for (const sec of PLATFORM_SECTIONS) {
+    for (const item of state[sec] || []) {
+      const name = String(item.platform || '').trim();
+      if (name && !state.platformMeta[name]) state.platformMeta[name] = { locked: true, _mt: now };
+    }
+  }
+}
+function lockButton(name, locked, small) {
+  return `<button type="button" class="${small ? 'lock-btn' : 'btn icon-only lock-btn'}${locked ? ' on' : ''}" data-lock-platform="${esc(name)}" aria-pressed="${locked}" title="${locked ? 'Locked: stays even when empty. Tap to unlock.' : 'Unlocked: disappears once nothing uses it. Tap to lock.'}" aria-label="${locked ? 'Unlock' : 'Lock'} ${esc(name)}">${icon(locked ? 'lock' : 'unlock')}</button>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-lock-platform]');
+  if (!b) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const name = b.dataset.lockPlatform;
+  const meta = state.platformMeta[name] || {};
+  const locked = meta.locked === false;
+  state.platformMeta[name] = { ...meta, locked, _mt: Date.now() };
+  commit();
+  toast(locked ? `${name} locked — it stays even when empty` : `${name} unlocked — it disappears once nothing uses it`);
+}, true);

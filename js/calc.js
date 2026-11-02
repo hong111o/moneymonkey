@@ -1377,7 +1377,13 @@
       if (isFinite(v)) row.debt += v;
       if (e.currency) row.currencies.add(e.currency);
     }
+    // Locked platforms stay listed even when nothing is held there any more.
+    for (const [name, m] of Object.entries(meta)) {
+      if (!name || !m || m.locked === false || rows.has(name)) continue;
+      rows.set(name, { name, region: m.region || '', regionGuessed: false, cash: 0, invest: 0, deposits: 0, property: 0, other: 0, debt: 0, count: 0, currencies: new Set() });
+    }
     const platforms = [...rows.values()].map((r) => {
+      r.locked = !!(r.name && meta[r.name] && meta[r.name].locked !== false);
       const assets = r.cash + r.invest + r.deposits + r.property + r.other;
       const currencies = [...r.currencies].sort();
       let { region, regionGuessed } = r;

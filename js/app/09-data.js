@@ -95,7 +95,14 @@ function recordSnapshot() {
   const items = Calc.itemValues(state, todayISO());
   // Profit / loss of stocks and of crypto, for the charts on those pages.
   const pnl = { stocks: round2(investProfit('stocks')), crypto: round2(investProfit('crypto')) };
-  state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), ...plan, cats, items, pnl, t: Date.now() }, HISTORY_MAX);
+  // What this month's income and fixed costs are made of, so the month can be opened later.
+  const prevSummary = summary;
+  summary = s;
+  const breakdown = monthBreakdown(todayISO().slice(0, 7));
+  summary = prevSummary;
+  state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), ...plan, cats, items, pnl, breakdown, t: Date.now() }, HISTORY_MAX);
+  // Only each month's latest day keeps its breakdown.
+  for (let i = 0; i < state.history.length - 1; i++) if (state.history[i].breakdown && state.history[i].date.slice(0, 7) === state.history[i + 1].date.slice(0, 7)) delete state.history[i].breakdown;
   // Item values are only kept for the last 400 days, so the saved history stays small.
   const keepItems = Calc.toISO(Calc.addDays(new Date(), -400));
   for (const h of state.history) if (h.items && h.date < keepItems) delete h.items;

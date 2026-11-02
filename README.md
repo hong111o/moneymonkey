@@ -81,6 +81,10 @@ Every asset and loan has a **Platform** (HSBC HK, ZA Bank, Futu, Monzo, Trading 
 
 The Cash Flow page has three tabs: **Overview** (the plan and month by month), **Cards & spending** (cards and statements, latest 3 months with "Show all") and **Items** (every income, bill, subscription, saving and transfer in folding groups; one-offs and paused items start folded). Overview starts with:
 
+**Months tab:** pick any month (‹ › or the list) to see what it included: Income on the left and spending on the right on a computer (one column on a phone), each line biggest first with its share and its change since the month before, card statements, fixed bills and loan repayments, one-offs, left over, and the payments you confirmed. Above it: income, spent, left over and savings rate with ▲▼ against the month before; below it, what changed since then and the year so far. Tap a month in Month by month to open it here. October 2026 onwards is listed even without a card statement. Months saved before 2 Nov 2026 are rebuilt from your items (marked so); from then on each month keeps its own item list.
+
+**Correcting past months:** tap a line in a month to change it **for that month only** (e.g. electricity was HK$750 that month; Reset puts it back), or open the item. Changing an item's amount asks whether it's **new from now on** or **was wrong — correct it from a month**, with a preview of what changes. Changing a past card statement updates that month's card spending automatically (an account balance you already confirmed a payment from isn't moved).
+
 - **Where your income goes:** one bar splitting a typical month's income into bank bills, card spending, loan repayments and planned saving, and what's **free** (or how much you're over). Tap any part for the items behind it.
 - **Month by month:** income against spending for the months you've recorded card statements, with what was left over. Choose **Last month**, **Quarter** (the default), **6M**, or **By year** (one row per year, covering every recorded month). Income and fixed costs here are your regular amounts **as they were that month**. The app saves them every day, so a pay rise, a new bill or a cancelled subscription doesn't change earlier months. Months from before the app saved them use today's amounts. Each month also adds any extras (from the check-in, or one-off items in Cash Flow). One-off items count only in their own month, never in the regular plan.
 - **Fixed costs:** regular commitments (bills, subscriptions, loan repayments, however they're paid) as a share of income. Tap it to compare with your flexible card spending.
@@ -181,6 +185,18 @@ On a computer, the menu is a column of icons on the left (hover for names). The 
 ### Target mix (Goals page)
 
 Set what % of your assets you'd like in each area: Cash & Bank, Stocks & ETFs, Crypto, Fixed Deposits, Other Assets, and Property if you switch on **Include property** (off by default). The targets must add up to 100%. Goals then shows each area's current share against its target, whether it's on target (within ±5 points by default, adjustable), how much to add or how much it's over, suggested moves to rebalance, and how to split this month's surplus to get closer without selling. Shares use your assets in your base currency; debts aren't counted.
+
+### Trade history and closed positions
+
+Stocks and Crypto list every buy, sell, dividend and split under **Trade history**, newest first, with a platform filter — including holdings you've sold out of or deleted (marked "no longer held").
+
+### Ticker currency
+
+When you add a stock, its **trading currency** is filled in from the ticker (LLY → USD, 0700.HK → HKD, VUSA.L → GBP), because that's the currency its live price comes in. If you choose a different one, the form warns you, and a saved holding with a mismatch shows **Check currency** on Stocks. You can still pay from a balance in another currency: in Buy / Sell choose the cash account's balance (e.g. GBP) and the amount the broker charged.
+
+### Platform lock
+
+Each platform has a 🔒 lock (on the Platforms list and on its page). A locked platform stays — with its name and region — even when nothing is held there any more, so selling your last stock doesn't make it disappear. Platforms are locked by default; unlock one to let it go once it's empty.
 
 ### Charts on Stocks and Crypto
 

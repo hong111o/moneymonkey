@@ -36,6 +36,8 @@ document.addEventListener('click', (e) => {
       return editItem(sec, null, preset);
     }
     case 'review-payments': return reviewPayments();
+    case 'month-detail': return openMonth(b.dataset.month);
+    case 'month-pick': if (b.dataset.month) { cfMonth = b.dataset.month; render(); window.scrollTo(0, 0); } return;
     case 'target-mix': return openTargetMix();
     case 'extend-cf': return openExtend(b.dataset.id);
     case 'checkin': return openCheckin();
@@ -294,6 +296,7 @@ titleCaseIn(document.body);
 
 fillDatalists();
 Calc.settleDeposits(state, todayISO(), Date.now());
+lockNewPlatforms();
 route();
 recordSnapshot();
 save();
