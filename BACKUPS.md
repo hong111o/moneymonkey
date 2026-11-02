@@ -45,3 +45,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 30 | 2026-10-31 | `b4ba885` | Side panel layout fix on laptop screens |
 | 31 | 2026-11-02 | `1572b1f` | Value / profit charts on Stocks and Crypto |
 | 32 | 2026-11-02 | `1572b1f` | Before ticker currency, Trade History, platform lock, month detail and the Months tab |
+| 33 | 2026-11-02 | `210d811` | Months tab, past-month corrections, Trade History, platform lock, ticker currency |
