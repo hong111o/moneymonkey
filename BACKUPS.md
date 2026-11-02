@@ -43,3 +43,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 28 | 2026-10-30 | `6e0408c` | Target mix on Goals |
 | 29 | 2026-10-30 | `a24bfa8` | Side panel: Today, and details of the row you click |
 | 30 | 2026-10-31 | `b4ba885` | Side panel layout fix on laptop screens |
+| 31 | 2026-11-02 | `1572b1f` | Value / profit charts on Stocks and Crypto |
