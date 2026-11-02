@@ -47,3 +47,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 32 | 2026-11-02 | `1572b1f` | Before ticker currency, Trade History, platform lock, month detail and the Months tab |
 | 33 | 2026-11-02 | `210d811` | Months tab, past-month corrections, Trade History, platform lock, ticker currency |
 | 34 | 2026-11-02 | `210d811` | (same as 33) before What changed, History page and Liquid net worth |
+| 35 | 2026-11-02 | `41875af` | What changed, Liquid net worth, History page, target mix on Home |
