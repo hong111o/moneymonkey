@@ -452,11 +452,11 @@ function setupAlerts() {
 
 // Net worth shown on Home: everything, or liquid only (remembered on this device).
 let liquidView = (() => { try { return localStorage.getItem('moneymonkey.nwView') === 'liquid'; } catch (e) { return false; } })();
-const liquidSets = () => ({ skip: Calc.illiquidIds(state), debts: new Set(state.liabilities.map((l) => l.id)) });
+const liquidSets = () => ({ skip: Calc.illiquidIds(state), debts: new Set(state.liabilities.map((l) => l.id)), liquid: new Set(state.others.filter((o) => o.liquid).map((o) => o.id)) });
 function nwValueNow() {
   if (!liquidView) return summary.netWorth;
-  const { skip, debts } = liquidSets();
-  return Calc.liquidOf({ netWorth: summary.netWorth, items: Calc.itemValues(state, todayISO()) }, skip, debts);
+  const { skip, debts, liquid } = liquidSets();
+  return Calc.liquidOf({ netWorth: summary.netWorth, items: Calc.itemValues(state, todayISO()), cats: summary.totals }, skip, debts, liquid);
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-nw-view]');
@@ -469,8 +469,8 @@ document.addEventListener('click', (e) => {
 function filteredHistory() {
   // Liquid: from days that saved each item's value (since 28 Oct 2026), in the base currency.
   if (liquidView) {
-    const { skip, debts } = liquidSets();
-    const pts = state.history.filter((h) => (h.currency || base()) === base()).map((h) => ({ date: h.date, value: Calc.liquidOf(h, skip, debts) })).filter((p) => p.value != null && isFinite(p.value));
+    const { skip, debts, liquid } = liquidSets();
+    const pts = state.history.filter((h) => (h.currency || base()) === base()).map((h) => ({ date: h.date, value: Calc.liquidOf(h, skip, debts, liquid) })).filter((p) => p.value != null && isFinite(p.value));
     if (historyRange === 'all') return pts;
     const from = Calc.toISO(Calc.addDays(new Date(), -+historyRange));
     return pts.filter((p) => p.date >= from);
@@ -671,7 +671,7 @@ function whatChangedCard() {
   if (liquidView) {
     const ls = liquidSets();
     skip = ls.skip;
-    const strip = (h) => (h.items ? { ...h, netWorth: Calc.liquidOf(h, ls.skip, ls.debts), items: Object.fromEntries(Object.entries(h.items).filter(([id]) => !ls.skip.has(id))) } : { ...h, netWorth: null });
+    const strip = (h) => (h.items ? { ...h, netWorth: Calc.liquidOf(h, ls.skip, ls.debts, ls.liquid), items: Object.fromEntries(Object.entries(h.items).filter(([id]) => !ls.skip.has(id))) } : { ...h, netWorth: null });
     start = strip(start);
     end = strip(end);
     if (start.netWorth == null || end.netWorth == null) return `<div class="card changed-card">${head}<p class="sub">Liquid net worth is tracked from 28 Oct 2026 — switch to All for this period.</p></div>`;

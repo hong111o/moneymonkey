@@ -949,8 +949,12 @@ test('liquid net worth leaves out property, other assets and the loans secured o
   const skip = C.illiquidIds(state);
   assert.deepEqual([...skip].sort(), ['car', 'flat', 'mort']);
   const debts = new Set(['mort', 'pl', 'carloan']);
+  const liquid = new Set(['gold']);
   // net worth 1000 = cash 400 + flat 900 + car 100 + gold 50 − mortgage 400 − personal 50
-  const entry = { netWorth: 1000, items: { cash: 400, flat: 900, car: 100, gold: 50, mort: 400, pl: 50 } };
-  assert.equal(C.liquidOf(entry, skip, debts), 1000 - 900 - 100 + 400); // 400 cash + 50 gold − 50 personal
-  assert.equal(C.liquidOf({ netWorth: 5 }, skip, debts), null);
+  const entry = { netWorth: 1000, cats: { property: 900, other: 150 }, items: { cash: 400, flat: 900, car: 100, gold: 50, mort: 400, pl: 50 } };
+  assert.equal(C.liquidOf(entry, skip, debts, liquid), 400); // 400 cash + 50 gold − 50 personal
+  assert.equal(C.liquidOf({ netWorth: 5 }, skip, debts, liquid), null);
+  // A property deleted and added again (old id in the past snapshot) is still taken out.
+  const old = { netWorth: 1000, cats: { property: 900, other: 150 }, items: { cash: 400, oldFlat: 900, car: 100, gold: 50, mort: 400, pl: 50 } };
+  assert.equal(C.liquidOf(old, skip, debts, liquid), 400);
 });

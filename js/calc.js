@@ -527,12 +527,17 @@
     }
     return out;
   }
-  // Liquid net worth of a snapshot: net worth less left-out assets, plus left-out debts (`debtIds`).
-  // Needs the snapshot's item values; null without them.
-  function liquidOf(entry, skip, debtIds) {
-    if (!entry || !entry.items) return null;
-    let v = entry.netWorth || 0;
-    for (const [id, x] of Object.entries(entry.items)) if (skip.has(id)) v += debtIds.has(id) ? x : -x;
+  // Liquid net worth of a snapshot: net worth less ALL property and other assets that day (their
+  // category totals, so items deleted or re-added since are still taken out), plus back other
+  // assets marked liquid (`liquidIds`) and the loans left out (`skip` ∩ `debtIds`). Needs the
+  // snapshot's category totals and item values; null without them.
+  function liquidOf(entry, skip, debtIds, liquidIds = new Set()) {
+    if (!entry || !entry.items || !entry.cats) return null;
+    let v = (entry.netWorth || 0) - (entry.cats.property || 0) - (entry.cats.other || 0);
+    for (const [id, x] of Object.entries(entry.items)) {
+      if (liquidIds.has(id)) v += x;
+      else if (skip.has(id) && debtIds.has(id)) v += x;
+    }
     return round2(v);
   }
 
