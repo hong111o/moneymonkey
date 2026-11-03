@@ -210,6 +210,14 @@ Each platform has a 🔒 lock (on the Platforms list and on its page). A locked 
 
 At the top of Stocks & ETFs and of Crypto, a chart like the net worth one shows the **Value** of those holdings (the default) or their **Profit**: what they've gained (value minus cost) plus profit already taken by selling, so buying or selling doesn't move that line. Pick 1W, 1M, 3M, 1Y or All; hover or touch the line for any day. Value history starts from 28 Oct 2026 and profit history from 31 Oct 2026, one point a day.
 
+### Undo a trade
+
+After recording a buy, sale, dividend or split, the message has an **Undo** button for 5 seconds. It puts everything back — including a holding the sale removed, the cash balance and the trade record.
+
+### Missing card statements in the check-in
+
+The monthly check-in also lists earlier months (up to 3 per card) that have no card statement. Enter an amount to fill it in; these old statements are saved as already paid, so they don't show as bills to pay.
+
 ### Data health check
 
 Settings → **Data health check** looks for things in your data that may be making your numbers wrong, each with a button to fix it: a stock whose currency doesn't match where its ticker trades, an income item that looks like a property's rent but isn't linked (so it may be counted twice), and a linked bill or income with payments unconfirmed for over 45 days (maybe cancelled). It also lists past months without a card statement and long gaps in your daily history, and shows how much of the browser's storage (about 5 MB) your data uses — warning from 70%. If anything may affect your numbers, Needs attention on Home says so.

@@ -411,12 +411,8 @@ function healthIssues() {
     out.push({ key: `stale:${id}`, level: 'warn', title: `“${c.name}”: ${list.length} payments not confirmed since ${fmtDate(list[0].date)}`, text: 'Still paying it? Confirm the payments. If it was cancelled, end it so it stops counting in your spending.', fixes: [{ label: 'Review payments', fix: 'payments', primary: true }, { label: 'It was cancelled — end it', fix: 'end', id }] });
   }
   // 4. Past months without a card statement (card spending is estimated for them).
-  const months = new Set(state.history.map((h) => h.date.slice(0, 7)));
-  const thisM = t.slice(0, 7);
   for (const card of state.cards) {
-    const have = new Set(state.spending.filter((e) => e.cardId === card.id).map((e) => e.month));
-    const first = [...have].sort()[0];
-    const missing = [...months].filter((m) => m < thisM && !have.has(m) && (!first || m >= first || have.size === 0)).sort().reverse().slice(0, 6);
+    const missing = missingStatementMonths(card).slice(0, 6);
     if (!missing.length) continue;
     out.push({ key: `stmt:${card.id}`, level: 'info', title: `${card.name}: no statement for ${missing.map((m) => fmtMonth(m)).join(', ')}`, text: 'Card spending for those months is estimated from bills paid by card until you add the statement.', fixes: [{ label: `+ Add ${fmtMonth(missing[0])}`, fix: 'add-stmt', id: card.id, extra: missing[0], primary: true }] });
   }

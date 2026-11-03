@@ -180,8 +180,10 @@ function openCheckin(prefill) {
     const done = state.spending.find((e) => e.cardId === c.id && e.month === lm);
     return `<label class="ci-line ci-card-line"><span class="ci-card-name">${esc(c.name)}</span>${done
       ? `<span class="sub">recorded: ${money(done.amount, done.currency)}</span>`
-      : `<input type="number" step="any" inputmode="decimal" data-card="${esc(c.id)}" placeholder="${esc(c.currency || base())} statement" aria-label="${esc(c.name)} statement for ${fmtMonth(lm)}">`}</label>`;
+      : `<input type="number" step="any" inputmode="decimal" data-card="${esc(c.id)}" data-month="${lm}" placeholder="${esc(c.currency || base())} statement" aria-label="${esc(c.name)} statement for ${fmtMonth(lm)}">`}</label>`;
   }).join('');
+  // Earlier months (up to 3 per card) that still have no statement.
+  const missingEarlier = state.cards.flatMap((c) => missingStatementMonths(c).filter((m) => m < lm).slice(0, 3).map((m) => `<label class="ci-line ci-card-line"><span class="ci-card-name">${esc(c.name)} <span class="sub">${esc(fmtMonth(m))}</span></span><input type="number" step="any" inputmode="decimal" data-card="${esc(c.id)}" data-month="${m}" placeholder="${esc(c.currency || base())} statement" aria-label="${esc(c.name)} statement for ${fmtMonth(m)}"></label>`)).join('');
   const blocks = state.accounts.map((a) => {
     const lines = Calc.accountBalances(a);
     return `<div class="ci-acct" data-id="${esc(a.id)}">
@@ -209,6 +211,7 @@ function openCheckin(prefill) {
     ${cardLines}
     <div class="ci-spend-rows">${state.cards.length ? '' : spendRow()}</div>
     <button type="button" class="btn small" data-ci="add-card">+ ${state.cards.length ? 'A card not listed' : 'Another card'}</button>
+    ${missingEarlier ? `<h3>${icon('card')} Earlier months without a statement</h3><p class="sub">Optional — so Cash Flow → Months shows real card spending instead of an estimate. Saved as already paid.</p>${missingEarlier}` : ''}
     <h3>${icon('sparkle')} Extra income or one-off costs in ${fmtMonth(lm)}</h3>
     <p class="sub">Optional — e.g. a bonus or a big one-off purchase. Only used in Cash Flow’s month by month; it doesn’t change any balance (the balances above already include it).</p>
     <div class="ci-extras">${extraRow()}</div>
@@ -244,7 +247,7 @@ function openCheckin(prefill) {
     }
     // save: validate card rows first
     const cards = [...box.querySelectorAll('.ci-spend')].map((r) => ({ platform: $('.ci-card', r).value.trim(), amount: $('.ci-amt', r).value, currency: $('.ci-cur', r).value.trim().toUpperCase() })).filter((c) => c.amount !== '');
-    const known = [...box.querySelectorAll('input[data-card]')].filter((i) => i.value !== '').map((i) => ({ cardId: i.dataset.card, amount: i.value }));
+    const known = [...box.querySelectorAll('input[data-card]')].filter((i) => i.value !== '').map((i) => ({ cardId: i.dataset.card, month: i.dataset.month || lm, amount: i.value }));
     for (const c of known) if (!isFinite(+c.amount)) return ($('.form-error', box).textContent = 'Card amounts must be numbers.');
     const extras = [...box.querySelectorAll('.ci-extra')].map((r) => ({ kind: $('.ci-x-kind', r).value, name: $('.ci-x-name', r).value.trim(), amount: $('.ci-x-amt', r).value, currency: $('.ci-x-cur', r).value.trim().toUpperCase() })).filter((x) => x.amount !== '');
     for (const x of extras) {
@@ -285,7 +288,10 @@ function openCheckin(prefill) {
     }
     for (const k of known) {
       const card = cardById(k.cardId);
-      state.spending.push({ id: uid(), cardId: k.cardId, month: lm, platform: card.name, amount: +k.amount, currency: card.currency || base(), dueDate: Calc.cardDueDate(card, lm) || undefined, note: '', _mt: now });
+      const due = Calc.cardDueDate(card, k.month) || undefined;
+      // Earlier months are old statements: saved as already paid, so they don't show as overdue.
+      const old = k.month < lm;
+      state.spending.push({ id: uid(), cardId: k.cardId, month: k.month, platform: card.name, amount: +k.amount, currency: card.currency || base(), dueDate: due, ...(old ? { paidOn: due || t } : {}), note: old ? 'added in the check-in' : '', _mt: now });
     }
     for (const c of cards) {
       const card = { id: uid(), name: c.platform, platform: '', currency: c.currency, dueDay: null, payFromAccountId: '', _mt: now };

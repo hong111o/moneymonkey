@@ -181,6 +181,7 @@ function openTrade(section, holdingId, side) {
       return null;
     },
     onSave: (v) => {
+      const snap = JSON.stringify(state); // for Undo
       const tu = topUpOf(v);
       const left = Math.max(0, short(v) - (tu ? tu.received : 0));
       if (left > 0.005 && !confirm(`“${acctOf(v).name}” doesn’t have enough ${cashCur(v)} in the app — this leaves it ${money(-left, cashCur(v))}. If its real balance is higher, update it first. Record anyway?`)) return 'Not recorded — pick an account to top up from, or update the balance first.';
@@ -206,7 +207,10 @@ function openTrade(section, holdingId, side) {
           removeIfEmpty: !!v.removeIfEmpty,
         }, Date.now());
         commit();
-        toast({ buy: () => `Bought ${num(e.quantity, 8)} ${e.symbol}`, sell: () => `Sold ${num(e.quantity, 8)} ${e.symbol} · profit ${money(e.realised, e.currency)}`, dividend: () => `Dividend ${money(e.amount, e.currency)} from ${e.symbol} recorded`, split: () => `${e.symbol} split ${num(e.ratio, 6)}-for-1 — now ${num(e.quantity, 8)}` }[e.side]());
+        // Undo puts everything back: the holding (even if the sale removed it), cash and the trade.
+        const gone = v.side === 'sell' && !state[section].some((h) => h.id === id);
+        const msg = { buy: () => `Bought ${num(e.quantity, 8)} ${e.symbol}`, sell: () => `Sold ${num(e.quantity, 8)} ${e.symbol} · profit ${money(e.realised, e.currency)}${gone ? ' · holding removed' : ''}`, dividend: () => `Dividend ${money(e.amount, e.currency)} from ${e.symbol} recorded`, split: () => `${e.symbol} split ${num(e.ratio, 6)}-for-1 — now ${num(e.quantity, 8)}` }[e.side]();
+        setTimeout(() => undoToast(msg, () => { restoreSnapshot(snap); toast(`${{ buy: 'Purchase', sell: 'Sale', dividend: 'Dividend', split: 'Split' }[e.side]} undone`); }));
         if (isNew && section === 'stocks') refreshPrices({ force: true });
       } catch (err) {
         return err.message;

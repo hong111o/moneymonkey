@@ -636,3 +636,44 @@ test('5 years of heavy use: data stays well under the storage limit and every pa
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('Undo right after selling everything brings the holding, cash and trade back', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#stocks');
+  const before = await page.evaluate(() => ({ n: state.stocks.length, trades: state.trades.length, qty: state.stocks.find((h) => h.symbol === 'VUSA.L').quantity }));
+  const id = await page.evaluate(() => state.stocks.find((h) => h.symbol === 'VUSA.L').id);
+  await page.evaluate((x) => openTrade('stocks', x, 'sell'), id);
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => state.stocks.some((h) => h.symbol === 'VUSA.L')), false, 'removed by the sale');
+  assert.match(await page.textContent('#toasts'), /holding removed/);
+  await page.click('#toasts .toast-undo button');
+  await page.waitForTimeout(300);
+  const after = await page.evaluate(() => ({ n: state.stocks.length, trades: state.trades.length, qty: (state.stocks.find((h) => h.symbol === 'VUSA.L') || {}).quantity }));
+  assert.deepEqual(after, before);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('the check-in asks for earlier months without a card statement and saves them as paid', { skip: skip() }, async () => {
+  const { page, ctx, errors } = await demo();
+  const card = await page.evaluate(() => {
+    // Remove a middle statement so that month is missing.
+    const c = state.cards[0];
+    const mine = state.spending.filter((e) => e.cardId === c.id).sort((a, b) => (a.month < b.month ? -1 : 1));
+    state.spending = state.spending.filter((e) => e !== mine[mine.length - 2]);
+    commit();
+    return { id: c.id, month: mine[mine.length - 2].month };
+  });
+  await page.evaluate(() => openCheckin());
+  const input = `dialog input[data-card="${card.id}"][data-month="${card.month}"]`;
+  assert.ok(await page.isVisible(input), 'missing month asked for');
+  await page.fill(input, '1234');
+  await page.click('[data-ci=save]');
+  await page.waitForTimeout(300);
+  const saved = await page.evaluate((c) => state.spending.find((e) => e.cardId === c.id && e.month === c.month), card);
+  assert.ok(saved && saved.amount === 1234 && saved.paidOn, 'saved, as already paid');
+  assert.equal(await page.evaluate((c) => Calc.unpaidCardBills(state).some((e) => e.cardId === c.id && e.month === c.month), card), false);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

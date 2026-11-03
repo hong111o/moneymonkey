@@ -717,3 +717,14 @@ document.addEventListener('change', (e) => {
   cfMonth = e.target.value;
   render();
 });
+
+
+// Past months the app has figures for, before this month, where a card has no statement
+// (newest first). Only from the card's first statement on, if it has any.
+function missingStatementMonths(card) {
+  const thisM = todayISO().slice(0, 7);
+  const months = new Set(state.history.map((h) => h.date.slice(0, 7)));
+  const have = new Set(state.spending.filter((e) => e.cardId === card.id).map((e) => e.month));
+  const first = [...have].sort()[0];
+  return [...months].filter((m) => m < thisM && !have.has(m) && (!first || m >= first)).sort().reverse();
+}
