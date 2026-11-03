@@ -587,3 +587,52 @@ test('Home: the Liquid view leaves out property and its mortgage, and is remembe
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('data health check finds a wrong currency, rent counted twice and unconfirmed payments, and fixes the rent', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await page.evaluate(() => {
+    state.stocks.push({ id: 'lly', symbol: 'LLY', platform: 'Trading 212', quantity: 1, avgCost: 1052.2, currency: 'GBP', source: 'live' });
+    state.properties.push({ id: 'studio', name: 'Studio', currency: 'GBP', purchasePrice: 100000, monthlyRent: 1100, valuations: [], updateFrequency: 'monthly' });
+    state.cashflows.push({ id: 'roomrent', name: 'Room rent', kind: 'income', category: 'Rent', amount: 1050, currency: 'GBP', frequency: 'monthly', nextDate: todayISO(), active: true });
+    const c = state.cashflows.find((x) => x.name === 'Rent (HK)');
+    c.trackFrom = Calc.toISO(Calc.addDays(new Date(), -100)); c.nextDate = c.trackFrom; delete c.lastHandled;
+    commit();
+  });
+  await go('#health');
+  const text = await page.textContent('#main');
+  assert.match(text, /LLY: currency GBP, but it trades in USD/);
+  assert.match(text, /Room rent.*may be counted twice/);
+  assert.match(text, /Rent \(HK\).*payments not confirmed/);
+  await page.click('[data-fix="link-rent"]');
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => state.cashflows.find((c) => c.id === 'roomrent').propertyId), 'studio');
+  assert.doesNotMatch(await page.textContent('#main'), /Room rent.*may be counted twice/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('5 years of heavy use: data stays well under the storage limit and every page draws', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  const kb = await page.evaluate(() => {
+    const t = new Date(); const day = (n) => Calc.toISO(Calc.addDays(t, n)); const rnd = (a, b) => a + Math.random() * (b - a);
+    const cur = ['HKD', 'GBP', 'USD', 'EUR'];
+    for (let i = 0; i < 40; i++) state.accounts.push({ id: 'a' + i, name: 'Account ' + i, platform: 'P' + (i % 10), type: 'savings', balances: [{ currency: cur[i % 4], amount: rnd(1e3, 1e5) }] });
+    for (let i = 0; i < 60; i++) state.stocks.push({ id: 's' + i, symbol: 'T' + i, platform: 'P' + (i % 10), quantity: rnd(1, 500), avgCost: rnd(5, 500), manualPrice: rnd(5, 600), source: 'manual', currency: 'USD' });
+    for (let i = 0; i < 80; i++) state.cashflows.push({ id: 'f' + i, name: 'Bill ' + i, kind: 'expense', category: 'C' + (i % 12), amount: rnd(50, 5000), currency: 'HKD', frequency: 'monthly', nextDate: day(i % 28), active: true });
+    for (let i = 0; i < 1500; i++) state.trades.push({ id: 'tr' + i, date: day(-i), side: 'buy', section: 'stocks', holdingId: 's' + (i % 60), symbol: 'T' + (i % 60), platform: 'P1', quantity: 1, price: 10, currency: 'USD', total: 10, _mt: i });
+    for (let i = 0; i < 3000; i++) state.activity.push({ id: 'pay-' + i, date: day(-i * 0.6), kind: 'payment', name: 'Bill', outcome: 'applied', applied: true, amount: -100, currency: 'HKD', accountId: 'a1', accountName: 'A', _mt: i });
+    const tmpl = state.history[state.history.length - 1];
+    const ids = [...state.accounts, ...state.stocks].map((x) => x.id);
+    state.history = Array.from({ length: 1825 }, (_, k) => ({ ...tmpl, demo: undefined, raise: undefined, breakdown: undefined, date: day(k - 1825), items: Object.fromEntries(ids.map((id) => [id, rnd(100, 1e5)])), t: k }));
+    commit(); // trims old item values
+    return Math.round(JSON.stringify(state).length / 1024);
+  });
+  assert.ok(kb < 2600, `data is ${kb} KB — should stay well under 5 MB`);
+  for (const v of ['dashboard', 'accounts', 'stocks', 'history/stocks', 'cashflows', 'goals', 'reports', 'health']) {
+    await go(`#${v}`);
+    const ms = await page.evaluate(() => { const a = performance.now(); render(); return performance.now() - a; });
+    assert.ok(ms < 1500, `${v} took ${Math.round(ms)} ms`);
+  }
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

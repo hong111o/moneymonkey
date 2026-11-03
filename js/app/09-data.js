@@ -117,9 +117,14 @@ function recordSnapshot() {
   state.history = Calc.upsertHistory(state.history, { date: todayISO(), netWorth: round2(s.netWorth), assets: round2(s.assets), liabilities: round2(s.liabilities), currency: base(), ...plan, cats, items, pnl, breakdown, ...(fx ? { fx } : {}), t: Date.now() }, HISTORY_MAX);
   // Only each month's latest day keeps its breakdown.
   for (let i = 0; i < state.history.length - 1; i++) if (state.history[i].breakdown && state.history[i].date.slice(0, 7) === state.history[i + 1].date.slice(0, 7)) delete state.history[i].breakdown;
-  // Item values are only kept for the last 400 days, so the saved history stays small.
-  const keepItems = Calc.toISO(Calc.addDays(new Date(), -400));
-  for (const h of state.history) if (h.items && h.date < keepItems) delete h.items;
+  // Each item's daily value is kept for 90 days (trends need 30); older days keep only each
+  // month's last day (What changed and the Liquid chart use those), so the data stays small.
+  const keepDaily = Calc.toISO(Calc.addDays(new Date(), -90));
+  for (let i = 0; i < state.history.length; i++) {
+    const h = state.history[i];
+    const next = state.history[i + 1];
+    if (h.items && h.date < keepDaily && next && next.date.slice(0, 7) === h.date.slice(0, 7)) delete h.items;
+  }
   // Demo history is stored as a share of today's net worth, so the chart joins up with
   // today's figure whatever prices and exchange rates have loaded.
   for (const h of state.history) {

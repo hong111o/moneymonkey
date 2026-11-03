@@ -23,9 +23,10 @@ const VIEWS = [
   { id: 'region', hidden: true },
   { id: 'card', hidden: true },
   { id: 'history', hidden: true },
+  { id: 'health', hidden: true },
 ];
 // Detail pages highlight their parent in the navigation.
-const NAV_PARENT = { account: 'accounts', deposits: 'accounts', platform: 'platforms', region: 'platforms', card: 'cashflows', history: 'stocks' };
+const NAV_PARENT = { account: 'accounts', deposits: 'accounts', platform: 'platforms', region: 'platforms', card: 'cashflows', history: 'stocks', health: 'settings' };
 
 let currentView = 'dashboard';
 let viewParam = null;
@@ -103,6 +104,7 @@ function render() {
   else if (currentView === 'platform') main.innerHTML = renderPlatformDetail(viewParam ?? '');
   else if (currentView === 'region') main.innerHTML = renderRegion(viewParam ?? '');
   else if (currentView === 'card') main.innerHTML = renderCard(viewParam);
+  else if (currentView === 'health') main.innerHTML = renderHealth();
   else if (currentView === 'history') main.innerHTML = renderHistoryPage(viewParam === 'crypto' ? 'crypto' : 'stocks');
   else main.innerHTML = renderSection(currentView);
   applyLayout();
@@ -446,6 +448,9 @@ function setupAlerts() {
     out.push({ level: 'info', html: `“${esc(c.name)}” ${c.endDate < todayISO() ? 'ended' : 'ends'} on ${fmtDate(c.endDate)}: extend it or let it end? <a href="#" data-action="extend-cf" data-id="${esc(c.id)}">Decide</a>` });
   }
   if (syncCfg.token && !sessionPass) out.push({ level: 'warn', html: 'Sync is locked on this device. <a href="#" data-action="unlock">Enter your passphrase</a> to sync.' });
+  // Things in the data health check that make your numbers wrong.
+  const serious = healthIssues().filter((x) => x.level === 'warn').length;
+  if (serious) out.push({ level: 'warn', html: `Data health: ${plural(serious, 'thing')} may be making your numbers wrong. <a href="#health">Check</a>` });
   if (lastErrors.length) out.push({ level: 'warn', text: `Last price update had problems: ${lastErrors.slice(0, 3).join('; ')}${lastErrors.length > 3 ? '…' : ''}` });
   return out;
 }

@@ -64,13 +64,28 @@ function load() {
   }
 }
 
+// Saving writes all your data at once, so several saves in the same moment (one edit can save
+// a few times) are combined into one, written straight after. Leaving the page writes at once.
+let savePending = false;
 function save() {
+  if (savePending) return;
+  savePending = true;
+  queueMicrotask(saveNow);
+}
+function saveNow() {
+  savePending = false;
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    const json = JSON.stringify(state);
+    localStorage.setItem(STORE_KEY, json);
+    storageUsed = json.length;
   } catch (e) {
-    toast('Could not save — browser storage is unavailable or full. Export a backup in Settings.', 'error');
+    toast('Could not save — browser storage is unavailable or full. Export a backup in Settings, then check Settings → Data health.', 'error');
   }
 }
+window.addEventListener('pagehide', () => { if (savePending) saveNow(); });
+// About how much of the browser's storage your data uses (most phones allow about 5 MB).
+const STORAGE_LIMIT = 5 * 1024 * 1024;
+let storageUsed = (() => { try { return (localStorage.getItem(STORE_KEY) || '').length; } catch (e) { return 0; } })();
 
 let state = load();
 

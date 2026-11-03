@@ -1040,3 +1040,14 @@ table.data td.actions:has(.lock-btn) { display: flex !important; align-items: ce
 .count-pill { font-size: 0.75rem; background: var(--surface-2); border-radius: 99px; padding: 0 7px; margin-left: 2px; }
 .nw-liquid-note { margin: -2px 0 6px; font-size: 0.8rem; }
 @media (max-width: 860px) { .nw-card .nw-head { flex-wrap: wrap; } .nw-card .nw-head > div:first-child { flex: 1 1 100%; } .nw-card .invest-controls { width: 100%; justify-content: space-between; } }
+
+/* Data health check */
+.health-link { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
+.health-link .grow { flex: 1; display: flex; flex-direction: column; }
+.health-h { margin: 18px 0 8px; }
+.health-item { border-left: 3px solid var(--axis); }
+.health-item.warn { border-left-color: var(--series-4); }
+.health-title { display: flex; align-items: flex-start; gap: 8px; }
+.health-item.warn .health-title .ic { color: var(--series-4); }
+.health-item p { margin: 6px 0 10px; }
+.storage-card .mix-bar { margin: 4px 0 8px; }

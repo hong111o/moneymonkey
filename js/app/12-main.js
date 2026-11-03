@@ -36,6 +36,7 @@ document.addEventListener('click', (e) => {
       return editItem(sec, null, preset);
     }
     case 'review-payments': return reviewPayments();
+    case 'health-fix': return healthFix(b.dataset.fix, b.dataset.id, b.dataset.extra);
     case 'month-detail': return openMonth(b.dataset.month);
     case 'month-pick': if (b.dataset.month) { cfMonth = b.dataset.month; render(); window.scrollTo(0, 0); } return;
     case 'target-mix': return openTargetMix();

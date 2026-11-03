@@ -334,7 +334,10 @@ function renderSyncCard() {
 
 function renderSettings() {
   const st = state.settings;
+  const issues = healthIssues();
+  const warn = issues.filter((x) => x.level === 'warn').length;
   return `<div class="page-head"><div><h1>Settings & Sync</h1></div></div>
+    <a class="card health-link" href="#health"><span class="grow"><strong>Data health check</strong><span class="sub">${issues.length ? `${plural(issues.length, 'thing')} to look at${warn ? ` · ${warn} may affect your numbers` : ''}` : 'All clear'} · storage ${storagePct().toFixed(0)}% used</span></span>${issues.length ? `<span class="badge ${warn ? 'warn' : ''}">${issues.length}</span>` : '<span class="badge good">✓</span>'}<span class="chev" aria-hidden="true">›</span></a>
     ${renderSyncCard()}
     <form class="card form-grid" id="settings-form">
       <h2 class="span-2">Preferences</h2>
@@ -369,4 +372,99 @@ function renderSettings() {
       </div>
       <p class="sub">Net worth history: ${state.history.length} daily snapshots${state.history.length ? ` since ${fmtDate(state.history[0].date)}` : ''}. Exchange rates for ${Object.keys(state.fx.rates || {}).length} currencies, updated ${ago(state.fx.updatedAt)}.</p>
     </div>`;
+}
+
+// ---------------------------------------------------------------- data health check
+
+const storagePct = () => Math.min(100, (storageUsed / STORAGE_LIMIT) * 100);
+
+// Things in your data that may be making your numbers wrong ('warn') or are worth a look ('info').
+// Each: { key, level, title, text, fixes: [{ label, fix, id, extra, primary }] }.
+function healthIssues() {
+  const out = [];
+  const t = todayISO();
+  // 1. A stock whose currency doesn't match where its ticker trades: its price is misread.
+  for (const h of state.stocks) {
+    const want = currencyMismatch(h);
+    if (!want) continue;
+    out.push({ key: `cur:${h.id}`, level: 'warn', title: `${h.symbol}: currency ${h.currency || '—'}, but it trades in ${want}`, text: `Its live price is read as ${want}, so its value and profit are off. Set its currency to ${want} and check its average cost is in ${want}.`, fixes: [{ label: 'Open holding', fix: 'open', id: `stocks:${h.id}`, primary: true }] });
+  }
+  // 2. Rent on a property, and an income item that looks like the same rent but isn't linked.
+  const linkedRent = new Set(state.cashflows.filter((c) => c.propertyId).map((c) => c.propertyId));
+  const matched = new Set((summary ? summary.rentMatches : []).map((m) => m.cashflowId));
+  for (const p of state.properties.filter((x) => +x.monthlyRent > 0 && !linkedRent.has(x.id))) {
+    if (summary && summary.rentMatches.some((m) => m.propertyId === p.id)) continue;
+    const like = state.cashflows.filter((c) => c.kind === 'income' && c.frequency !== 'once' && c.active !== false && !c.propertyId && !c.notRent && !matched.has(c.id) && !Calc.hasEnded(c, t)
+      && (/rent|租/i.test(`${c.name} ${c.category || ''}`) || (c.currency === p.currency && Math.abs(Calc.amountOn(c, t) - +p.monthlyRent) <= 0.1 * +p.monthlyRent)));
+    for (const c of like) {
+      out.push({ key: `rent:${p.id}:${c.id}`, level: 'warn', title: `“${c.name}” and the rent on ${p.name} may be counted twice`, text: `${p.name} has rent of ${money(p.monthlyRent, p.currency)}/mo, and “${c.name}” is ${money(Calc.amountOn(c, t), c.currency)}/mo of income. If they’re the same rent, link them so it’s counted once.`, fixes: [{ label: 'Same rent — link them', fix: 'link-rent', id: c.id, extra: p.id, primary: true }, { label: 'Not the same', fix: 'not-rent', id: c.id }] });
+    }
+  }
+  // 3. A linked bill or income that hasn't been confirmed for a while: maybe it was cancelled.
+  const pend = Calc.pendingPayments(state, t).filter((x) => x.type === 'cashflow');
+  const byItem = new Map();
+  for (const x of pend) byItem.set(x.id, [...(byItem.get(x.id) || []), x]);
+  const stale = Calc.toISO(Calc.addDays(new Date(), -45));
+  for (const [id, list] of byItem) {
+    const c = state.cashflows.find((x) => x.id === id);
+    if (!c || list[0].date > stale || list.length < 2) continue;
+    out.push({ key: `stale:${id}`, level: 'warn', title: `“${c.name}”: ${list.length} payments not confirmed since ${fmtDate(list[0].date)}`, text: 'Still paying it? Confirm the payments. If it was cancelled, end it so it stops counting in your spending.', fixes: [{ label: 'Review payments', fix: 'payments', primary: true }, { label: 'It was cancelled — end it', fix: 'end', id }] });
+  }
+  // 4. Past months without a card statement (card spending is estimated for them).
+  const months = new Set(state.history.map((h) => h.date.slice(0, 7)));
+  const thisM = t.slice(0, 7);
+  for (const card of state.cards) {
+    const have = new Set(state.spending.filter((e) => e.cardId === card.id).map((e) => e.month));
+    const first = [...have].sort()[0];
+    const missing = [...months].filter((m) => m < thisM && !have.has(m) && (!first || m >= first || have.size === 0)).sort().reverse().slice(0, 6);
+    if (!missing.length) continue;
+    out.push({ key: `stmt:${card.id}`, level: 'info', title: `${card.name}: no statement for ${missing.map((m) => fmtMonth(m)).join(', ')}`, text: 'Card spending for those months is estimated from bills paid by card until you add the statement.', fixes: [{ label: `+ Add ${fmtMonth(missing[0])}`, fix: 'add-stmt', id: card.id, extra: missing[0], primary: true }] });
+  }
+  // 5. Long gaps in the daily history (days the app wasn't opened).
+  const yearAgo = Calc.toISO(Calc.addDays(new Date(), -365));
+  const days = state.history.map((h) => h.date).filter((d) => d >= yearAgo).sort();
+  const gaps = [];
+  for (let i = 1; i < days.length; i++) { const n = Calc.daysBetween(days[i - 1], days[i]); if (n > 14) gaps.push([days[i - 1], days[i], n - 1]); }
+  if (gaps.length) out.push({ key: 'gaps', level: 'info', title: `${plural(gaps.length, 'gap')} in your daily history this year`, text: `No snapshot on ${gaps.slice(-3).map(([a, b, n]) => `${fmtDate(a)} – ${fmtDate(b)} (${plural(n, 'day')})`).join('; ')}. Charts join the dots; What changed and those months’ figures are less precise. Opening the app now and then fills it in — nothing to fix.`, fixes: [] });
+  // 6. Storage space.
+  const pct = storagePct();
+  if (pct >= 70) out.push({ key: 'storage', level: 'warn', title: `Storage ${pct.toFixed(0)}% full`, text: 'Your browser only allows about 5 MB. Export a backup now; then older history can be trimmed.', fixes: [{ label: 'Export backup', fix: 'backup', primary: true }] });
+  return out;
+}
+
+function renderHealth() {
+  const issues = healthIssues();
+  const pct = storagePct();
+  const mb = (n) => `${(n / 1024 / 1024).toFixed(2)} MB`;
+  const group = (level, title) => {
+    const list = issues.filter((x) => x.level === level);
+    if (!list.length) return '';
+    return `<h2 class="health-h">${title}</h2>${list.map((x) => `<div class="card health-item ${x.level}">
+        <div class="health-title">${icon(x.level === 'warn' ? 'alert' : 'info')}<strong class="keep-case">${esc(x.title)}</strong></div>
+        <p class="sub">${esc(x.text)}</p>
+        ${x.fixes.length ? `<div class="row-actions">${x.fixes.map((f) => `<button class="btn small ${f.primary ? 'primary' : ''}" data-action="health-fix" data-fix="${f.fix}" data-id="${esc(f.id || '')}" data-extra="${esc(f.extra || '')}">${esc(f.label)}</button>`).join('')}</div>` : ''}
+      </div>`).join('')}`;
+  };
+  return `<a class="back" href="#settings">‹ Settings</a>
+    <div class="page-head"><div><h1>Data health check</h1><p class="sub intro">Looks for things in your data that may be making your numbers wrong, and how much storage your data uses.</p></div></div>
+    <div class="card storage-card"><div class="card-head"><h2>Storage</h2><span class="sub">${mb(storageUsed)} of about ${mb(STORAGE_LIMIT)}</span></div>
+      <div class="mix-bar"><span class="mix-fill" style="width:${Math.max(1, pct)}%;background:${pct >= 70 ? 'var(--neg)' : 'var(--ink)'}"></span></div>
+      <p class="sub">${pct.toFixed(1)}% used. Daily item values are kept for 90 days, then one per month, so it grows slowly — about 0.3 MB a year for most people.</p></div>
+    ${issues.length ? '' : '<div class="card empty">✓ All clear — nothing found.</div>'}
+    ${group('warn', 'May affect your numbers')}
+    ${group('info', 'Worth a look')}`;
+}
+
+// The buttons on each finding.
+function healthFix(fix, id, extra) {
+  if (fix === 'open') { const [sec, x] = id.split(':'); return editItem(sec, x); }
+  if (fix === 'payments') return reviewPayments();
+  if (fix === 'backup') return download(`moneymonkey-backup-${todayISO()}.json`, JSON.stringify(state, null, 2), 'application/json');
+  if (fix === 'add-stmt') return editItem('spending', null, { cardId: id, month: extra });
+  if (fix === 'end') { endCashflow(id); return; }
+  if (fix === 'link-rent') {
+    updateCashflow(id, { propertyId: extra, notRent: undefined });
+    return toast('Linked — the rent is counted once');
+  }
+  if (fix === 'not-rent') { updateCashflow(id, { notRent: true }); return toast('Kept as separate income'); }
 }

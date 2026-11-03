@@ -210,6 +210,12 @@ Each platform has a 🔒 lock (on the Platforms list and on its page). A locked 
 
 At the top of Stocks & ETFs and of Crypto, a chart like the net worth one shows the **Value** of those holdings (the default) or their **Profit**: what they've gained (value minus cost) plus profit already taken by selling, so buying or selling doesn't move that line. Pick 1W, 1M, 3M, 1Y or All; hover or touch the line for any day. Value history starts from 28 Oct 2026 and profit history from 31 Oct 2026, one point a day.
 
+### Data health check
+
+Settings → **Data health check** looks for things in your data that may be making your numbers wrong, each with a button to fix it: a stock whose currency doesn't match where its ticker trades, an income item that looks like a property's rent but isn't linked (so it may be counted twice), and a linked bill or income with payments unconfirmed for over 45 days (maybe cancelled). It also lists past months without a card statement and long gaps in your daily history, and shows how much of the browser's storage (about 5 MB) your data uses — warning from 70%. If anything may affect your numbers, Needs attention on Home says so.
+
+To stay small, each item's daily value is kept for 90 days, then one per month; a typical user stays around 0.5 MB after 5 years. Every update is tested against 5 years of heavy use.
+
 ### Sort any list
 
 Tap a column heading in a list (Stocks, Crypto, Cash & Bank, Fixed Deposits, Property, Other Assets, Debts, Cash Flow items, Platforms) to sort by it: high to low, tap again for low to high, a third time for your own order again. On a phone, use the **Sort** menu above the list. Amounts in different currencies are compared in your base currency. The sort is remembered for each list on that device.
