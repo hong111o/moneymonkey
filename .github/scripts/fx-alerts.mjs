@@ -4,7 +4,9 @@
 // get one notification per crossing, not one every 30 minutes.
 import { readFile, writeFile } from 'node:fs/promises';
 
-const GIST = (process.env.ALERTS_GIST || '').trim().replace(/^.*\//, ''); // a pasted Gist link works too
+// A Gist ID is 20–32 letters a–f and digits; this also copes with a pasted link, quotes or spaces.
+const RAW_GIST = (process.env.ALERTS_GIST || '').trim();
+const GIST = ((RAW_GIST.match(/[0-9a-f]{20,32}(?![0-9a-z])/gi) || []).pop() || RAW_GIST.replace(/^.*\//, '')).toLowerCase();
 const TOPIC = (process.env.NTFY_TOPIC || '').trim();
 const OWNER = process.env.GITHUB_REPOSITORY_OWNER;
 const STATE = 'fx-alerts-state.json';
@@ -33,9 +35,10 @@ async function readAlerts() {
   }
   try { return await getJson(`https://gist.githubusercontent.com/${OWNER}/${GIST}/raw/moneymonkey-alerts.json?t=${Date.now()}`); } catch (e) { console.log(`Raw file: ${e.message}`); return null; }
 }
+if (GIST) console.log(`ALERTS_GIST: ${/^[0-9a-f]{20,32}$/.test(GIST) ? `a Gist ID ending in …${GIST.slice(-4)}` : `doesn’t look like a Gist ID (${RAW_GIST.length} characters) — it should be 32 letters a–f and digits`}.`);
 const settings = await readAlerts();
 if (!settings) {
-  console.log('Your alert settings aren’t in that Gist yet. In MoneyMonkey: add an alert, let it sync (or tap the cloud button), then run this again. If it still fails, check the ALERTS_GIST secret matches the Gist ID shown in MoneyMonkey → Settings → Exchange-rate alerts.');
+  console.log('Your alert settings aren’t in that Gist yet. In MoneyMonkey: add an alert, let it sync (or tap the cloud button), then run this again. If it still fails, check the ALERTS_GIST secret: its ending (above) should match the Gist ID shown in MoneyMonkey → Settings → Exchange-rate alerts. To fix it, open the secret on GitHub, tap Update, paste the ID again and save.');
   await writeFile(STATE, await readFile(STATE, 'utf8').catch(() => '{}')); // keep what the last check saw
   process.exit(0);
 }
