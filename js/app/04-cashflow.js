@@ -38,7 +38,7 @@ function renderCashflows() {
   if (cfTab === 'items') return renderSection('cashflows', { tiles: tabBar, before: '', list: renderFlowGroups() });
   // Each part is a box you can move or hide (Edit layout).
   const part = (id, name, html) => (html ? `<div data-box="${id}" data-name="${name}">${html}</div>` : '');
-  const before = `<div class="boxes" data-layout="sections">${part('coming', 'Coming up', renderComingUp())}${part('split', 'Where your income goes', renderIncomeSplit())}${part('history', 'Month by month', renderHistory())}${part('categories', 'Fixed bills by category', cats.length ? `<div class="card"><h2>Fixed bills by category</h2><div class="hbars" style="${barValueWidth(cats.map(([, v]) => money(v, base(), 0)))}">${catBars}</div></div>` : '')}</div>`;
+  const before = `<div class="boxes" data-layout="sections">${part('coming', 'Coming up', renderComingUp())}${part('subs', 'Subscriptions', renderSubsCard())}${part('split', 'Where your income goes', renderIncomeSplit())}${part('history', 'Month by month', renderHistory())}${part('categories', 'Fixed bills by category', cats.length ? `<div class="card"><h2>Fixed bills by category</h2><div class="hbars" style="${barValueWidth(cats.map(([, v]) => money(v, base(), 0)))}">${catBars}</div></div>` : '')}</div>`;
   return renderSection('cashflows', { tiles: tabBar + tiles, before, list: '' });
 }
 
@@ -727,4 +727,88 @@ function missingStatementMonths(card) {
   const have = new Set(state.spending.filter((e) => e.cardId === card.id).map((e) => e.month));
   const first = [...have].sort()[0];
   return [...months].filter((m) => m < thisM && !have.has(m) && (!first || m >= first)).sort().reverse();
+}
+
+
+// ---------------------------------------------------------------- subscription audit
+
+const SUB_REVIEW_DAYS = 90;
+// Subscriptions that count now: active, started, not ended.
+function activeSubs() {
+  const t = todayISO();
+  return state.cashflows.filter((c) => c.kind === 'subscription' && c.frequency !== 'once' && c.active !== false && !Calc.hasEnded(c, t) && cfStatus(c) !== 'later');
+}
+// Each one's cost: per year in the base currency, and its price rises in the last 12 months.
+function subFacts(c) {
+  const t = todayISO();
+  const yearly = (toBase(Calc.monthlyAmount(c, thisMonth()), c.currency) || 0) * 12;
+  const yearAgo = Calc.toISO(Calc.addDays(new Date(), -365));
+  const list = [{ from: '', amount: +c.amount || 0 }, ...[...(c.changes || [])].sort((a, b) => (a.from < b.from ? -1 : 1))];
+  const rises = [];
+  for (let i = 1; i < list.length; i++) if (list[i].from >= yearAgo && list[i].from <= t && list[i].amount > list[i - 1].amount) rises.push({ from: list[i].from, was: list[i - 1].amount, now: list[i].amount });
+  const upcoming = (c.changes || []).filter((x) => x.from > t).sort((a, b) => (a.from < b.from ? -1 : 1))[0] || null;
+  return { yearly, rises, upcoming, reviewed: c.reviewedOn || null };
+}
+// Due a "still using it?" check: never checked, or checked over 3 months ago (and had for a month).
+function subsToReview() {
+  const since = Calc.toISO(Calc.addDays(new Date(), -SUB_REVIEW_DAYS));
+  const month = Calc.toISO(Calc.addDays(new Date(), -30));
+  return activeSubs().filter((c) => (c.reviewedOn ? c.reviewedOn < since : (c.startDate || c.trackFrom || month) <= month));
+}
+
+// The box on Cash Flow → Overview: the biggest few, and a link to the full audit.
+function renderSubsCard() {
+  const subs = activeSubs();
+  if (!subs.length) return '';
+  const rows = subs.map((c) => ({ c, f: subFacts(c) })).sort((a, b) => b.f.yearly - a.f.yearly);
+  const total = rows.reduce((t, r) => t + r.f.yearly, 0);
+  const due = subsToReview().length;
+  return `<div class="card"><div class="card-head"><h2>Subscriptions <span class="sub">· ${money(total, base(), 0)} a year</span></h2><a href="#subscriptions" class="sub">${due ? `${plural(due, 'to review')} →` : 'Audit →'}</a></div>
+    <ul class="month-lines">${rows.slice(0, 4).map((r) => `<li class="clickable" data-action="edit" data-sec="cashflows" data-id="${esc(r.c.id)}" tabindex="0"><span class="grow"><span class="keep-case">${esc(r.c.name)}</span>${r.f.rises.length ? `<span class="sub warn-text">price up ${fmtDate(r.f.rises[r.f.rises.length - 1].from)}</span>` : ''}</span><span class="num">${money(r.f.yearly, base(), 0)}<span class="sub">/yr</span></span></li>`).join('')}</ul>
+    ${rows.length > 4 ? `<a href="#subscriptions" class="sub">+ ${plural(rows.length - 4, 'more')}</a>` : ''}</div>`;
+}
+
+// The audit page: every subscription by yearly cost, price rises, and a "still using it?" check.
+function renderSubscriptions() {
+  const t = todayISO();
+  const subs = activeSubs().map((c) => ({ c, f: subFacts(c) })).sort((a, b) => b.f.yearly - a.f.yearly);
+  const total = subs.reduce((x, r) => x + r.f.yearly, 0);
+  const due = new Set(subsToReview().map((c) => c.id));
+  const rises = subs.filter((r) => r.f.rises.length);
+  const riseCost = rises.reduce((x, r) => x + r.f.rises.reduce((y, q) => y + (toBase(q.now - q.was, r.c.currency) || 0) * (12 / (({ weekly: 12 / 52, biweekly: 12 / 26, monthly: 1, quarterly: 3, semiannually: 6, yearly: 12 })[r.c.frequency] || 1)), 0), 0);
+  const ended = state.cashflows.filter((c) => c.kind === 'subscription' && c.frequency !== 'once' && Calc.hasEnded(c, t) && c.endDate >= Calc.toISO(Calc.addDays(new Date(), -365)));
+  const savedYearly = ended.reduce((x, c) => x + (toBase(Calc.monthlyAmount(c), c.currency) || 0) * 12, 0);
+  const card = (r) => {
+    const { c, f } = r;
+    const per = labelOf(FREQ, c.frequency).toLowerCase();
+    const share = total > 0 ? `${((f.yearly / total) * 100).toFixed(1)}%` : '';
+    const facts = [
+      `${money(Calc.amountOn(c, t), c.currency)} ${per}`,
+      c.onCard ? `${icon('card')} card` : c.accountId && accountName(c.accountId) ? `↔ ${esc(accountName(c.accountId))}` : '',
+      `next ${fmtDate(Calc.nextOccurrence(c, t))}`,
+    ].filter(Boolean).join(' · ');
+    const rise = f.rises.map((q) => `<span class="warn-text">Price up ${money(q.was, c.currency)} → ${money(q.now, c.currency)} on ${fmtDate(q.from)}</span>`).join('<br>');
+    const soon = f.upcoming ? `<span class="warn-text">Going up to ${money(f.upcoming.amount, c.currency)} from ${fmtDate(f.upcoming.from)}</span>` : '';
+    return `<div class="card sub-card${due.has(c.id) ? ' due' : ''}">
+        <div class="sub-top"><span class="grow"><strong class="keep-case">${esc(c.name)}</strong><span class="sub">${facts}</span></span><span class="num"><strong>${money(f.yearly, base(), 0)}</strong><span class="sub">a year · ${share}</span></span></div>
+        ${rise || soon ? `<p class="sub sub-rise">${[rise, soon].filter(Boolean).join('<br>')}</p>` : ''}
+        <div class="row-actions sub-actions">
+          <span class="sub grow">${due.has(c.id) ? '<strong>Still using it?</strong>' : f.reviewed ? `Checked ${fmtDate(f.reviewed)}` : ''}</span>
+          ${due.has(c.id) ? `<button class="btn small" data-action="sub-keep" data-id="${esc(c.id)}">Still using it</button>` : ''}
+          <button class="btn small ${due.has(c.id) ? 'primary' : 'ghost'}" data-action="sub-cancel" data-id="${esc(c.id)}">Cancelled — end it</button>
+          <button class="btn small ghost" data-action="edit" data-sec="cashflows" data-id="${esc(c.id)}">Edit</button>
+        </div>
+      </div>`;
+  };
+  return `<a class="back" href="#cashflows">‹ Cash Flow</a>
+    <div class="page-head"><div><h1>Subscriptions</h1><p class="sub intro">Every subscription by what it costs you a year. Every 3 months the app asks whether you still use each one.</p></div>
+      <div class="row-actions"><button class="btn primary" data-action="add" data-sec="cashflows" data-kind="subscription">+ Add subscription</button></div></div>
+    <section class="tiles">
+      ${tile('Per year', money(total, base(), 0), `${money(total / 12, base(), 0)} a month · ${plural(subs.length, 'subscription')}`)}
+      ${tile('To review', String(due.size), due.size ? 'still using them?' : 'all checked')}
+      ${tile('Price rises', rises.length ? `+${money(riseCost, base(), 0)}` : '—', rises.length ? `a year, from ${plural(rises.length, 'subscription')} in the last 12 months` : 'none in the last 12 months')}
+      ${tile('Saved by cancelling', savedYearly ? money(savedYearly, base(), 0) : '—', ended.length ? `a year · ${plural(ended.length, 'ended')} in the last 12 months` : 'nothing ended this year')}
+    </section>
+    ${subs.length ? subs.map(card).join('') : '<div class="card empty">No subscriptions yet.</div>'}
+    ${ended.length ? `<h2 class="health-h">Ended this year</h2><div class="card"><ul class="month-lines">${ended.map((c) => `<li><span class="grow"><span class="keep-case">${esc(c.name)}</span><span class="sub">ended ${fmtDate(c.endDate)}</span></span><span class="num">${money((toBase(Calc.monthlyAmount(c), c.currency) || 0) * 12, base(), 0)}<span class="sub">/yr saved</span></span><button class="btn small" data-action="restart-cf" data-id="${esc(c.id)}">Restart</button></li>`).join('')}</ul></div>` : ''}`;
 }

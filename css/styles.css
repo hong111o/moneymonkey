@@ -1075,3 +1075,17 @@ table.data td.actions:has(.lock-btn) { display: flex !important; align-items: ce
 .fc-stats .m-stat strong, .fc-stats .m-stat .sub { white-space: nowrap; }
 @media (max-width: 860px) { .fc-stats { gap: 6px; } .fc-stats .m-stat { padding: 8px; } .fc-stats .m-stat strong { font-size: 0.92rem; } .fc-stats .m-stat .sub { font-size: 0.66rem; } }
 @media (max-width: 860px) { .fc-stats .m-stat .sub { white-space: normal; overflow-wrap: anywhere; } }
+
+/* Subscription audit */
+.sub-card .sub-top { display: flex; gap: 12px; align-items: flex-start; }
+.sub-card .sub-top .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sub-card .sub-top .num { display: flex; flex-direction: column; align-items: flex-end; text-align: right; white-space: nowrap; }
+.sub-card.due { border-left: 3px solid var(--series-4); }
+.sub-rise { margin: 8px 0 0; }
+.sub-actions { margin-top: 10px; align-items: center; }
+.sub-actions .grow { flex: 1; min-width: 100px; }
+/* Exchange-rate alerts */
+.copy-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.copy-row code { background: var(--surface-2); padding: 4px 8px; border-radius: 6px; font-size: 0.85rem; overflow-wrap: anywhere; }
+.setup-steps li { margin-bottom: 14px; }
+.setup-steps .btn { margin-top: 4px; }

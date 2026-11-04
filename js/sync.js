@@ -215,11 +215,14 @@
     return JSON.parse(f.content);
   }
 
-  const createGist = (token, envelope) =>
-    gh(token, '/gists', { method: 'POST', body: JSON.stringify({ description: GIST_DESCRIPTION, public: false, files: { [GIST_FILE]: { content: JSON.stringify(envelope) } } }) });
+  // `extra`: other files to write alongside, e.g. the exchange-rate alert settings
+  // ({ name: content }); an envelope of null leaves the encrypted data as it is.
+  const filesOf = (envelope, extra = {}) => ({ ...(envelope ? { [GIST_FILE]: { content: JSON.stringify(envelope) } } : {}), ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, { content: v }])) });
+  const createGist = (token, envelope, extra) =>
+    gh(token, '/gists', { method: 'POST', body: JSON.stringify({ description: GIST_DESCRIPTION, public: false, files: filesOf(envelope, extra) }) });
 
-  const updateGist = (token, id, envelope) =>
-    gh(token, `/gists/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ files: { [GIST_FILE]: { content: JSON.stringify(envelope) } } }) });
+  const updateGist = (token, id, envelope, extra) =>
+    gh(token, `/gists/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ files: filesOf(envelope, extra) }) });
 
   return {
     SECTIONS, canonical,

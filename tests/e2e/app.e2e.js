@@ -693,3 +693,47 @@ test('Goals: the forecast shows years ahead, moves with "what if", and dates eac
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('subscription audit: yearly costs, price rises, "still using it?" and cancelling', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await page.evaluate(() => {
+    const n = state.cashflows.find((c) => c.name === 'Netflix');
+    n.changes = [{ from: Calc.toISO(Calc.addDays(new Date(), -40)), amount: 98 }];
+    commit();
+  });
+  await go('#dashboard');
+  assert.ok(await page.evaluate(() => dashboardAlerts().some((a) => /subscriptions? to review/.test(a.html || ''))), 'Needs attention asks');
+  await go('#subscriptions');
+  const text = await page.textContent('#main');
+  assert.match(text, /Netflix[\s\S]*Price up/);
+  const first = await page.evaluate(() => subsToReview().length);
+  await page.click('.sub-card:has-text("Netflix") [data-action="sub-keep"]');
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => subsToReview().length), first - 1, 'kept one');
+  await page.click('.sub-card:has-text("iCloud") [data-action="sub-cancel"]');
+  await page.waitForTimeout(200);
+  assert.ok(await page.evaluate(() => state.cashflows.find((c) => c.name === 'iCloud+').endDate), 'ended');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('exchange-rate alerts: add one, it shows in Needs attention when met, and only pairs and targets are shared', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#alerts');
+  assert.match(await page.textContent('#main'), /mm-alerts-[a-z0-9]{8}/, 'a private topic');
+  await page.click('[data-action="alert-add"]');
+  await page.selectOption('dialog [name=from]', 'GBP');
+  await page.selectOption('dialog [name=to]', 'HKD');
+  const now = await page.evaluate(() => fxNow('GBP', 'HKD'));
+  await page.fill('dialog [name=rate]', String(Math.floor(now * 100) / 100 - 0.5)); // already above
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(200);
+  const file = JSON.parse(await page.evaluate(() => alertsFileContent()));
+  assert.equal(file.alerts.length, 1);
+  assert.deepEqual(Object.keys(file.alerts[0]).sort(), ['from', 'id', 'op', 'rate', 'to']);
+  assert.ok(await page.evaluate(() => dashboardAlerts().some((a) => /GBP→HKD/.test(a.html || ''))), 'Needs attention says it is met');
+  await page.evaluate(() => setAlert(state.settings.fxAlerts[0].id, { active: false }));
+  assert.equal(JSON.parse(await page.evaluate(() => alertsFileContent())).alerts.length, 0, 'Done turns it off');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

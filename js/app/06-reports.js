@@ -340,6 +340,7 @@ function renderSettings() {
   const issues = healthIssues();
   const warn = issues.filter((x) => x.level === 'warn').length;
   return `<div class="page-head"><div><h1>Settings & Sync</h1></div></div>
+    <a class="card health-link" href="#alerts"><span class="grow"><strong>Exchange-rate alerts</strong><span class="sub">${(state.settings.fxAlerts || []).filter((a) => a.active !== false).length ? `${plural((state.settings.fxAlerts || []).filter((a) => a.active !== false).length, 'alert')} on` : 'Get a phone notification when a rate reaches your target'}</span></span><span class="chev" aria-hidden="true">›</span></a>
     <a class="card health-link" href="#health"><span class="grow"><strong>Data health check</strong><span class="sub">${issues.length ? `${plural(issues.length, 'thing')} to look at${warn ? ` · ${warn} may affect your numbers` : ''}` : 'All clear'} · storage ${storagePct().toFixed(0)}% used</span></span>${issues.length ? `<span class="badge ${warn ? 'warn' : ''}">${issues.length}</span>` : '<span class="badge good">✓</span>'}<span class="chev" aria-hidden="true">›</span></a>
     ${renderSyncCard()}
     <form class="card form-grid" id="settings-form">
@@ -602,3 +603,110 @@ document.addEventListener('change', (e) => {
   const k = f.dataset.fcSet;
   saveFc({ [k]: k === 'real' ? f.checked : +f.value || 0 });
 });
+
+// ---------------------------------------------------------------- exchange-rate alerts
+
+// Alerts like "£1 above HK$10.50". Kept in settings (synced). Checked in the app whenever rates
+// load, and — with sync on — every 30 minutes by a scheduled job on GitHub that sends a phone
+// notification through ntfy (it reads only ALERTS_FILE: currency pairs and target rates).
+const ALERTS_FILE = 'moneymonkey-alerts.json';
+const activeAlerts = () => (state.settings.fxAlerts || []).filter((a) => a.active !== false);
+const hasAlerts = () => activeAlerts().length > 0;
+function alertsFileContent() {
+  return JSON.stringify({ version: 1, alerts: activeAlerts().map(({ id, from, to, op, rate }) => ({ id, from, to, op, rate })) });
+}
+// Your own ntfy topic: a hard-to-guess name, made once and synced.
+function ntfyTopic() {
+  if (!state.settings.ntfyTopic) {
+    const a = new Uint8Array(8);
+    crypto.getRandomValues(a);
+    state.settings = { ...state.settings, ntfyTopic: `mm-alerts-${[...a].map((x) => 'abcdefghjkmnpqrstuvwxyz23456789'[x % 31]).join('')}` };
+    state.settingsMt = Date.now();
+    save();
+  }
+  return state.settings.ntfyTopic;
+}
+const fxNow = (from, to) => Calc.convert(1, from, to, state.fx);
+function metAlerts() {
+  return activeAlerts().map((a) => ({ ...a, now: fxNow(a.from, a.to) })).filter((a) => isFinite(a.now) && (a.op === 'above' ? a.now >= a.rate : a.now <= a.rate));
+}
+function setAlert(id, patch) {
+  const list = [...(state.settings.fxAlerts || [])];
+  const i = list.findIndex((a) => a.id === id);
+  if (patch === null) list.splice(i, 1); else if (i >= 0) list[i] = { ...list[i], ...patch }; else list.push({ id, ...patch });
+  state.settings = { ...state.settings, fxAlerts: list };
+  state.settingsMt = Date.now();
+  commit();
+  queueSync(500);
+}
+function openAlertForm(id) {
+  const a = (state.settings.fxAlerts || []).find((x) => x.id === id);
+  const curs = [...new Set([base(), 'HKD', 'GBP', 'USD', 'EUR', ...Object.keys((state.fx && state.fx.rates) || {})])];
+  openForm({
+    title: a ? 'Edit alert' : 'New exchange-rate alert',
+    intro: 'Get a notification when 1 unit of one currency is worth more (or less) than your target in another.',
+    fields: [
+      { key: 'from', label: '1 unit of', type: 'select', options: curs.map((c) => ({ value: c, label: c })) },
+      { key: 'to', label: 'in', type: 'select', options: curs.map((c) => ({ value: c, label: c })) },
+      { key: 'op', label: 'Alert me when it is', type: 'select', options: [{ value: 'above', label: 'At or above' }, { value: 'below', label: 'At or below' }] },
+      { key: 'rate', label: 'Target rate', type: 'number', required: true },
+    ],
+    values: a || { from: 'GBP', to: 'HKD', op: 'above' },
+    preview: (v) => { const now = fxNow(v.from, v.to); return isFinite(now) ? `Now: 1 ${esc(v.from)} = <strong>${num(now, 4)}</strong> ${esc(v.to)}` : ''; },
+    validate: (v) => (v.from === v.to ? 'Pick two different currencies.' : !(v.rate > 0) ? 'The target rate should be above 0.' : null),
+    buttons: a ? [{ label: 'Delete', onClick: () => { setAlert(a.id, null); toast('Alert deleted'); } }] : [],
+    onSave: (v) => { setAlert(a ? a.id : uid(), { from: v.from, to: v.to, op: v.op, rate: +v.rate, active: true }); toast('Alert saved'); },
+  });
+}
+async function sendTestAlert() {
+  try {
+    const res = await fetch(`https://ntfy.sh/${encodeURIComponent(ntfyTopic())}`, { method: 'POST', body: 'Test from MoneyMonkey — alerts will arrive like this.', headers: { Title: 'MoneyMonkey', Tags: 'moneybag' } });
+    toast(res.ok ? 'Test sent — check ntfy on your phone' : `ntfy said ${res.status}`, res.ok ? undefined : 'error');
+  } catch (e) { toast('Could not reach ntfy — check your connection', 'error'); }
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast('Copied'); } catch (e) { prompt('Copy this:', text); }
+}
+// Is the scheduled job running? (Public repositories only; best effort.)
+let alertJob = null;
+async function checkAlertJob() {
+  const owner = location.hostname.endsWith('.github.io') ? location.hostname.split('.')[0] : null;
+  const repo = location.pathname.split('/').filter(Boolean)[0];
+  if (!owner || !repo) { alertJob = { state: 'unknown' }; return; }
+  try {
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/fx-alerts.yml/runs?per_page=1`);
+    if (res.status === 404) alertJob = { state: 'missing' };
+    else if (!res.ok) alertJob = { state: 'unknown' };
+    else { const j = await res.json(); const r = (j.workflow_runs || [])[0]; alertJob = r ? { state: r.conclusion === 'failure' ? 'failing' : 'ok', at: r.updated_at } : { state: 'none' }; }
+  } catch (e) { alertJob = { state: 'unknown' }; }
+  if (currentView === 'alerts') render();
+}
+
+function renderAlerts() {
+  const topic = ntfyTopic();
+  const gistId = syncCfg.gistId || '';
+  if (!alertJob) { alertJob = { state: 'checking' }; checkAlertJob(); }
+  const job = { checking: 'Checking…', ok: `✓ Running — last check ${alertJob.at ? ago(alertJob.at) : ''}`, failing: '⚠ The last check failed — open the Actions tab on GitHub to see why.', missing: 'Not set up yet on GitHub.', none: 'Set up, waiting for its first run (within 30 minutes).', unknown: 'Can’t tell from here — see the Actions tab on GitHub.' }[alertJob.state];
+  const copyRow = (label, value) => `<div class="copy-row"><span class="sub">${label}</span><code>${esc(value || '—')}</code>${value ? `<button class="btn small" data-action="copy" data-copy="${esc(value)}">Copy</button>` : ''}</div>`;
+  const list = (state.settings.fxAlerts || []).map((a) => {
+    const now = fxNow(a.from, a.to);
+    const met = isFinite(now) && (a.op === 'above' ? now >= a.rate : now <= a.rate);
+    return `<li class="clickable" data-action="alert-edit" data-id="${esc(a.id)}" tabindex="0"><span class="grow"><strong>1 ${esc(a.from)} ${a.op === 'above' ? '≥' : '≤'} ${num(a.rate, 4)} ${esc(a.to)}</strong><span class="sub">now ${isFinite(now) ? num(now, 4) : '—'}${met ? ' · <span class="pos">met</span>' : ''}${a.active === false ? ' · off' : ''}</span></span><span class="chev" aria-hidden="true">›</span></li>`;
+  }).join('');
+  return `<a class="back" href="#settings">‹ Settings</a>
+    <div class="page-head"><div><h1>Exchange-rate alerts</h1><p class="sub intro">A notification on your phone when a rate reaches your target — even when MoneyMonkey is closed.</p></div>
+      <div class="row-actions"><button class="btn primary" data-action="alert-add">+ Add alert</button></div></div>
+    <div class="card"><h2>Your alerts</h2>${list ? `<ul class="month-lines">${list}</ul>` : '<p class="sub">No alerts yet — e.g. “1 GBP at or above 10.50 HKD”.</p>'}
+      <p class="sub">Checked every 30 minutes on GitHub (it can run a little late when GitHub is busy), and whenever you open the app. You get one notification each time a rate crosses your target.</p></div>
+    <div class="card"><h2>Set up phone notifications (once)</h2>
+      <ol class="steps setup-steps">
+        <li><strong>In the ntfy app,</strong> tap <strong>+</strong>, paste this topic and tap Subscribe:${copyRow('Topic', topic)}<button class="btn small" data-action="alert-test">Send a test notification</button></li>
+        <li><strong>On github.com,</strong> open your <strong>moneymonkey</strong> repository → <strong>Settings</strong> → <strong>Secrets and variables</strong> → <strong>Actions</strong> → <strong>New repository secret</strong>, and add these two:
+          ${copyRow('Name: NTFY_TOPIC — Secret:', topic)}
+          ${copyRow('Name: ALERTS_GIST — Secret:', gistId)}
+          ${gistId ? '' : '<p class="sub warn-text">Turn on sync first (Settings → Sync) — the alert check reads your alerts from your sync Gist.</p>'}</li>
+        <li><strong>Open the Actions tab</strong> of the repository. If it says workflows aren’t being run, tap <strong>Enable</strong>. Then open <strong>Exchange-rate alerts</strong> → <strong>Run workflow</strong> once to check it.</li>
+      </ol>
+      <p class="sub"><strong>Status:</strong> ${job}</p>
+      <p class="sub">Only your alert settings (currency pairs and target rates) are readable by the check; your money data stays encrypted. GitHub pauses scheduled checks after 60 days without changes to the repository — this page will show it, and Run workflow starts it again.</p></div>`;
+}

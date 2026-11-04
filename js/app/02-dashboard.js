@@ -24,9 +24,11 @@ const VIEWS = [
   { id: 'card', hidden: true },
   { id: 'history', hidden: true },
   { id: 'health', hidden: true },
+  { id: 'subscriptions', hidden: true },
+  { id: 'alerts', hidden: true },
 ];
 // Detail pages highlight their parent in the navigation.
-const NAV_PARENT = { account: 'accounts', deposits: 'accounts', platform: 'platforms', region: 'platforms', card: 'cashflows', history: 'stocks', health: 'settings' };
+const NAV_PARENT = { account: 'accounts', deposits: 'accounts', platform: 'platforms', region: 'platforms', card: 'cashflows', history: 'stocks', health: 'settings', subscriptions: 'cashflows', alerts: 'settings' };
 
 let currentView = 'dashboard';
 let viewParam = null;
@@ -105,6 +107,8 @@ function render() {
   else if (currentView === 'region') main.innerHTML = renderRegion(viewParam ?? '');
   else if (currentView === 'card') main.innerHTML = renderCard(viewParam);
   else if (currentView === 'health') main.innerHTML = renderHealth();
+  else if (currentView === 'subscriptions') main.innerHTML = renderSubscriptions();
+  else if (currentView === 'alerts') main.innerHTML = renderAlerts();
   else if (currentView === 'history') main.innerHTML = renderHistoryPage(viewParam === 'crypto' ? 'crypto' : 'stocks');
   else main.innerHTML = renderSection(currentView);
   applyLayout();
@@ -448,6 +452,11 @@ function setupAlerts() {
     out.push({ level: 'info', html: `“${esc(c.name)}” ${c.endDate < todayISO() ? 'ended' : 'ends'} on ${fmtDate(c.endDate)}: extend it or let it end? <a href="#" data-action="extend-cf" data-id="${esc(c.id)}">Decide</a>` });
   }
   if (syncCfg.token && !sessionPass) out.push({ level: 'warn', html: 'Sync is locked on this device. <a href="#" data-action="unlock">Enter your passphrase</a> to sync.' });
+  // Exchange-rate alerts that are met right now.
+  for (const a of metAlerts()) out.push({ level: 'good', html: `${esc(a.from)}→${esc(a.to)} is ${num(a.now, 4)}, ${a.op} your ${num(a.rate, 4)} alert. <a href="#" data-action="transfer">Transfer</a> · <a href="#" data-action="alert-done" data-id="${esc(a.id)}">Done</a>` });
+  // Subscriptions not checked for 3 months: still using them?
+  const toReview = subsToReview();
+  if (toReview.length) out.push({ level: 'info', html: `${plural(toReview.length, 'subscription')} to review — still using ${toReview.length === 1 ? 'it' : 'them'}? <a href="#subscriptions">Review</a>` });
   // Things in the data health check that make your numbers wrong.
   const serious = healthIssues().filter((x) => x.level === 'warn').length;
   if (serious) out.push({ level: 'warn', html: `Data health: ${plural(serious, 'thing')} may be making your numbers wrong. <a href="#health">Check</a>` });

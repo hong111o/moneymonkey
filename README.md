@@ -222,6 +222,14 @@ After recording a buy, sale, dividend or split, the message has an **Undo** butt
 
 The monthly check-in also lists earlier months (up to 3 per card) that have no card statement. Enter an amount to fill it in; these old statements are saved as already paid, so they don't show as bills to pay.
 
+### Subscriptions audit
+
+Cash Flow → Overview shows your subscriptions' yearly total and the biggest few; **Subscriptions** lists every one by what it costs a year, with price rises (and ones coming up), how it's paid and the next payment. Every 3 months the app asks whether you still use each one (Needs attention): **Still using it**, or **Cancelled — end it** (kept under Ended, ready to restart). It also totals what price rises added this year and what cancelling saved.
+
+### Exchange-rate alerts
+
+Settings → **Exchange-rate alerts**: e.g. "1 GBP at or above 10.50 HKD". The app checks them whenever it opens (Needs attention, with Transfer and Done). For a phone notification even when the app is closed, a scheduled job on GitHub (`.github/workflows/fx-alerts.yml`, every 30 minutes) checks live rates and sends one notification through **ntfy** each time a rate crosses your target. Set up once (the page has copy buttons): subscribe to your topic in the ntfy app, add the `NTFY_TOPIC` and `ALERTS_GIST` repository secrets, and enable Actions. The job reads only `moneymonkey-alerts.json` in your sync Gist — currency pairs and target rates; your money data stays encrypted. GitHub pauses scheduled jobs after 60 days without repository changes; Run workflow starts it again.
+
 ### Data health check
 
 Settings → **Data health check** looks for things in your data that may be making your numbers wrong, each with a button to fix it: a stock whose currency doesn't match where its ticker trades, an income item that looks like a property's rent but isn't linked (so it may be counted twice), and a linked bill or income with payments unconfirmed for over 45 days (maybe cancelled). It also lists past months without a card statement and long gaps in your daily history, and shows how much of the browser's storage (about 5 MB) your data uses — warning from 70%. If anything may affect your numbers, Needs attention on Home says so.

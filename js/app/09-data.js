@@ -240,9 +240,16 @@ async function syncNow({ firstConnect = false, manual = false } = {}) {
     state = normalize(Sync.applySyncable(state, merged, t));
     if (Calc.settleDeposits(state, t, Date.now()).length) merged = Sync.toSyncable(state, t);
 
-    if (!remote || Sync.canonical(merged) !== Sync.canonical(remote)) {
-      const env = await Sync.encrypt(merged, sessionPass, salt);
-      gist = gist ? await Sync.updateGist(token, gist.id, env) : await Sync.createGist(token, env);
+    // The exchange-rate alert settings sit next to your data as a small unencrypted file (just
+    // currency pairs and target rates), so the scheduled alert check on GitHub can read them.
+    const alertsFile = alertsFileContent();
+    const alertsOld = gist && gist.files && gist.files[ALERTS_FILE] ? gist.files[ALERTS_FILE].content : null;
+    const needData = !remote || Sync.canonical(merged) !== Sync.canonical(remote);
+    const needAlerts = alertsFile !== alertsOld && !(alertsOld == null && !hasAlerts());
+    if (needData || needAlerts) {
+      const env = needData ? await Sync.encrypt(merged, sessionPass, salt) : null;
+      const extra = needAlerts ? { [ALERTS_FILE]: alertsFile } : {};
+      gist = gist ? await Sync.updateGist(token, gist.id, env, extra) : await Sync.createGist(token, env, extra);
     }
     syncCfg.gistId = gist.id;
     syncCfg.lastSync = new Date().toISOString();

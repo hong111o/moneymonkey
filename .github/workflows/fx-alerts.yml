@@ -1,0 +1,34 @@
+name: Exchange-rate alerts
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Remember what the last check saw
+        uses: actions/cache/restore@v4
+        with:
+          path: fx-alerts-state.json
+          key: fx-alerts-state-${{ github.run_id }}
+          restore-keys: fx-alerts-state-
+      - name: Check rates and notify
+        run: node .github/scripts/fx-alerts.mjs
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          ALERTS_GIST: ${{ secrets.ALERTS_GIST }}
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: fx-alerts-state.json
+          key: fx-alerts-state-${{ github.run_id }}

@@ -36,6 +36,13 @@ document.addEventListener('click', (e) => {
       return editItem(sec, null, preset);
     }
     case 'review-payments': return reviewPayments();
+    case 'alert-done': return setAlert(b.dataset.id, { active: false });
+    case 'alert-add': return openAlertForm();
+    case 'alert-edit': return openAlertForm(b.dataset.id);
+    case 'alert-test': return sendTestAlert();
+    case 'copy': return copyText(b.dataset.copy);
+    case 'sub-keep': updateCashflow(b.dataset.id, { reviewedOn: todayISO() }); return toast('Kept — asked again in 3 months');
+    case 'sub-cancel': if (confirm('End this subscription today? It moves to Ended in Cash Flow → Items, ready to restart.')) { endCashflow(b.dataset.id); updateCashflow(b.dataset.id, { reviewedOn: todayISO() }); } return;
     case 'health-fix': return healthFix(b.dataset.fix, b.dataset.id, b.dataset.extra);
     case 'month-detail': return openMonth(b.dataset.month);
     case 'month-pick': if (b.dataset.month) { cfMonth = b.dataset.month; render(); window.scrollTo(0, 0); } return;
