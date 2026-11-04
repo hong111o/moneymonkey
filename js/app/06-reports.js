@@ -222,8 +222,10 @@ function goalCard(g) {
     const need = (target - cur) / m;
     note = `Need ${money(need, base(), 0)}/month to hit it by ${fmtDate(g.targetDate)} — ${need <= summary.netMonthly ? '<span class="pos">on track</span>' : '<span class="warn-text">behind</span>'} at your current surplus.`;
   } else note = isFinite(months) ? `About ${months} months at your current surplus (${fmtDate(Calc.toISO(Calc.addMonths(new Date(), months)))}).` : 'Add income in Cash flow to estimate when you’ll get there.';
+  // The forecast's date for this goal (middle outcome, with your forecast settings).
+  const fc = cur < target ? goalForecastLine(g, target) : '';
   return `<div class="goal"><div class="goal-head"><strong>${esc(g.name)}</strong><span>${money(cur, base(), 0)} / ${money(target, base(), 0)}</span></div>
-    <div class="bar big"><span style="width:${(p * 100).toFixed(1)}%"></span></div><div class="sub">${(p * 100).toFixed(1)}% · ${note}</div></div>`;
+    <div class="bar big"><span style="width:${(p * 100).toFixed(1)}%"></span></div><div class="sub">${(p * 100).toFixed(1)}% · ${note}</div>${fc ? `<div class="sub goal-fc">${fc}</div>` : ''}</div>`;
 }
 
 function renderGoals() {
@@ -234,6 +236,7 @@ function renderGoals() {
   return `<div class="page-head"><div><h1>${sec.title}</h1><p class="sub intro">${sec.intro}</p></div>
     <div class="row-actions"><button class="btn primary" data-action="add" data-sec="goals">+ Add</button></div></div>
     <section class="boxes" data-layout="sections">
+      <div data-box="forecast" data-name="Forecast">${forecastCard()}</div>
       <div data-box="mix" data-name="Target mix">${targetMixCard()}</div>
       <div data-box="goals" data-name="Goals">${goals}</div>
     </section>`;
@@ -464,3 +467,138 @@ function healthFix(fix, id, extra) {
   }
   if (fix === 'not-rent') { updateCashflow(id, { notRent: true }); return toast('Kept as separate income'); }
 }
+
+// ---------------------------------------------------------------- forecast
+
+const FC_KEY = { netWorth: 'nw', cash: 'cash', invest: 'invest', deposits: 'deposits' };
+let fcExtra = 0; // "what if" extra saving per month (not saved)
+let fcReturnShift = 0; // "what if" change to investment growth, in points (not saved)
+
+// Your forecast settings (synced), with defaults from your data.
+function fcSettings() {
+  const t = summary.totals;
+  const liquidish = t.cash + t.deposits + t.stocks + t.crypto;
+  const investShare = liquidish > 0 ? Math.round(((t.stocks + t.crypto) / liquidish) * 10) * 10 : 0;
+  return { years: 10, investShare, invReturn: 5, propGrowth: 2, inflation: 0, real: false, ...(state.settings.forecast || {}) };
+}
+// Where you are now, in the shape the forecast needs.
+function fcStart() {
+  const t = summary.totals;
+  const skip = Calc.illiquidIds(state);
+  const items = Calc.itemValues(state, todayISO());
+  const loans = state.liabilities.filter((l) => l.type !== 'credit').map((l) => ({ balance: items[l.id] || 0, rate: (+l.rate || 0) / 100, payment: toBase(+l.payment || 0, l.currency) || 0, secured: skip.has(l.id) }));
+  const loanSum = loans.reduce((x, d) => x + d.balance, 0);
+  const otherVal = state.others.reduce((x, o) => x + (items[o.id] || 0), 0);
+  const otherGrowth = otherVal > 0 ? state.others.reduce((x, o) => x + (items[o.id] || 0) * ((+o.annualChangePct || 0) / 100), 0) / otherVal : 0;
+  return {
+    start: { cash: t.cash, deposits: t.deposits, invest: t.stocks + t.crypto, property: t.property, other: t.other, liquidOther: state.others.filter((o) => o.liquid).reduce((x, o) => x + (items[o.id] || 0), 0), debts: loans, otherDebt: Math.max(0, summary.liabilities - loanSum) },
+    otherGrowth,
+  };
+}
+// Three outcomes: cautious, middle and good (investment growth ±4 points, property ±2).
+function fcRuns() {
+  const st = fcSettings();
+  const { start, otherGrowth } = fcStart();
+  const months = st.years * 12;
+  const a = (dr, dp) => ({ saving: summary.netMonthly + fcExtra, investShare: st.investShare / 100, invReturn: (st.invReturn + fcReturnShift + dr) / 100, propGrowth: (st.propGrowth + dp) / 100, otherGrowth, inflation: st.real ? st.inflation / 100 : 0 });
+  return { st, mid: Calc.forecast(start, a(0, 0), months), low: Calc.forecast(start, a(-4, -2), months), high: Calc.forecast(start, a(4, 2), months) };
+}
+const fcDate = (m) => fmtMonth(Calc.toISO(Calc.addMonths(new Date(), m)).slice(0, 7));
+
+// A goal's line: when the forecast reaches it, against its target date.
+function goalForecastLine(g, target) {
+  const key = FC_KEY[g.metric || 'netWorth'];
+  if (!key) return '';
+  const runs = fcRuns();
+  const m = Calc.reachMonth(runs.mid, key, target);
+  if (m == null) return `Forecast: not within ${runs.st.years} years at this pace.`;
+  let vs = '';
+  if (g.targetDate) {
+    const by = Calc.monthsBetween(todayISO(), g.targetDate);
+    vs = m <= by ? ` · <span class="pos">${by - m ? `${plural(by - m, 'month')} early` : 'on time'}</span>` : ` · <span class="warn-text">${plural(m - by, 'month')} late</span>`;
+  }
+  return `Forecast: reached around <strong>${fcDate(m)}</strong>${vs}`;
+}
+
+// The chart: a shaded range (cautious to good) and the middle line, with your goals marked.
+function fcChart(runs, key) {
+  const W = 640, H = 220, pad = { l: 8, r: 8, t: 14, b: 8 };
+  const n = runs.mid.length - 1;
+  const vals = [...runs.low, ...runs.high].map((p) => p[key]);
+  const goals = key === 'nw' ? state.goals.filter((g) => (g.metric || 'netWorth') === 'netWorth' && +g.target > runs.mid[0].nw) : [];
+  let min = Math.min(...vals), max = Math.max(...vals, ...goals.map((g) => +g.target).filter((v) => v <= Math.max(...vals) * 1.15));
+  if (min === max) { min -= 1; max += 1; }
+  const x = (m) => pad.l + (m / n) * (W - pad.l - pad.r);
+  const y = (v) => pad.t + (1 - (v - min) / (max - min)) * (H - pad.t - pad.b);
+  const line = (pts) => pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.m).toFixed(1)},${y(p[key]).toFixed(1)}`).join('');
+  const band = `${line(runs.high)}${runs.low.slice().reverse().map((p) => `L${x(p.m).toFixed(1)},${y(p[key]).toFixed(1)}`).join('')}Z`;
+  const marks = goals.filter((g) => +g.target <= max).map((g) => {
+    const m = Calc.reachMonth(runs.mid, 'nw', +g.target);
+    return `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(+g.target)}" y2="${y(+g.target)}" class="fc-goal" vector-effect="non-scaling-stroke"/>${m != null ? `<circle cx="${x(m)}" cy="${y(+g.target)}" r="4" class="fc-dot"/>` : ''}`;
+  }).join('');
+  const labels = goals.filter((g) => +g.target <= max).map((g) => `<span class="fc-label" style="top:${(y(+g.target) / H) * 100}%">${esc(g.name)}</span>`).join('');
+  const years = runs.st.years;
+  return `<div class="fc-chart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Forecast">
+      <path d="${band}" class="fc-band"/>${marks}<path d="${line(runs.mid)}" class="fc-line" vector-effect="non-scaling-stroke"/></svg>${labels}
+      <div class="axis-labels"><span>Now</span><span>${Math.round(years / 2)} years</span><span>${years} years</span></div></div>`;
+}
+
+// The numbers and chart (redrawn while you move the "what if" sliders).
+function fcOut() {
+  const runs = fcRuns();
+  const key = liquidView ? 'liquid' : 'nw';
+  const at = (yr) => Math.min(yr * 12, runs.mid.length - 1);
+  const yrs = [1, 5, runs.st.years].filter((v, i, arr) => v <= runs.st.years && arr.indexOf(v) === i);
+  const stats = yrs.map((yr) => `<div class="m-stat"><span class="tile-label">In ${plural(yr, 'year')}</span><strong>${moneyShort(runs.mid[at(yr)][key])}</strong><span class="sub">${moneyShort(runs.low[at(yr)][key])} – ${moneyShort(runs.high[at(yr)][key])}</span></div>`).join('');
+  const goalLines = state.goals.filter((g) => FC_KEY[g.metric || 'netWorth'] && goalCurrent(g) < +g.target).map((g) => `<li><span class="grow keep-case">${esc(g.name)}</span><span>${goalForecastLine(g, +g.target).replace(/^Forecast: /, '')}</span></li>`).join('');
+  return `<div class="m-stats fc-stats">${stats}</div>
+    ${fcChart(runs, key)}
+    ${goalLines ? `<ul class="fc-goals">${goalLines}</ul>` : ''}`;
+}
+
+function forecastCard() {
+  const st = fcSettings();
+  const seg = [['all', 'All'], ['liquid', 'Liquid']].map(([k, l]) => `<button class="${(liquidView ? 'liquid' : 'all') === k ? 'on' : ''}" data-nw-view="${k}">${l}</button>`).join('');
+  const yrs = [5, 10, 20].map((y) => `<option value="${y}" ${st.years === y ? 'selected' : ''}>${y} years</option>`).join('');
+  return `<div class="card fc-card">
+      <div class="card-head"><h2>Forecast</h2><div class="invest-controls"><div class="seg">${seg}</div><select class="range-select" data-fc-years aria-label="Forecast length">${yrs}</select></div></div>
+      <p class="sub">${liquidView ? 'Liquid net worth' : 'Net worth'}${st.real ? ` in today’s money (${st.inflation}% inflation)` : ''}, if you keep saving ${money(summary.netMonthly + fcExtra, base(), 0)} a month. The shaded range is cautious to good (investment growth ±4 points, property ±2).</p>
+      <div class="fc-out">${fcOut()}</div>
+      <div class="fc-whatif">
+        <label><span class="keep-case">What if I save <strong class="fc-extra-v">${fcExtra >= 0 ? '+' : '−'}${money(Math.abs(fcExtra), base(), 0)}</strong> a month</span><input type="range" min="-30000" max="30000" step="1000" value="${fcExtra}" data-fc-extra aria-label="Extra saving per month"></label>
+        <label><span class="keep-case">…and investments grow <strong class="fc-ret-v">${st.invReturn + fcReturnShift}%</strong> a year</span><input type="range" min="-5" max="5" step="0.5" value="${fcReturnShift}" data-fc-ret aria-label="Investment growth"></label>
+      </div>
+      <details class="fc-assume"><summary>Assumptions</summary>
+        <p class="sub">Saving is your Left Over each month (it already includes interest, dividends and rent). Growth below is price growth only. Loans are paid down on their schedules.</p>
+        <div class="form-grid">
+          <label>Of what you save, invested (%)<input type="number" min="0" max="100" step="5" value="${st.investShare}" data-fc-set="investShare"></label>
+          <label>Investment growth (% a year)<input type="number" step="0.5" value="${st.invReturn}" data-fc-set="invReturn"></label>
+          <label>Property growth (% a year)<input type="number" step="0.5" value="${st.propGrowth}" data-fc-set="propGrowth"></label>
+          <label>Inflation (% a year)<input type="number" step="0.5" value="${st.inflation}" data-fc-set="inflation"></label>
+          <label class="check span-2"><input type="checkbox" ${st.real ? 'checked' : ''} data-fc-set="real"> Show in today’s money (after inflation)</label>
+        </div>
+      </details>
+    </div>`;
+}
+function saveFc(patch) {
+  state.settings = { ...state.settings, forecast: { ...fcSettings(), ...patch } };
+  state.settingsMt = Date.now();
+  commit();
+}
+document.addEventListener('input', (e) => {
+  const ex = e.target.closest('[data-fc-extra], [data-fc-ret]');
+  if (!ex) return;
+  if (ex.matches('[data-fc-extra]')) fcExtra = +ex.value; else fcReturnShift = +ex.value;
+  const card = ex.closest('.fc-card');
+  $('.fc-out', card).innerHTML = fcOut();
+  $('.fc-extra-v', card).textContent = `${fcExtra >= 0 ? '+' : '−'}${money(Math.abs(fcExtra), base(), 0)}`;
+  $('.fc-ret-v', card).textContent = `${fcSettings().invReturn + fcReturnShift}%`;
+});
+document.addEventListener('change', (e) => {
+  const y = e.target.closest('[data-fc-years]');
+  if (y) return saveFc({ years: +y.value });
+  const f = e.target.closest('[data-fc-set]');
+  if (!f) return;
+  const k = f.dataset.fcSet;
+  saveFc({ [k]: k === 'real' ? f.checked : +f.value || 0 });
+});

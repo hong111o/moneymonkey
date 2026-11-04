@@ -182,6 +182,10 @@ If part of a broker or exchange account is uninvested cash, add it with **+ Cash
 
 On a computer, the menu is a column of icons on the left (hover for names). The **side panel** button in the top bar opens a panel beside the page (hidden unless you turn it on; remembered on that device). It shows **Today**: the clock, markets today with your biggest movers, interest earned today, what's due today and tomorrow, and Needs attention. With it open, **click any account, holding, deposit, property, debt, bill or card** to see its details there: value and 30-day trend, everything its list shows, recent activity, and buttons (Buy / Sell, Edit, End now…). "‹ Today" goes back.
 
+### Forecast (Goals page)
+
+Projects your net worth (All or Liquid) 5, 10 or 20 years ahead from your current monthly Left Over: a middle line with a cautious-to-good range (investment growth ±4 points, property ±2), figures for 1, 5 and 10 years, and your net-worth goals marked where the forecast reaches them. Each goal (net worth, cash, investments or fixed deposits) shows its forecast date, early or late against its target date — also on Home. **What if** sliders try saving more or less each month and different investment growth (not saved). **Assumptions** (saved and synced): how much of your saving is invested, investment and property growth (price only — interest, dividends and rent are already in your Left Over), and inflation, with an option to show today's money. Loans are paid down on their schedules. It's a projection from your current pace, not a prediction.
+
 ### Target mix (Goals page)
 
 Set what % of your assets you'd like in each area: Cash & Bank, Stocks & ETFs, Crypto, Fixed Deposits, Other Assets, and Property if you switch on **Include property** (off by default). The targets must add up to 100%. Goals then shows each area's current share against its target, whether it's on target (within ±5 points by default, adjustable), how much to add or how much it's over, suggested moves to rebalance, and how to split this month's surplus to get closer without selling. Shares use your assets in your base currency; debts aren't counted.

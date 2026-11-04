@@ -958,3 +958,18 @@ test('liquid net worth leaves out property, other assets and the loans secured o
   const old = { netWorth: 1000, cats: { property: 900, other: 150 }, items: { cash: 400, oldFlat: 900, car: 100, gold: 50, mort: 400, pl: 50 } };
   assert.equal(C.liquidOf(old, skip, debts, liquid), 400);
 });
+
+test('forecast: saving adds up, investments grow, loans are paid down, today’s money', () => {
+  const start = { cash: 1000, deposits: 0, invest: 1000, property: 10000, other: 0, debts: [{ balance: 1200, rate: 0, payment: 100, secured: true }] };
+  const p = C.forecast(start, { saving: 100, investShare: 0, invReturn: 0, propGrowth: 0 }, 24);
+  assert.equal(p[0].nw, 1000 + 1000 + 10000 - 1200);
+  assert.equal(p[12].cash, 1000 + 1200);
+  assert.equal(p[12].nw, 2200 + 1000 + 10000 - 0); // loan paid off after 12 repayments
+  assert.equal(p[12].liquid, 2200 + 1000); // property and its loan left out
+  const grow = C.forecast({ invest: 1000 }, { saving: 0, invReturn: 0.1 }, 12);
+  assert.ok(Math.abs(grow[12].invest - 1100) < 0.01);
+  const real = C.forecast({ cash: 1000 }, { saving: 0, inflation: 0.1 }, 12);
+  assert.ok(Math.abs(real[12].cash - 909.09) < 0.01);
+  assert.equal(C.reachMonth(p, 'cash', 1500), 5);
+  assert.equal(C.reachMonth(p, 'cash', 1e9), null);
+});

@@ -677,3 +677,19 @@ test('the check-in asks for earlier months without a card statement and saves th
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('Goals: the forecast shows years ahead, moves with "what if", and dates each goal', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#goals');
+  assert.ok(await page.isVisible('.fc-card .fc-chart'));
+  const tenYears = () => page.$eval('.fc-stats .m-stat:last-child strong', (e) => e.textContent);
+  const before = await tenYears();
+  await page.$eval('[data-fc-extra]', (el) => { el.value = 20000; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  assert.notEqual(await tenYears(), before, 'what-if changes the forecast');
+  assert.match(await page.textContent('[data-box="goals"]'), /Forecast: reached around|not within/);
+  await page.selectOption('[data-fc-years]', '20');
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => state.settings.forecast.years), 20, 'settings saved');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

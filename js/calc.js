@@ -541,6 +541,44 @@
     return round2(v);
   }
 
+  // ---------- forecast ----------
+
+  // Projects your money month by month. `start`: { cash, deposits, invest, property, other,
+  // liquidOther, debts: [{ balance, rate, payment, secured }], otherDebt }, all in the base currency.
+  // `a`: { saving (per month), investShare (0–1 of saving), invReturn, propGrowth, otherGrowth,
+  // inflation } — yearly rates as fractions. Interest, dividends and rent are already in `saving`,
+  // so only price growth is added. Loans are paid down on their schedules (repayments are already
+  // in your spending). Returns one point per month: { m, nw, liquid, cash, deposits, invest }.
+  function forecast(start, a, months = 120) {
+    let cash = start.cash || 0, deposits = start.deposits || 0, invest = start.invest || 0;
+    let property = start.property || 0, other = start.other || 0, liquidOther = start.liquidOther || 0;
+    const debts = (start.debts || []).map((d) => ({ ...d }));
+    const g = (r) => Math.pow(1 + (r || 0), 1 / 12) - 1;
+    const gi = g(a.invReturn), gp = g(a.propGrowth), go = g(a.otherGrowth), inf = g(a.inflation);
+    const share = Math.min(1, Math.max(0, a.investShare || 0));
+    const out = [];
+    for (let m = 0; m <= months; m++) {
+      if (m > 0) {
+        invest = invest * (1 + gi) + (a.saving || 0) * share;
+        cash += (a.saving || 0) * (1 - share);
+        property *= 1 + gp;
+        other *= 1 + go;
+        liquidOther *= 1 + go;
+        for (const d of debts) if (d.payment > 0 && d.balance > 0) d.balance = Math.max(0, d.balance * (1 + (d.rate || 0) / 12) - d.payment);
+      }
+      const debt = debts.reduce((t, d) => t + d.balance, 0) + (start.otherDebt || 0);
+      const unsecured = debts.filter((d) => !d.secured).reduce((t, d) => t + d.balance, 0) + (start.otherDebt || 0);
+      const real = Math.pow(1 + inf, m);
+      out.push({ m, nw: round2((cash + deposits + invest + property + other - debt) / real), liquid: round2((cash + deposits + invest + liquidOther - unsecured) / real), cash: round2(cash / real), deposits: round2(deposits / real), invest: round2(invest / real) });
+    }
+    return out;
+  }
+  // The first month a series reaches a target (null if not within the forecast).
+  function reachMonth(points, key, target) {
+    const hit = points.find((p) => p[key] >= target);
+    return hit ? hit.m : null;
+  }
+
   // ---------- target mix ----------
 
   // How the assets are spread against target percentages (`targets`: { cash: 20, stocks: 50, … },
@@ -1500,7 +1538,7 @@
     otherAssetValue,
     latestValuation, propertyValue,
     holdingValue, holdingView, costMethod, dilutedRealised, dividendPerYear,
-    monthlyAmount, amountOn, inMonth, hasEnded, occurrences, nextOccurrence, targetMix, MIX_KEYS, currencyEffect, changeBreakdown, illiquidIds, liquidOf,
+    monthlyAmount, amountOn, inMonth, hasEnded, occurrences, nextOccurrence, targetMix, MIX_KEYS, currencyEffect, changeBreakdown, illiquidIds, liquidOf, forecast, reachMonth,
     upsertHistory, monthsToGoal, spendingByMonth,
     summarize,
     itemValue, itemParts, itemValues, migratePlatforms, platformBreakdown,
