@@ -20,7 +20,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: fx-alerts-state.json
-          key: fx-alerts-state-${{ github.run_id }}
+          key: fx-alerts-state-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: fx-alerts-state-
       - name: Check rates and notify
         run: node .github/scripts/fx-alerts.mjs
@@ -31,4 +31,4 @@ jobs:
         if: always()
         with:
           path: fx-alerts-state.json
-          key: fx-alerts-state-${{ github.run_id }}
+          key: fx-alerts-state-${{ github.run_id }}-${{ github.run_attempt }}

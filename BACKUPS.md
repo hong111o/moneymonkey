@@ -55,3 +55,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 40 | 2026-11-04 | `fefd751` | Forecast on Goals |
 | 41 | 2026-11-04 | `c75a9a3` | Forecast (live) |
 | 42 | 2026-11-04 | `ee46427` | (same code as 41) before subscription audit and exchange-rate alerts |
+| 43 | 2026-11-04 | `df274f1` | Subscription audit and exchange-rate alerts |

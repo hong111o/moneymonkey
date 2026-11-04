@@ -253,6 +253,8 @@ async function syncNow({ firstConnect = false, manual = false } = {}) {
     }
     syncCfg.gistId = gist.id;
     syncCfg.lastSync = new Date().toISOString();
+    // What the scheduled alert check can now read (shown on the alerts page).
+    if (needAlerts || alertsFile === alertsOld) syncCfg.alertsSynced = alertsFile;
     syncCfg.lastError = null;
     recordSnapshot();
     save();

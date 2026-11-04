@@ -708,5 +708,6 @@ function renderAlerts() {
         <li><strong>Open the Actions tab</strong> of the repository. If it says workflows aren’t being run, tap <strong>Enable</strong>. Then open <strong>Exchange-rate alerts</strong> → <strong>Run workflow</strong> once to check it.</li>
       </ol>
       <p class="sub"><strong>Status:</strong> ${job}</p>
+      ${hasAlerts() ? `<p class="sub"><strong>Your alerts on your Gist:</strong> ${!syncCfg.token ? '<span class="warn-text">sync is off — turn it on in Settings</span>' : syncCfg.alertsSynced === alertsFileContent() ? `✓ up to date (synced ${ago(syncCfg.lastSync)})` : '<span class="warn-text">not synced yet</span>'} <button class="btn small" data-action="alerts-sync">Sync now</button></p>` : ''}
       <p class="sub">Only your alert settings (currency pairs and target rates) are readable by the check; your money data stays encrypted. GitHub pauses scheduled checks after 60 days without changes to the repository — this page will show it, and Run workflow starts it again.</p></div>`;
 }

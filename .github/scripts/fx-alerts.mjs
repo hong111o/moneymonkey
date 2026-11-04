@@ -4,8 +4,8 @@
 // get one notification per crossing, not one every 30 minutes.
 import { readFile, writeFile } from 'node:fs/promises';
 
-const GIST = process.env.ALERTS_GIST;
-const TOPIC = process.env.NTFY_TOPIC;
+const GIST = (process.env.ALERTS_GIST || '').trim().replace(/^.*\//, ''); // a pasted Gist link works too
+const TOPIC = (process.env.NTFY_TOPIC || '').trim();
 const OWNER = process.env.GITHUB_REPOSITORY_OWNER;
 const STATE = 'fx-alerts-state.json';
 
@@ -21,7 +21,26 @@ const getJson = async (url) => {
   return res.json();
 };
 
-const { alerts = [] } = await getJson(`https://gist.githubusercontent.com/${OWNER}/${GIST}/raw/moneymonkey-alerts.json?t=${Date.now()}`);
+// Your alert settings: from the Gist through GitHub's API, or its raw file address.
+async function readAlerts() {
+  try {
+    const g = await getJson(`https://api.github.com/gists/${GIST}`);
+    const f = g.files && g.files['moneymonkey-alerts.json'];
+    if (f) return JSON.parse(f.truncated ? await (await fetch(f.raw_url)).text() : f.content);
+    return null;
+  } catch (e) {
+    console.log(`Gist API: ${e.message}`);
+  }
+  try { return await getJson(`https://gist.githubusercontent.com/${OWNER}/${GIST}/raw/moneymonkey-alerts.json?t=${Date.now()}`); } catch (e) { console.log(`Raw file: ${e.message}`); return null; }
+}
+const settings = await readAlerts();
+if (!settings) {
+  console.log('Your alert settings aren’t in that Gist yet. In MoneyMonkey: add an alert, let it sync (or tap the cloud button), then run this again. If it still fails, check the ALERTS_GIST secret matches the Gist ID shown in MoneyMonkey → Settings → Exchange-rate alerts.');
+  await writeFile(STATE, await readFile(STATE, 'utf8').catch(() => '{}')); // keep what the last check saw
+  process.exit(0);
+}
+const { alerts = [] } = settings;
+console.log(`Read ${alerts.length} alert(s) from your Gist.`);
 let seen = {};
 try { seen = JSON.parse(await readFile(STATE, 'utf8')); } catch { /* first run */ }
 const rates = {};

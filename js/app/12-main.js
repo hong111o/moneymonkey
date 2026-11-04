@@ -40,6 +40,7 @@ document.addEventListener('click', (e) => {
     case 'alert-add': return openAlertForm();
     case 'alert-edit': return openAlertForm(b.dataset.id);
     case 'alert-test': return sendTestAlert();
+    case 'alerts-sync': return Promise.resolve(syncNow()).then(() => { render(); toast(syncCfg.alertsSynced === alertsFileContent() ? 'Alerts synced to your Gist' : 'Sync didn’t finish — check Settings → Sync', syncCfg.alertsSynced === alertsFileContent() ? undefined : 'error'); });
     case 'copy': return copyText(b.dataset.copy);
     case 'sub-keep': updateCashflow(b.dataset.id, { reviewedOn: todayISO() }); return toast('Kept — asked again in 3 months');
     case 'sub-cancel': if (confirm('End this subscription today? It moves to Ended in Cash Flow → Items, ready to restart.')) { endCashflow(b.dataset.id); updateCashflow(b.dataset.id, { reviewedOn: todayISO() }); } return;
