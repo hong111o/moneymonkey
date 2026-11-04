@@ -57,3 +57,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 42 | 2026-11-04 | `ee46427` | (same code as 41) before subscription audit and exchange-rate alerts |
 | 43 | 2026-11-04 | `df274f1` | Subscription audit and exchange-rate alerts |
 | 44 | 2026-11-04 | `11192cb` | Alert job fix: reads the Gist through the API; synced indicator on the alerts page |
+| 45 | 2026-11-04 | `a7ce934` | Alert job reads the Gist ID from a pasted link or quotes |

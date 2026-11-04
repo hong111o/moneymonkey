@@ -38,7 +38,7 @@ async function readAlerts() {
 if (GIST) console.log(`ALERTS_GIST: ${/^[0-9a-f]{20,32}$/.test(GIST) ? `a Gist ID ending in …${GIST.slice(-4)}` : `doesn’t look like a Gist ID (${RAW_GIST.length} characters) — it should be 32 letters a–f and digits`}.`);
 const settings = await readAlerts();
 if (!settings) {
-  console.log('Your alert settings aren’t in that Gist yet. In MoneyMonkey: add an alert, let it sync (or tap the cloud button), then run this again. If it still fails, check the ALERTS_GIST secret: its ending (above) should match the Gist ID shown in MoneyMonkey → Settings → Exchange-rate alerts. To fix it, open the secret on GitHub, tap Update, paste the ID again and save.');
+  console.log('No alerts in that Gist yet. In MoneyMonkey → Settings → Exchange-rate alerts: tap + Add alert, then Sync now (the file appears once you have an alert), then run this again. If it still fails, check the ALERTS_GIST secret: its ending (above) should match the Gist ID shown in MoneyMonkey → Settings → Exchange-rate alerts. To fix it, open the secret on GitHub, tap Update, paste the ID again and save.');
   await writeFile(STATE, await readFile(STATE, 'utf8').catch(() => '{}')); // keep what the last check saw
   process.exit(0);
 }
