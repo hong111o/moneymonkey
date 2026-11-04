@@ -51,3 +51,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 36 | 2026-11-02 | `bef7968` | Liquid history fix |
 | 37 | 2026-11-03 | `3404f09` | What changed fix in Liquid view |
 | 38 | 2026-11-03 | `9a2da56` | Data health check, smaller storage and faster saving |
+| 39 | 2026-11-04 | `997e39c` | Undo for trades; check-in asks for missing card statements |
