@@ -53,3 +53,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 38 | 2026-11-03 | `9a2da56` | Data health check, smaller storage and faster saving |
 | 39 | 2026-11-04 | `997e39c` | Undo for trades; check-in asks for missing card statements |
 | 40 | 2026-11-04 | `fefd751` | Forecast on Goals |
+| 41 | 2026-11-04 | `c75a9a3` | Forecast (live) |
