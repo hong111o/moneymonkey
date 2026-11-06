@@ -1089,3 +1089,8 @@ table.data td.actions:has(.lock-btn) { display: flex !important; align-items: ce
 .copy-row code { background: var(--surface-2); padding: 4px 8px; border-radius: 6px; font-size: 0.85rem; overflow-wrap: anywhere; }
 .setup-steps li { margin-bottom: 14px; }
 .setup-steps .btn { margin-top: 4px; }
+/* Trades open to change or delete them. */
+.trade-history li.clickable { position: relative; padding-right: 28px; cursor: pointer; }
+.trade-history li.clickable > .chev { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
+.side-acts li.clickable { cursor: pointer; border-radius: 8px; }
+.side-acts li.clickable:active { background: var(--surface-2); }

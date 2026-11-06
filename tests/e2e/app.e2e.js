@@ -737,3 +737,43 @@ test('exchange-rate alerts: add one, it shows in Needs attention when met, and o
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('a trade with a wrong price can be changed or deleted from History', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#stocks');
+  const id = await page.evaluate(() => state.stocks.find((h) => h.symbol === 'AAPL').id);
+  const before = await page.evaluate((x) => ({ h: { ...state.stocks.find((h) => h.id === x) }, cash: JSON.stringify(state.accounts.find((a) => a.name === 'Futu cash').balances) }), id);
+  // Buy 2 at a mistyped $2,300 instead of $230.
+  await page.evaluate((x) => openTrade('stocks', x, 'buy'), id);
+  await page.fill('dialog [name=quantity]', '2');
+  await page.fill('dialog [name=price]', '2300');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  await go('#history/stocks');
+  await page.click('.trade-history li.clickable >> nth=0');
+  await page.waitForTimeout(200);
+  assert.match(await page.textContent('dialog h2'), /Buy AAPL/);
+  await page.fill('dialog [name=price]', '230');
+  await page.waitForTimeout(200);
+  assert.match(await page.textContent('dialog'), /Average cost/);
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  const fixed = await page.evaluate((x) => ({ h: state.stocks.find((h) => h.id === x), t: state.trades[0] }), id);
+  assert.equal(fixed.h.quantity, before.h.quantity + 2);
+  const want = (before.h.quantity * before.h.avgCost + 460) / (before.h.quantity + 2);
+  assert.ok(Math.abs(fixed.h.avgCost - want) < 1e-6, `${fixed.h.avgCost} vs ${want}`);
+  assert.equal(fixed.t.price, 230);
+  assert.equal(fixed.t.total, 460);
+  // Delete it: holding and cash are back to how they were.
+  await page.click('.trade-history li.clickable >> nth=0');
+  await page.waitForTimeout(200);
+  await page.click('dialog [data-delete]');
+  await page.waitForTimeout(300);
+  const after = await page.evaluate((x) => ({ h: state.stocks.find((h) => h.id === x), cash: JSON.stringify(state.accounts.find((a) => a.name === 'Futu cash').balances), n: state.trades.filter((t) => t.price === 230).length }), id);
+  assert.equal(after.h.quantity, before.h.quantity);
+  assert.ok(Math.abs(after.h.avgCost - before.h.avgCost) < 1e-6);
+  assert.equal(after.cash, before.cash);
+  assert.equal(after.n, 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

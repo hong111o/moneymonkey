@@ -296,7 +296,7 @@ function renderAccount(id) {
     </div>
     <div class="section-head stack-sm"><h2>Fixed deposits &amp; savers</h2><span class="row-actions"><button class="btn small" data-action="add" data-sec="deposits" data-kind="regular" data-account="${esc(a.id)}">+ Add regular saver</button><button class="btn small primary" data-action="add" data-sec="deposits" data-account="${esc(a.id)}">+ Add fixed deposit</button></span></div>
     ${deps.length ? renderItemsTable('deposits', deps) : '<div class="card"><p class="sub">No fixed deposits or regular savers in this account.</p></div>'}
-    ${history.length ? `<div class="section-head"><h2>Activity</h2></div><div class="card"><ul class="events">${history.map((e) => `<li><span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${activityText(e)}</span>${e.kind === 'payment' ? `<button class="btn small ghost" data-action="undo-payment" data-id="${esc(e.id)}">Undo</button>` : '<span></span>'}</li>`).join('')}</ul>${moreActivity ? `<button class="btn small" data-action="activity-all" data-id="${esc(a.id)}">Show all (${moreActivity} more)</button>` : ''}</div>` : ''}`;
+    ${history.length ? `<div class="section-head"><h2>Activity</h2></div><div class="card"><ul class="events">${history.map((e) => `<li${e.kind === 'trade' ? ` class="clickable" data-action="trade-edit" data-id="${esc(e.id)}" tabindex="0"` : ''}><span class="ev-date">${fmtDate(e.date)}</span><span class="ev-label">${activityText(e)}</span>${e.kind === 'payment' ? `<button class="btn small ghost" data-action="undo-payment" data-id="${esc(e.id)}">Undo</button>` : '<span></span>'}</li>`).join('')}</ul>${moreActivity ? `<button class="btn small" data-action="activity-all" data-id="${esc(a.id)}">Show all (${moreActivity} more)</button>` : ''}</div>` : ''}`;
 }
 
 // Each currency's total across accounts, as a stacked bar split by account plus a legend list.
@@ -545,11 +545,11 @@ function renderHistoryPage(key) {
   const rows = shown.map((t) => {
     const m = (t.date || '').slice(0, 7);
     const head = m !== lastMonth ? `<li class="hist-month-head">${esc(fmtMonth((lastMonth = m)))}</li>` : '';
-    return `${head}<li><span class="ev-date">${fmtDate(t.date)}</span><span class="ev-label"><span class="badge ${t.side === 'sell' ? 'kind-income' : t.side === 'buy' ? 'kind-expense' : ''}">${sideLabel[t.side] || t.side}</span> ${activityText({ ...t, kind: 'trade' })}<span class="sub">${esc(t.platform || 'No platform')}${held.has(t.holdingId) ? '' : ' · no longer held'}</span></span></li>`;
+    return `${head}<li class="clickable" data-action="trade-edit" data-id="${esc(t.id)}" tabindex="0" title="Change or delete"><span class="ev-date">${fmtDate(t.date)}</span><span class="ev-label"><span class="badge ${t.side === 'sell' ? 'kind-income' : t.side === 'buy' ? 'kind-expense' : ''}">${sideLabel[t.side] || t.side}</span> ${activityText({ ...t, kind: 'trade' })}<span class="sub">${esc(t.platform || 'No platform')}${held.has(t.holdingId) ? '' : ' · no longer held'}</span></span><span class="chev" aria-hidden="true">›</span></li>`;
   }).join('');
   const sel = (attr, opts, cur, label) => `<select class="filter" ${attr} aria-label="${label}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   return `${back}
-    <div class="page-head"><div><h1>${title} history</h1><p class="sub intro">Every buy, sell, dividend and split — including holdings you’ve sold out of or deleted.</p></div>
+    <div class="page-head"><div><h1>${title} history</h1><p class="sub intro">Every buy, sell, dividend and split — including holdings you’ve sold out of or deleted. Tap one to change or delete it.</p></div>
       <div class="row-actions">
         ${platforms.length > 1 ? sel(`data-trade-platform="${key}"`, [['__all', 'All platforms'], ...platforms.map((p) => [p, p || 'No platform'])], pf == null ? '__all' : pf, 'Platform') : ''}
         ${sel(`data-trade-side="${key}"`, [['', 'All types'], ['buy', 'Buys'], ['sell', 'Sells'], ['dividend', 'Dividends'], ['split', 'Splits']], side, 'Type')}

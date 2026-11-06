@@ -219,3 +219,92 @@ function openTrade(section, holdingId, side) {
     },
   });
 }
+
+// ---------------------------------------------------------------- change or delete a trade
+
+// Tapping a trade in History (or a holding's / account's activity) opens it. Saving works the
+// holding out again from that trade on — average cost, later sales' profit — and moves the cash
+// again; Delete reverses it. Both can be undone straight after.
+function openTradeEdit(id) {
+  const e = (state.trades || []).find((t) => t.id === id);
+  if (!e) return toast('That trade is no longer here.');
+  const kind = e.section === 'crypto' ? 'coin' : 'share';
+  const sideName = { buy: 'Buy', sell: 'Sale', dividend: 'Dividend', split: 'Split' }[e.side] || 'Trade';
+  const otherCash = e.accountId && e.cashCurrency && e.cashCurrency !== e.currency;
+  const acct = e.accountId && state.accounts.find((a) => a.id === e.accountId);
+  const trade = e.side === 'buy' || e.side === 'sell';
+  const fields = [
+    ...(trade ? [
+      { key: 'quantity', label: kind === 'coin' ? 'Quantity' : 'Shares', type: 'number', required: true },
+      { key: 'price', label: `Price per ${kind} (${e.currency})`, type: 'number', required: true },
+      { key: 'fee', label: `Fee (${e.currency})`, type: 'number' },
+    ] : []),
+    ...(e.side === 'dividend' ? [{ key: 'amount', label: `Dividend received (${e.currency})`, type: 'number', required: true }] : []),
+    ...(e.side === 'dividend' && e.reinvestQty ? [{ key: 'reinvestQty', label: 'Shares bought with it', type: 'number', required: true }] : []),
+    ...(e.side === 'split' ? [{ key: 'ratio', label: `New ${kind}s for each old one`, type: 'number', required: true }] : []),
+    { key: 'date', label: 'Date', type: 'date', required: true },
+    ...(otherCash && acct ? [{ key: 'cashAmount', label: `${e.side === 'buy' ? 'Taken from' : 'Paid into'} ${acct.name} (${e.cashCurrency})`, type: 'number', help: 'What the broker actually charged or paid. Leave as it is to scale it with the new total.' }] : []),
+  ];
+  const values = { quantity: e.quantity, price: e.price, fee: e.fee || 0, amount: e.amount, reinvestQty: e.reinvestQty, ratio: e.ratio, date: e.date, cashAmount: e.cashAmount };
+  const patchOf = (v) => {
+    const p = { date: v.date };
+    for (const f of fields) if (f.key !== 'date' && f.key !== 'cashAmount') p[f.key] = v[f.key] == null || v[f.key] === '' ? (f.key === 'fee' ? 0 : v[f.key]) : +v[f.key];
+    if (otherCash && v.cashAmount != null && +v.cashAmount !== +e.cashAmount) p.cashAmount = +v.cashAmount;
+    return p;
+  };
+  // What it changes, worked out on a copy.
+  const tryOn = (patch) => {
+    const copy = JSON.parse(JSON.stringify({ trades: state.trades, [e.section]: state[e.section], accounts: state.accounts, deleted: {} }));
+    Calc.editTrade(copy, id, patch, Date.now());
+    return copy;
+  };
+  const effect = (copy) => {
+    const h0 = state[e.section].find((h) => h.id === e.holdingId), h1 = copy[e.section].find((h) => h.id === e.holdingId);
+    const out = [];
+    const cur = e.currency;
+    if (h1 && (!h0 || Math.abs(h0.quantity - h1.quantity) > 1e-9)) out.push(`${kind === 'coin' ? 'Quantity' : 'Shares'} ${num(h0 ? h0.quantity : 0, 8)} → <strong>${num(h1.quantity, 8)}</strong>`);
+    if (h1 && h0 && Math.abs((h0.avgCost || 0) - (h1.avgCost || 0)) > 1e-9) out.push(`Average cost ${money(h0.avgCost, cur)} → <strong>${money(h1.avgCost, cur)}</strong>`);
+    const sells = copy.trades.filter((t) => t.holdingId === e.holdingId && t.side === 'sell' && t.id !== id);
+    for (const t of sells) {
+      const was = state.trades.find((x) => x.id === t.id);
+      if (was && Math.abs((was.realised || 0) - (t.realised || 0)) > 0.004) out.push(`Profit on the ${fmtDate(t.date)} sale ${signed(was.realised, cur)} → <strong>${signed(t.realised, cur)}</strong>`);
+    }
+    if (acct) {
+      const a1 = copy.accounts.find((a) => a.id === acct.id);
+      const line = (a) => (Calc.accountBalances(a).find((b) => b.currency === e.cashCurrency) || { amount: 0 }).amount;
+      const m = (x) => (x < 0 ? `<span class="neg">${money(x, e.cashCurrency)}</span>` : money(x, e.cashCurrency));
+      if (a1 && Math.abs(line(acct) - line(a1)) > 0.004) out.push(`${esc(acct.name)} ${m(line(acct))} → <strong>${m(line(a1))}</strong>`);
+    }
+    return out;
+  };
+  openForm({
+    title: `${sideName} ${e.symbol} · ${fmtDate(e.date)}`,
+    intro: `Change what you recorded. MoneyMonkey works the ${kind === 'coin' ? 'coin' : 'holding'} out again from this ${sideName.toLowerCase()} on — average cost and the profit on later sales${e.accountId ? ', and the cash it moved' : ''}.`,
+    fields,
+    values,
+    submitLabel: 'Save changes',
+    preview: (v) => {
+      try {
+        const out = effect(tryOn(patchOf(v)));
+        return out.length ? out.join('<br>') : 'No change to the holding or cash.';
+      } catch (err) { return `<span class="warn-text">${esc(err.message)}</span>`; }
+    },
+    onSave: (v) => {
+      const snap = JSON.stringify(state);
+      try { Calc.editTrade(state, id, patchOf(v), Date.now()); } catch (err) { return err.message; }
+      commit();
+      setTimeout(() => undoToast(`${sideName} of ${e.symbol} changed`, () => { restoreSnapshot(snap); toast('Change undone'); }));
+      return null;
+    },
+    onDelete: () => {
+      let out;
+      try { out = effect(tryOn(null)); } catch (err) { toast(err.message); return false; }
+      if (!confirm(`Delete this ${sideName.toLowerCase()} of ${e.symbol}?${out.length ? `\n\n${out.map((x) => x.replace(/<[^>]+>/g, '')).join('\n')}` : ''}`)) return false;
+      const snap = JSON.stringify(state);
+      Calc.editTrade(state, id, null, Date.now());
+      commit();
+      setTimeout(() => undoToast(`${sideName} of ${e.symbol} deleted`, () => { restoreSnapshot(snap); toast('Delete undone'); }));
+      return true;
+    },
+  });
+}

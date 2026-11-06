@@ -92,6 +92,7 @@ document.addEventListener('click', (e) => {
     case 'trade-buy': return openTrade(sec, id, 'buy');
     case 'trade-sell': return openTrade(sec, id, 'sell');
     case 'trade-more': return openTrade(sec, id, 'dividend');
+    case 'trade-edit': return openTradeEdit(id);
     case 'match-confirm': {
       const cf = state.cashflows.find((c) => c.id === id);
       const key = { loan: 'loanId', rent: 'propertyId', saver: 'saverId' }[b.dataset.kind];

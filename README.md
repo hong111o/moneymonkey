@@ -214,6 +214,15 @@ Each platform has a 🔒 lock (on the Platforms list and on its page). A locked 
 
 At the top of Stocks & ETFs and of Crypto, a chart like the net worth one shows the **Value** of those holdings (the default) or their **Profit**: what they've gained (value minus cost) plus profit already taken by selling, so buying or selling doesn't move that line. Pick 1W, 1M, 3M, 1Y or All; hover or touch the line for any day. Value history starts from 28 Oct 2026 and profit history from 31 Oct 2026, one point a day.
 
+### Change or delete a trade
+
+Typed a wrong price, quantity, fee or date? Tap the trade in **History** (or in a holding's or account's activity). Before you save, the window shows what changes.
+- **Save changes:** MoneyMonkey works the holding out again from that trade on: the average cost, the profit on later sales, and the cash the trade moved. Anything you changed by hand on the holding since is kept.
+- **Delete:** reverses the trade. A holding removed by a sale you delete comes back (stocks).
+- It won't save a change that would make a later sale sell more than you held.
+- A top-up made with the buy is a separate transfer and stays as it is. Past daily snapshots aren't redrawn.
+- Both can be undone straight after.
+
 ### Undo a trade
 
 After recording a buy, sale, dividend or split, the message has an **Undo** button for 5 seconds. It puts everything back — including a holding the sale removed, the cash balance and the trade record.

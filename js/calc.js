@@ -1253,6 +1253,116 @@
     return entry;
   }
 
+  // Change (`patch`) or delete (`patch` null) a recorded buy, sell, dividend or split. The holding
+  // is worked out again from just before that trade (its `before`), replaying it and every later
+  // trade on the same holding in the order they were recorded, so the average cost and the profit
+  // on later sales follow. Only the difference is applied to the holding, so changes you made to
+  // it by hand since are kept. The cash the trade moved is put back and moved again with the new
+  // amount (a top-up made with it is its own transfer and stays).
+  function editTrade(state, id, patch, nowMs) {
+    const trades = state.trades || [];
+    const old = trades.find((e) => e.id === id);
+    if (!old) throw new Error('Trade not found.');
+    if (!old.before) throw new Error('This trade was recorded before trades could be changed — edit the holding instead.');
+    const pos = new Map(trades.map((e, i) => [e, i]));
+    const order = (e) => +e.at || +e._mt || 0;
+    // Recorded order: when each was recorded, else by date (oldest first), else list order.
+    const seq = trades.filter((e) => e.holdingId === old.holdingId && e.section === old.section)
+      .sort((a, b) => order(a) - order(b) || (a.date < b.date ? -1 : a.date > b.date ? 1 : pos.get(b) - pos.get(a)));
+    const from = seq.indexOf(old);
+    const next = patch ? { ...old, ...patch } : null;
+    if (next) {
+      for (const k of ['quantity', 'price', 'fee', 'amount', 'reinvestQty', 'ratio']) if (next[k] != null) next[k] = +next[k];
+      if ((next.side === 'buy' || next.side === 'sell') && !(next.quantity > 0)) throw new Error('Enter a quantity above 0.');
+      if ((next.side === 'buy' || next.side === 'sell') && !(next.price >= 0)) throw new Error('Enter the price.');
+      if (next.side === 'dividend' && !(next.amount > 0)) throw new Error('Enter the dividend amount.');
+      if (next.side === 'split' && !(next.ratio > 0 && next.ratio !== 1)) throw new Error('Enter the split ratio, e.g. 2 for a 2-for-1 split.');
+      if (next.side === 'buy' || next.side === 'sell') next.total = round2(next.quantity * next.price + (next.side === 'buy' ? 1 : -1) * (next.fee || 0));
+      if (next.side === 'dividend') next.amount = round2(next.amount);
+    }
+    const replay = (list) => {
+      let q = +old.before.quantity || 0, avg = +old.before.avgCost || 0;
+      const out = new Map();
+      for (const e of list) {
+        const before = { quantity: q, avgCost: avg };
+        const got = { before };
+        if (e.side === 'buy') {
+          const cost = q * avg + e.quantity * e.price + (+e.fee || 0);
+          q = +(q + e.quantity).toFixed(10);
+          avg = q ? cost / q : 0;
+        } else if (e.side === 'sell') {
+          if (e.quantity > q + 1e-9) throw new Error(`The sale on ${e.date} would then sell ${e.quantity}, more than the ${+q.toFixed(10)} held.`);
+          got.realised = round2(e.quantity * e.price - (+e.fee || 0) - e.quantity * avg);
+          q = Math.max(0, +(q - e.quantity).toFixed(10));
+        } else if (e.side === 'split') {
+          q = +(q * e.ratio).toFixed(10);
+          avg = avg / e.ratio;
+          got.quantity = q;
+        } else if (e.side === 'dividend' && +e.reinvestQty > 0) {
+          const nq = +(q + +e.reinvestQty).toFixed(10);
+          avg = nq ? (q * avg + e.amount) / nq : 0;
+          q = nq;
+        }
+        out.set(e.id, got);
+      }
+      return { q, avg, out };
+    };
+    const later = seq.slice(from);
+    const was = replay(later);
+    const now = replay(next ? later.map((e) => (e === old ? next : e)) : later.filter((e) => e !== old));
+
+    // The holding: the difference between the two replays.
+    const list = state[old.section] = state[old.section] || [];
+    let h = list.find((x) => x.id === old.holdingId);
+    const dq = now.q - was.q;
+    const dCost = now.q * now.avg - was.q * was.avg;
+    if (h) {
+      const q0 = +h.quantity || 0;
+      const q1 = +(q0 + dq).toFixed(10);
+      if (q1 < -1e-9) throw new Error('That would leave a negative quantity.');
+      const cost1 = q0 * (+h.avgCost || 0) + dCost;
+      h.quantity = Math.max(0, q1);
+      if (h.quantity > 0) h.avgCost = cost1 / h.quantity;
+      // A manual price follows the latest buy or sale.
+      const lastTrade = [...seq].reverse().find((e) => e.side === 'buy' || e.side === 'sell');
+      if (next && h.source === 'manual' && lastTrade === old && next.price !== old.price) h.manualPrice = next.price;
+      h._mt = nowMs;
+    } else if (now.q > 1e-9) {
+      // Sold out and removed: bring it back (a stock by its ticker).
+      if (old.section !== 'stocks') throw new Error('This coin was removed when you sold all of it — add it again first.');
+      h = { id: old.holdingId, symbol: old.symbol, name: '', platform: old.platform || '', currency: old.currency, source: 'live', quantity: now.q, avgCost: now.avg, _mt: nowMs };
+      list.push(h);
+      if (state.deleted) delete state.deleted[h.id];
+    }
+
+    // Cash: put back what the trade moved, then move the new amount.
+    const sign = (e) => (e.side === 'buy' ? -1 : 1);
+    const acct = old.accountId ? (state.accounts || []).find((a) => a.id === old.accountId) : null;
+    if (acct && old.cashAmount != null) {
+      adjustLine(acct, old.cashCurrency, -sign(old) * old.cashAmount, old.date);
+      if (next) {
+        const grossOf = (e) => (e.side === 'dividend' ? e.amount : e.total);
+        let cash = patch.cashAmount != null ? +patch.cashAmount : null;
+        if (cash == null) cash = next.cashCurrency === next.currency ? grossOf(next) : grossOf(old) ? old.cashAmount * grossOf(next) / grossOf(old) : old.cashAmount;
+        next.cashAmount = round2(cash);
+        adjustLine(acct, next.cashCurrency, sign(next) * next.cashAmount, next.date);
+      }
+      acct._mt = nowMs;
+    }
+
+    // The trades: later ones get their new "before" and profit; this one is changed or removed.
+    state.trades = trades.flatMap((e) => {
+      if (e === old) return next ? [{ ...next, ...now.out.get(e.id), at: order(old) || undefined, _mt: nowMs }] : [];
+      const got = now.out.get(e.id);
+      if (!got) return [e];
+      const upd = { ...e, ...got };
+      if (JSON.stringify(upd) === JSON.stringify(e)) return [e];
+      return [{ ...upd, at: order(e) || undefined, _mt: nowMs }];
+    });
+    if (!next) state.deleted = { ...(state.deleted || {}), [old.id]: nowMs };
+    return next ? state.trades.find((e) => e.id === id) : old;
+  }
+
   // A split multiplies the shares and divides the average cost (and price): value is unchanged.
   // `ratio` = new shares per old share — 2 for a 2-for-1 split, 0.1 for a 1-for-10 consolidation.
   function applySplit(state, h, t, nowMs) {
@@ -1544,6 +1654,6 @@
     itemValue, itemParts, itemValues, migratePlatforms, platformBreakdown,
     accountBalances, migrateAccounts, cashByCurrency, accountForPlatform, linkDeposits,
     unpaidCardBills, cardDueDate, linkCards,
-    balanceValue, adjustLine, pendingPayments, resolvePayment, undoPayment, paymentCurrency, regularSaverSchedule, regularPaid, shortfall, applyTrade, realisedProfit, dividendsReceived, transfer, checkinDate, checkinDue, recordCheckin,
+    balanceValue, adjustLine, pendingPayments, resolvePayment, undoPayment, paymentCurrency, regularSaverSchedule, regularPaid, shortfall, applyTrade, editTrade, realisedProfit, dividendsReceived, transfer, checkinDate, checkinDue, recordCheckin,
   };
 });

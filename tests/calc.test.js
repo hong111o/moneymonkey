@@ -973,3 +973,67 @@ test('forecast: saving adds up, investments grow, loans are paid down, today’s
   assert.equal(C.reachMonth(p, 'cash', 1500), 5);
   assert.equal(C.reachMonth(p, 'cash', 1e9), null);
 });
+
+test('editing or deleting a trade works the holding, later sales and cash out again', () => {
+  const mk = () => ({
+    accounts: [{ id: 'c', name: 'Broker cash', balances: [{ currency: 'USD', amount: 10000 }] }],
+    stocks: [{ id: 'h', symbol: 'AAPL', currency: 'USD', quantity: 0, avgCost: 0, source: 'live' }],
+    activity: [],
+  });
+  const base = (st) => {
+    C.applyTrade(st, { id: 'b1', side: 'buy', section: 'stocks', holdingId: 'h', quantity: 10, price: 100, fee: 0, date: '2026-10-01', accountId: 'c', cashCurrency: 'USD' }, 10);
+    C.applyTrade(st, { id: 'b2', side: 'buy', section: 'stocks', holdingId: 'h', quantity: 10, price: 1000, fee: 0, date: '2026-10-02', accountId: 'c', cashCurrency: 'USD' }, 20); // typo: meant 200
+    C.applyTrade(st, { id: 's1', side: 'sell', section: 'stocks', holdingId: 'h', quantity: 5, price: 300, fee: 0, date: '2026-10-03', accountId: 'c', cashCurrency: 'USD' }, 30);
+    return st;
+  };
+  // Fix the typo: same result as if it had been typed right.
+  const fixed = base(mk());
+  C.editTrade(fixed, 'b2', { price: 200 }, 40);
+  const right = mk();
+  C.applyTrade(right, { id: 'b1', side: 'buy', section: 'stocks', holdingId: 'h', quantity: 10, price: 100, fee: 0, date: '2026-10-01', accountId: 'c', cashCurrency: 'USD' }, 10);
+  C.applyTrade(right, { id: 'b2', side: 'buy', section: 'stocks', holdingId: 'h', quantity: 10, price: 200, fee: 0, date: '2026-10-02', accountId: 'c', cashCurrency: 'USD' }, 20);
+  C.applyTrade(right, { id: 's1', side: 'sell', section: 'stocks', holdingId: 'h', quantity: 5, price: 300, fee: 0, date: '2026-10-03', accountId: 'c', cashCurrency: 'USD' }, 30);
+  close(fixed.stocks[0].avgCost, right.stocks[0].avgCost, 1e-9);
+  assert.equal(fixed.stocks[0].quantity, 15);
+  assert.equal(fixed.accounts[0].balances[0].amount, right.accounts[0].balances[0].amount); // 10000 − 1000 − 2000 + 1500
+  assert.equal(fixed.trades.find((e) => e.id === 's1').realised, 750); // 5 × (300 − 150)
+  assert.equal(fixed.trades.find((e) => e.id === 'b2').total, 2000);
+  assert.equal(fixed.trades.length, 3);
+  // A change made by hand to the holding since is kept.
+  const hand = base(mk());
+  hand.stocks[0].quantity = 16; // e.g. a free share added by hand
+  C.editTrade(hand, 'b2', { price: 200 }, 40);
+  assert.equal(hand.stocks[0].quantity, 16);
+  // Delete: the buy is undone, cash comes back, the later sale's profit follows.
+  const del = base(mk());
+  C.editTrade(del, 'b1', null, 40);
+  assert.equal(del.stocks[0].quantity, 5);
+  close(del.stocks[0].avgCost, 1000, 1e-9);
+  assert.equal(del.trades.find((e) => e.id === 's1').realised, -3500);
+  assert.equal(del.accounts[0].balances[0].amount, 10000 - 10000 + 1500);
+  assert.ok(del.deleted.b1);
+  // Refused when a later sale would sell more than held.
+  const bad = base(mk());
+  assert.throws(() => C.editTrade(bad, 's1', { quantity: 25 }, 40), /more than/);
+  assert.equal(bad.stocks[0].quantity, 15); // unchanged
+  // Deleting a sale that removed the holding brings the holding back.
+  const gone = mk();
+  C.applyTrade(gone, { id: 'b1', side: 'buy', section: 'stocks', holdingId: 'h', quantity: 10, price: 100, date: '2026-10-01' }, 10);
+  C.applyTrade(gone, { id: 's1', side: 'sell', section: 'stocks', holdingId: 'h', quantity: 10, price: 150, date: '2026-10-02', removeIfEmpty: true }, 20);
+  assert.equal(gone.stocks.length, 0);
+  C.editTrade(gone, 's1', null, 30);
+  assert.equal(gone.stocks[0].quantity, 10);
+  assert.equal(gone.stocks[0].avgCost, 100);
+  assert.ok(!gone.deleted.h);
+  // Splits and other-currency cash follow too.
+  const sp = mk();
+  sp.accounts.push({ id: 'g', name: 'GBP', balances: [{ currency: 'GBP', amount: 1000 }] });
+  C.applyTrade(sp, { id: 'b1', side: 'buy', section: 'stocks', holdingId: 'h', quantity: 10, price: 100, date: '2026-10-01', accountId: 'g', cashCurrency: 'GBP', cashAmount: 800 }, 10);
+  C.applyTrade(sp, { id: 'x', side: 'split', section: 'stocks', holdingId: 'h', ratio: 2, date: '2026-10-02' }, 20);
+  C.editTrade(sp, 'b1', { price: 50 }, 30);
+  assert.equal(sp.stocks[0].quantity, 20);
+  close(sp.stocks[0].avgCost, 25, 1e-9);
+  assert.equal(sp.accounts[1].balances[0].amount, 600); // charged scaled to £400
+  C.editTrade(sp, 'b1', { cashAmount: 390 }, 40);
+  assert.equal(sp.accounts[1].balances[0].amount, 610);
+});

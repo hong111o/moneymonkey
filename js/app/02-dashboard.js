@@ -574,7 +574,7 @@ function sideDetail(sec, id) {
     ${chart}
     <div class="row-actions side-actions">${buttons}</div>
     <section class="side-sec">${rows}</section>
-    ${acts.length ? `<section class="side-sec"><h3>Recent activity</h3><ul class="side-list side-acts">${acts.map((e) => `<li><span class="grow"><span class="sub">${fmtDate(e.date)}</span><span>${activityText(e)}</span></span></li>`).join('')}</ul></section>` : ''}`;
+    ${acts.length ? `<section class="side-sec"><h3>Recent activity</h3><ul class="side-list side-acts">${acts.map((e) => `<li${e.kind === 'trade' ? ` class="clickable" data-action="trade-edit" data-id="${esc(e.id)}" tabindex="0"` : ''}><span class="grow"><span class="sub">${fmtDate(e.date)}</span><span>${activityText(e)}</span></span></li>`).join('')}</ul></section>` : ''}`;
 }
 
 // A credit card: what's owed, statements, and actions.
