@@ -1094,3 +1094,7 @@ table.data td.actions:has(.lock-btn) { display: flex !important; align-items: ce
 .trade-history li.clickable > .chev { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
 .side-acts li.clickable { cursor: pointer; border-radius: 8px; }
 .side-acts li.clickable:active { background: var(--surface-2); }
+/* Quick picks under a number field (sell All / ½ / ⅓ / ¼ / Custom). */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip { flex: 1 1 0; min-width: 48px; min-height: 36px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-2); font: inherit; font-size: 0.9rem; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--text); color: var(--surface); border-color: var(--text); font-weight: 600; }

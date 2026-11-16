@@ -76,6 +76,13 @@ function openTrade(section, holdingId, side) {
     if (!(received > 0) || !isFinite(amount)) return null;
     return { fromId: from.id, from, fromCurrency, amount, received, guessed: fromCurrency !== cc && (v.topUpSent == null || v.topUpReceived == null) };
   };
+  // Selling: All, ½, ⅓, ¼ of what you hold (rounded down to 8 decimals), or type your own.
+  const sellChips = (v) => {
+    const held = +(holdingOf(v) || {}).quantity || 0;
+    if (v.side !== 'sell' || !(held > 0)) return [];
+    const part = (n) => Math.floor((held / n) * 1e8) / 1e8;
+    return [{ label: 'All', value: held }, { label: '½', value: part(2) }, { label: '⅓', value: part(3) }, { label: '¼', value: part(4) }, { label: 'Custom', value: null }];
+  };
   const newFields = SECTIONS[section].fields
     .filter((f) => ['symbol', 'name', 'coinId', 'currency', 'platform', 'source'].includes(f.key))
     .map((f) => ({ ...f, showIf: (v) => v.holdingId === '__new' }));
@@ -87,7 +94,8 @@ function openTrade(section, holdingId, side) {
   if (h0 && (h0.lastPrice || h0.manualPrice)) start.price = +(h0.lastPrice || h0.manualPrice);
   if (side === 'sell' && h0) start.quantity = +h0.quantity;
   openForm({
-    title: `${{ buy: 'Buy', sell: 'Sell', dividend: 'Dividend', split: 'Split' }[side]}${h0 ? ` ${h0.symbol || h0.coinId}` : ''}`,
+    // Title and button follow the action and holding chosen.
+    title: (v) => { const h = holdingOf(v); return `${{ buy: 'Buy', sell: 'Sell', dividend: 'Dividend', split: 'Split' }[v.side] || 'Trade'}${h ? ` ${h.symbol || h.coinId}` : ''}`; },
     intro: 'Moves money between the holding and a cash account, so your net worth only changes by the fee. Buying updates the average cost; selling keeps it and records your profit.',
     // A new stock: its currency from the ticker, with a warning if they don't match.
     onChange: section === 'stocks' ? stockCurrencyHelper : null,
@@ -95,7 +103,7 @@ function openTrade(section, holdingId, side) {
       { key: 'side', label: 'Action', type: 'select', options: opt([['buy', 'Buy'], ['sell', 'Sell'], ...(section === 'stocks' ? [['dividend', 'Dividend received']] : []), ['split', 'Split / consolidation']]) },
       { key: 'holdingId', label: kind === 'coin' ? 'Coin' : 'Holding', type: 'select', span: true, options: (v) => [...list.map((h) => ({ value: h.id, label: label(h) })), ...(v.side === 'buy' ? [{ value: '__new', label: `+ New ${kind === 'coin' ? 'coin' : 'holding'}…` }] : [])] },
       ...newFields,
-      { key: 'quantity', label: kind === 'coin' ? 'Quantity' : 'Shares', type: 'number', required: true, showIf: trades },
+      { key: 'quantity', label: kind === 'coin' ? 'Quantity' : 'Shares', type: 'number', required: true, showIf: trades, chips: sellChips },
       { key: 'price', label: `Price per ${kind}`, type: 'number', required: true, help: 'In the holding’s currency.', showIf: trades },
       { key: 'fee', label: 'Fee (optional)', type: 'number', help: 'In the holding’s currency, e.g. commission or FX fee.', showIf: trades },
       { key: 'amount', label: 'Dividend received (total)', type: 'number', required: true, help: 'In the holding’s currency, after any withholding tax.', showIf: (v) => v.side === 'dividend' },
@@ -114,7 +122,7 @@ function openTrade(section, holdingId, side) {
     ],
     values: start,
     isNew: true,
-    submitLabel: side === 'buy' ? 'Record buy' : 'Record sale',
+    submitLabel: (v) => ({ buy: 'Record buy', sell: 'Record sale', dividend: 'Record dividend', split: 'Record split' }[v.side] || 'Record'),
     preview: (v) => {
       const h = holdingOf(v);
       const cur = curOf(v);

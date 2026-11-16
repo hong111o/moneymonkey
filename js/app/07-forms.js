@@ -45,11 +45,21 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
       input = `<input name="${f.key}" type="${type}" ${attrs} value="${esc(v ?? '')}" placeholder="${esc(f.placeholder || '')}" ${f.type === 'currency' ? 'style="text-transform:uppercase"' : ''}>`;
       if (f.signed) input = pmWrap(input);
     }
-    return `<label class="${cls}" data-field="${f.key}"><span>${f.label}${f.required ? ' <span class="req">*</span>' : ''}</span>${input}${f.help ? `<small>${f.help}</small>` : ''}</label>`;
+    return `<label class="${cls}" data-field="${f.key}"><span>${f.label}${f.required ? ' <span class="req">*</span>' : ''}</span>${input}${f.chips ? '<span class="chips" role="group"></span>' : ''}${f.help ? `<small>${f.help}</small>` : ''}</label>`;
   };
+  // Quick-pick buttons under a number field (e.g. sell All / ½ / ⅓); "Custom" (value null) just
+  // puts you in the box. The one matching what's typed is highlighted.
+  const chipsHtml = (f, v) => {
+    const list = f.chips(v);
+    const same = (x) => x != null && Math.abs(x - (v[f.key] ?? NaN)) < 1e-9;
+    const custom = !list.some((c) => same(c.value));
+    return list.map((c) => `<button type="button" class="chip" data-chip="${f.key}" data-value="${c.value == null ? '' : c.value}" aria-pressed="${c.value == null ? custom : same(c.value)}">${esc(c.label)}</button>`).join('');
+  };
+  const titleOf = (v) => (typeof title === 'function' ? title(v) : title);
+  const submitOf = (v) => (typeof submitLabel === 'function' ? submitLabel(v) : submitLabel);
 
   d.innerHTML = `<form method="dialog" class="modal" novalidate>
-    <header><h2>${esc(title)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></header>
+    <header><h2>${esc(titleOf(vals))}</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></header>
     <div class="modal-body">
       ${intro ? `<p class="sub">${intro}</p>` : ''}
       <div class="form-grid">${fields.map(fieldHtml).join('')}</div>
@@ -57,7 +67,7 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
       <div class="form-extra"></div>
       <p class="form-error" role="alert"></p>
     </div>
-    <footer>${onDelete ? '<button type="button" class="btn ghost danger" data-delete>Delete</button>' : ''}${buttons.map((b, i) => `<button type="button" class="btn ghost" data-extra="${i}">${esc(b.label)}</button>`).join('')}<span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn primary">${esc(submitLabel)}</button></footer>
+    <footer>${onDelete ? '<button type="button" class="btn ghost danger" data-delete>Delete</button>' : ''}${buttons.map((b, i) => `<button type="button" class="btn ghost" data-extra="${i}">${esc(b.label)}</button>`).join('')}<span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn primary">${esc(submitOf(vals))}</button></footer>
   </form>`;
   const form = $('form', d);
   const read = () => {
@@ -108,9 +118,20 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
       }
     }
     if (preview) $('.form-preview', form).innerHTML = preview(v) || '';
+    paintChips(v);
+    if (typeof title === 'function') $('header h2', form).textContent = titleOf(v);
+    if (typeof submitLabel === 'function') $('button[type=submit]', form).textContent = submitOf(v);
+  };
+  const paintChips = (v) => {
+    for (const f of fields) {
+      const box = f.chips && form.querySelector(`[data-field="${f.key}"] .chips`);
+      if (!box) continue;
+      box.innerHTML = visible(f, v) ? chipsHtml(f, v) : '';
+      box.hidden = !box.innerHTML;
+    }
   };
   form.addEventListener('change', refresh);
-  form.addEventListener('input', () => { if (preview) $('.form-preview', form).innerHTML = preview(read()) || ''; });
+  form.addEventListener('input', () => { const v = read(); if (preview) $('.form-preview', form).innerHTML = preview(v) || ''; paintChips(v); });
   // A form can react as you type (e.g. a stock's currency from its ticker).
   if (onChange) {
     form.addEventListener('input', (e) => onChange(form, read(), e.target));
@@ -119,6 +140,16 @@ function openForm({ title, fields, values = {}, isNew, onSave, onDelete, preview
   refresh();
   if (onChange) onChange(form, read(), null);
   form.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-chip]');
+    if (chip) {
+      e.preventDefault(); // a chip sits inside the field's label: don't let the tap focus the input
+      const input = form.elements[chip.dataset.chip];
+      if (chip.dataset.value === '') { input.focus(); input.select(); }
+      else input.value = chip.dataset.value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
     if (e.target.closest('[data-add-balance]')) {
       const box = e.target.closest('.balances-field');
       const used = new Set([...box.querySelectorAll('.bal-cur')].map((i) => i.value.trim().toUpperCase()));

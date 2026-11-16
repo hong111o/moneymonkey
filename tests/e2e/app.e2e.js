@@ -777,3 +777,29 @@ test('a trade with a wrong price can be changed or deleted from History', { skip
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('selling: All / ½ / ⅓ / ¼ / Custom fill the shares, and the title and button follow the action', { skip: skip() }, async () => {
+  const { page, ctx, errors, go } = await demo();
+  await go('#stocks');
+  const { id, held } = await page.evaluate(() => { const h = state.stocks.find((x) => x.symbol === 'AAPL'); return { id: h.id, held: h.quantity }; });
+  await page.evaluate((x) => openTrade('stocks', x, 'buy'), id);
+  assert.equal(await page.locator('dialog [data-chip]').count(), 0, 'no picks when buying');
+  await page.selectOption('dialog [name=side]', 'sell');
+  assert.match(await page.textContent('dialog h2'), /^Sell AAPL/);
+  assert.match(await page.textContent('dialog button[type=submit]'), /sale/i);
+  await page.click('dialog [data-chip=quantity] >> text=All');
+  assert.equal(+(await page.inputValue('dialog [name=quantity]')), held);
+  await page.click('dialog [data-chip=quantity] >> text=⅓');
+  assert.equal(+(await page.inputValue('dialog [name=quantity]')), Math.floor((held / 3) * 1e8) / 1e8);
+  assert.equal(await page.getAttribute('dialog [data-chip=quantity] >> text=⅓', 'aria-pressed'), 'true');
+  await page.click('dialog [data-chip=quantity] >> text=Custom');
+  await page.keyboard.type('2');
+  assert.equal(await page.inputValue('dialog [name=quantity]'), '2');
+  assert.equal(await page.getAttribute('dialog [data-chip=quantity] >> text=Custom', 'aria-pressed'), 'true');
+  await page.fill('dialog [name=price]', '230');
+  await page.click('dialog button[type=submit]');
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate((x) => state.stocks.find((h) => h.id === x).quantity, id), held - 2);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
