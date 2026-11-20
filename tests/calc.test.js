@@ -1037,3 +1037,14 @@ test('editing or deleting a trade works the holding, later sales and cash out ag
   C.editTrade(sp, 'b1', { cashAmount: 390 }, 40);
   assert.equal(sp.accounts[1].balances[0].amount, 610);
 });
+
+test('a split leaves a live price alone (the market already split it) but splits a manual one', () => {
+  const state = { stocks: [
+    { id: 'l', symbol: 'NVDA', currency: 'USD', quantity: 10, avgCost: 1000, source: 'live', lastPrice: 120, prevClose: 118 },
+    { id: 'm', symbol: 'X', currency: 'USD', quantity: 10, avgCost: 1000, source: 'manual', manualPrice: 1200 },
+  ] };
+  C.applyTrade(state, { id: 's1', side: 'split', section: 'stocks', holdingId: 'l', ratio: 10, date: '2026-11-20' }, 1);
+  C.applyTrade(state, { id: 's2', side: 'split', section: 'stocks', holdingId: 'm', ratio: 10, date: '2026-11-20' }, 2);
+  assert.deepEqual([state.stocks[0].quantity, state.stocks[0].avgCost, state.stocks[0].lastPrice, state.stocks[0].prevClose], [100, 100, 120, 118]);
+  assert.deepEqual([state.stocks[1].quantity, state.stocks[1].avgCost, state.stocks[1].manualPrice], [100, 100, 120]);
+});

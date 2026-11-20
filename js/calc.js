@@ -1371,7 +1371,10 @@
     const before = { quantity: +h.quantity || 0, avgCost: +h.avgCost || 0 };
     h.quantity = +(before.quantity * r).toFixed(10);
     h.avgCost = before.avgCost / r;
-    for (const k of ['manualPrice', 'lastPrice', 'prevClose']) if (+h[k]) h[k] = +h[k] / r;
+    // A price you enter yourself is split too. A live price already comes from the market at the
+    // new (split) level, so it's left alone and simply fetched again.
+    if (+h.manualPrice) h.manualPrice = +h.manualPrice / r;
+    if (h.source === 'manual') for (const k of ['lastPrice', 'prevClose']) if (+h[k]) h[k] = +h[k] / r;
     h._mt = nowMs;
     const entry = { id: t.id, date: t.date, side: 'split', section: t.section, holdingId: h.id, symbol: h.symbol || h.coinId || '', platform: h.platform || '', ratio: r, currency: h.currency, before, quantity: h.quantity, _mt: nowMs };
     state.trades = [entry, ...(state.trades || [])];

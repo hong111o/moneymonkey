@@ -219,7 +219,7 @@ function openTrade(section, holdingId, side) {
         const gone = v.side === 'sell' && !state[section].some((h) => h.id === id);
         const msg = { buy: () => `Bought ${num(e.quantity, 8)} ${e.symbol}`, sell: () => `Sold ${num(e.quantity, 8)} ${e.symbol} · profit ${money(e.realised, e.currency)}${gone ? ' · holding removed' : ''}`, dividend: () => `Dividend ${money(e.amount, e.currency)} from ${e.symbol} recorded`, split: () => `${e.symbol} split ${num(e.ratio, 6)}-for-1 — now ${num(e.quantity, 8)}` }[e.side]();
         setTimeout(() => undoToast(msg, () => { restoreSnapshot(snap); toast(`${{ buy: 'Purchase', sell: 'Sale', dividend: 'Dividend', split: 'Split' }[e.side]} undone`); }));
-        if (isNew && section === 'stocks') refreshPrices({ force: true });
+        if ((isNew && section === 'stocks') || v.side === 'split') refreshPrices({ force: true });
       } catch (err) {
         return err.message;
       }

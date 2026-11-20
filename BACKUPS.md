@@ -61,3 +61,4 @@ encrypted sync gist, not in this repository. Older versions simply ignore featur
 | 46 | 2026-11-06 | `c15bb28` | (current live) before changing / deleting trades |
 | 47 | 2026-11-06 | `708c831` | Change or delete a recorded trade |
 | 48 | 2026-11-16 | `4bea6d8` | (current live) before sell quick picks |
+| 49 | 2026-11-20 | `cf8e03c` | (current live) before split price fix |
